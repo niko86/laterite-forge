@@ -21,6 +21,7 @@ pub mod emit;
 pub mod generic;
 pub mod geotech;
 pub mod model;
+pub mod results_proto;
 
 /// The relational scaffold a strategy asked for. `Minimal` is PROJ/TRAN
 /// only (a valid minimal file); `LocaSamp` adds the varied LOCA→SAMP→GEOL

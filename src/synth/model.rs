@@ -236,6 +236,10 @@ fn build(
             let (lbsg, lbst) = depth::schedule(&dict, &samp_keys, &mut rng);
             groups.push(lbsg);
             groups.push(lbst);
+            // PROTOTYPE #1101: off unless FORGE_PROTO_RESULTS is set.
+            if super::results_proto::enabled() {
+                super::results_proto::add(&mut groups, &dict, seed);
+            }
             let abbr = collect_abbr(&groups, &dict);
             let unit = collect_unit(&groups);
             let types = collect_type(&groups);
