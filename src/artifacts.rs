@@ -43,8 +43,9 @@ pub fn set_latest_run(out: &Path, run_id: &str) -> Result<()> {
 
 /// Reject an out-dir that resolves inside the validator's asserted-
 /// clean fixtures tree — forge must NEVER write there (corpus-qa e2e
-/// asserts that dir hard-error-free; confirmed reproducers go to
-/// `ags-wiki/.bootstrap/probes/`, not here).
+/// asserts that dir hard-error-free; confirmed reproducers are evidence
+/// for a niko86/laterite issue, not fixtures). The guard still matters when
+/// forge runs from inside a laterite checkout.
 pub fn guard_out_dir(out: &Path) -> Result<()> {
     let abs = std::path::absolute(out).unwrap_or_else(|_| out.to_path_buf());
     let s = abs.to_string_lossy().replace('\\', "/");

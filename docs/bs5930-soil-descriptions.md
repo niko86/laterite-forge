@@ -57,7 +57,7 @@ tests, so a vocab refresh can't silently break the rules.
 The **default** draw is natural inorganic **coarse** (SAND/GRAVEL) and
 **fine** (SILT/CLAY) — the two lanes that share the standard word order.
 
-**Organic ground is a third lane, opt-in behind `describe --organic`** (#697).
+**Organic ground is a third lane, opt-in behind `describe --organic`** (niko86/laterite#697).
 It covers organic coarse/fine soils (Table 20's *slightly/very organic*
 qualifiers, carried as an ordinary secondary so the standard word order still
 holds) and **PEAT** as a principal in its own right, led by Table 21

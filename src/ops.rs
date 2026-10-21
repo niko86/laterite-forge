@@ -187,7 +187,7 @@ impl Injection {
 
     /// The `--inject` token list, rendered for `--help` from `ALL` itself.
     ///
-    /// A hand-maintained list in a doc comment is what produced #709: the help
+    /// A hand-maintained list in a doc comment is what produced niko86/laterite#709: the help
     /// advertised seven tokens where the binary accepted ten, and a caller who
     /// trusted it never learned the other four existed. Deriving it here means
     /// the two cannot drift — adding a variant to `ALL` updates the help.
@@ -285,24 +285,23 @@ impl Injection {
             // Duplicate *a* SAMP DATA row → a second identical KEY tuple
             // (LOCA_ID,SAMP_TOP,SAMP_REF,SAMP_TYPE,SAMP_ID) → Rule 10a.
             Injection::DupSampKeyTuple => {
-                if let Some(samp) = model.group_mut("SAMP") {
-                    if !samp.rows.is_empty() {
-                        let i = rng.below(samp.rows.len() as u64) as usize;
-                        samp.rows.push(samp.rows[i].clone());
-                    }
+                if let Some(samp) = model.group_mut("SAMP")
+                    && !samp.rows.is_empty()
+                {
+                    let i = rng.below(samp.rows.len() as u64) as usize;
+                    samp.rows.push(samp.rows[i].clone());
                 }
             }
             // Point *a* SAMP row at a LOCA that doesn't exist → that child
             // has no parent record (Rule 10c orphan). SAMP's own KEY stays
             // unique (the bogus id is unused elsewhere).
             Injection::OrphanSampRow => {
-                if let Some(samp) = model.group_mut("SAMP") {
-                    if let Some(col) = samp.col("LOCA_ID") {
-                        if !samp.rows.is_empty() {
-                            let i = rng.below(samp.rows.len() as u64) as usize;
-                            samp.rows[i].values[col] = "ZZ_ORPHAN".to_string();
-                        }
-                    }
+                if let Some(samp) = model.group_mut("SAMP")
+                    && let Some(col) = samp.col("LOCA_ID")
+                    && !samp.rows.is_empty()
+                {
+                    let i = rng.below(samp.rows.len() as u64) as usize;
+                    samp.rows[i].values[col] = "ZZ_ORPHAN".to_string();
                 }
             }
             // Non-date into *some* DT-typed cell (any group/row) → Rule 8.

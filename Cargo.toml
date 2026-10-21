@@ -10,15 +10,19 @@
 # Reuses laterite-ags4-validator (lib API), the shared laterite-ags4-parity crate
 # (classify/reconcile/PyOracle/Rng — identical verdict semantics to
 # laterite-ags4-corpus-qa), and laterite-cliutil (the agent-first CLI contract +
-# report scaffold). Sibling of laterite-ags4-corpus-qa; NOT a shipped product.
+# report scaffold). Every laterite crate comes from crates.io: dependencies run
+# one way, forge on laterite, never the reverse. NOT a shipped product.
 
 [package]
 name = "laterite-ags4-forge"
-version.workspace = true
+version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+# laterite-ags4-parity and laterite-cliutil both declare 1.88, so a lower
+# floor here could never build.
+rust-version = "1.88"
 description = "Evolutionary AGS4 dual-validation dogfood generator/fuzzer"
 license = "MIT"
+repository = "https://github.com/niko86/laterite-forge"
 publish = false
 autobins = false
 
@@ -27,31 +31,60 @@ name = "laterite-ags4-forge"
 path = "src/main.rs"
 
 [dependencies]
-laterite-ags4-validator = { path = "../laterite-ags4-validator" }
-laterite-ags4-parity = { path = "../laterite-ags4-parity" }
-laterite-ags4-parse = { path = "../laterite-ags4-parse" }
+laterite-ags4-validator = "0.21.0"
+laterite-ags4-parity = "0.1.0"
+laterite-ags4-parse = "0.14.0"
 # The canonical field quoter (`quote_field`) — `edit` must write fields the
-# way everything else in the repo writes them, not by a local copy.
-laterite-ags4-types = { path = "../laterite-ags4-types" }
-# The shared Rule 15/17 catalog-collection rule (`catalog`, #924), so the
-# dogfood corpus mints UNIT/TYPE by the same semantics the shipped emitter
+# way everything else in laterite writes them, not by a local copy.
+laterite-ags4-types = "0.14.0"
+# The shared Rule 15/17 catalog-collection rule (`catalog`, niko86/laterite#924),
+# so the dogfood corpus mints UNIT/TYPE by the same semantics the shipped emitter
 # synthesizes them — trim, header-literal exclusion, the PU harvest.
-laterite-ags4-emit = { path = "../laterite-ags4-emit" }
-laterite-cliutil = { path = "../laterite-cliutil", features = ["clap"] }
-clap = { version = "4.5", features = ["derive", "wrap_help", "env"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["preserve_order"] }
+laterite-ags4-emit = "0.20.5"
+laterite-cliutil = { version = "0.1.0", features = ["clap"] }
+clap = { version = "4.6.3", features = ["derive", "wrap_help", "env"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["preserve_order"] }
 # The declarative strategy file (`forge strategy`, P4). `toml` is a
 # small pure-Rust parser; this is a non-shipped dev tool so it does
 # not touch the validator library's lean dep-graph guarantee.
-toml = "1.1"
-anyhow = "1"
-chrono = { version = "0.4", features = ["clock"] }
+toml = "1.1.6"
+anyhow = "1.0.104"
+chrono = { version = "0.4.45", features = ["clock"] }
 
 [dev-dependencies]
 # Pins the synthesizer's output bytes (see synth::tests). Test-only.
-sha2 = "0.11"
-tempfile = "3"
+sha2 = "0.11.0"
+tempfile = "3.27.0"
 
-[lints]
-workspace = true
+# Copied verbatim from laterite's `[workspace.lints.clippy]`
+# (rust-packages/Cargo.toml), so the pedantic gate forge was written against
+# still holds here.
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# Last-resort allows only (each justified). Generated code is allowed at its
+# include site (see typed_graph/mod.rs, dict.rs), not here.
+similar_names = "allow"              # flags distinct, correct names that merely look alike
+unused_self = "allow"               # PyO3 #[pymethods]/trait methods must take &self by contract
+struct_excessive_bools = "allow"    # design nudge (bools->enum), not a mechanical fix
+fn_params_excessive_bools = "allow" # ditto
+
+# --- Deferred by owner decision (2026-07-19): the fix is a separate effort or a
+#     wash, not a code-quality win. Tracked in the PR body; revisit as focused
+#     follow-ups. Note cast_possible_truncation is deliberately NOT here — it is
+#     audited case-by-case, since a real truncation can hide a bug.
+missing_errors_doc = "allow"        # writing # Errors sections is a docs project of its own
+missing_panics_doc = "allow"        # ditto (# Panics)
+cast_precision_loss = "allow"       # inherent to i64/u64 -> f64; the casts are intentional
+cast_sign_loss = "allow"            # intentional signed<->unsigned conversions
+cast_possible_wrap = "allow"        # intentional u32 -> i32 etc. where the range is known
+too_many_lines = "allow"            # refactoring to a line threshold is risky churn, not correctness
+must_use_candidate = "allow"        # #[must_use] on every getter is noise (all real hits were codegen)
+return_self_not_must_use = "allow"  # same family as must_use_candidate
+
+# The release profile laterite's workspace builds `lat` with.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

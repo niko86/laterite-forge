@@ -26,24 +26,6 @@ use crate::report::{
 use crate::strategy::{ConfidenceCfg, Strategy};
 use crate::synth::Scaffold;
 
-/// Next free `O-N` from the canonical OBSERVATIONS authority (the CLI
-/// only drafts the stub; the author writes the ratified entry).
-fn next_obs_id() -> String {
-    let p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../laterite-ags4-validator/OBSERVATIONS.md");
-    let max = std::fs::read_to_string(&p).ok().map_or(36, |t| {
-        t.lines()
-            .filter_map(|l| {
-                l.strip_prefix("### O-")
-                    .and_then(|r| r.split([' ', '\t']).next())
-                    .and_then(|n| n.parse::<u32>().ok())
-            })
-            .max()
-            .unwrap_or(36)
-    });
-    format!("O-{}", max + 1)
-}
-
 /// Parse one `--combine` spec (`"rule10a,rule8,rule5"`) into its injector
 /// sequence. `Err(tok)` names the first unknown token. Empty tokens
 /// (trailing comma, whitespace) are skipped; an all-empty spec is `Ok([])`
@@ -78,7 +60,7 @@ fn combo_meta(injs: &[Injection]) -> (String, Option<String>) {
 /// `forge check <path>...` — exit 1 iff a real (unexplained) divergence.
 ///
 /// One call into `laterite_ags4_parity::check`, which `laterite-ags4-corpus-qa
-/// check` makes too (#1109): the comparison has one home, so the two commands
+/// check` makes too (niko86/laterite#1109): the comparison has one home, so the two commands
 /// cannot answer differently while both exist.
 pub fn check(args: &CheckArgs, ctx: Ctx) -> Result<i32> {
     let (wrapper, project) = crate::pipeline::oracle_site();
@@ -358,10 +340,9 @@ pub fn run(args: &RunArgs, ctx: Ctx) -> Result<i32> {
 
     // ddmin every finding to a minimal, signature-preserving repro +
     // a drafted insight/O-N stub (the §12.5 hand-off). The CLI only
-    // drafts — the author ratifies and writes OBSERVATIONS.md.
+    // drafts — the O-N number and the ratified record are laterite's.
     if !outcome.report.findings.is_empty() {
         let repro_root = run_dir(&out, &run_id).join("repros");
-        let next = next_obs_id();
         for (i, f) in outcome.report.findings.iter().enumerate() {
             let Ok(text) = std::fs::read_to_string(&f.path) else {
                 continue;
@@ -379,17 +360,14 @@ pub fn run(args: &RunArgs, ctx: Ctx) -> Result<i32> {
                     "minimal_bytes": minimal.len(),
                 }))?,
             )?;
-            let rel = format!(
-                "ags-wiki/.bootstrap/probes/probe-forge-{}.ags",
-                f.injection.replace(':', "-")
-            );
+            let repro = d.join("minimal.ags").display().to_string();
             std::fs::write(
                 d.join("insight-stub.md"),
-                insight_stub(&sig, &f.injection, &rel, &next),
+                insight_stub(&sig, &f.injection, &repro),
             )?;
         }
         note(format!(
-            "minimized {} finding(s) → {} (promote to ags-wiki/.bootstrap/probes/, never tests/fixtures/)",
+            "minimized {} finding(s) → {} (evidence for a niko86/laterite issue, never a tests/fixtures/ file)",
             outcome.report.findings.len(),
             repro_root.display()
         ));
@@ -433,12 +411,11 @@ pub fn mine(args: &MineArgs, ctx: Ctx) -> Result<i32> {
         eprintln!("error: --seeds must be >= 1");
         return Ok(5);
     }
-    // Default corpus: the vendored python-ags4 fixtures (run `forge seed
-    // vendor` first). Absent → an empty covered-set, surfaced in the report.
-    // It lives beside corpus-qa, whose drift baseline is frozen over it (#1110).
+    // Default corpus: the vendored python-ags4 fixtures at this repo's
+    // `vendor/pyags4-tests` (laterite keeps the same corpus beside corpus-qa,
+    // niko86/laterite#1110). Absent → an empty covered-set, surfaced in the report.
     let corpus = args.corpus.clone().unwrap_or_else(|| {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../laterite-ags4-corpus-qa/vendor/pyags4-tests")
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("vendor/pyags4-tests")
     });
 
     let out = forge_dir(args.out_dir.as_deref());
@@ -883,7 +860,7 @@ const NO_OPERATIONS: &str = "no operations — pass --set/--blank/--set-unit/--s
      --delete-row/--delete-column/--delete-group or --patch \
      (--patch-template shows one)";
 
-/// `forge edit` — structured edits to a real AGS4 file (#655).
+/// `forge edit` — structured edits to a real AGS4 file (niko86/laterite#655).
 ///
 /// Nothing is written without `--out` or `--in-place`: the default run is the
 /// preview, because "what would this change?" is the question worth answering
@@ -1223,7 +1200,7 @@ mod cli_contract_tests {
         }
     }
 
-    /// #708 — the one subcommand that reaches the network was the one whose
+    /// niko86/laterite#708 — the one subcommand that reaches the network was the one whose
     /// `--dry-run` did nothing, because the context was bound as `_ctx`.
     /// Falsify by restoring that binding: the clone runs and `dest` appears.
     #[test]
@@ -1243,7 +1220,7 @@ mod cli_contract_tests {
         );
     }
 
-    /// #709 — the help enumerated seven tokens where the binary accepted ten.
+    /// niko86/laterite#709 — the help enumerated seven tokens where the binary accepted ten.
     /// Reached the way a caller reaches it, through clap's RENDERED help: an
     /// assertion against `inject_help()` alone would be checking that a string
     /// built from `ALL` mentions `ALL`, which cannot fail. Falsify by pinning
@@ -1266,7 +1243,7 @@ mod cli_contract_tests {
         }
     }
 
-    /// #710 — `--patch-template` prints a static template and reads no file,
+    /// niko86/laterite#710 — `--patch-template` prints a static template and reads no file,
     /// but clap refused to run it without a <FILE>. Falsify by making `file`
     /// a bare required `PathBuf` again: this parse fails.
     #[test]
@@ -1350,7 +1327,7 @@ mod tests {
     use super::*;
 
     /// The one hand-written statement of the flag vocabulary left after
-    /// #928 — kept prose for its bytes, held to the spelling table here.
+    /// niko86/laterite#928 — kept prose for its bytes, held to the spelling table here.
     /// Whole tokens, not `contains`: `--set` is a prefix of `--set-unit`,
     /// so a substring check would keep passing after dropping it.
     #[test]

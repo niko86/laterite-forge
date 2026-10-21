@@ -30,7 +30,7 @@ type and generalised to the rest.
 
 This is [[parity-triage-sampling-bias]] ([[O-36]]) arriving on the axis nobody
 named — the same defect forge was commissioned to fix, inside forge. It
-surfaced from the outside, in #698, as a complaint about realism.
+surfaced from the outside, in niko86/laterite#698, as a complaint about realism.
 
 ## Options considered
 1. **Teach the synthesizer the missing types** — populate the result headings

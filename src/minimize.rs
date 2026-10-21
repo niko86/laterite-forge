@@ -1,7 +1,7 @@
 //! ddmin minimization — shrink a divergence-producing candidate to a
 //! minimal reproducer **before** it is reported, so a finding becomes
-//! a clean wiki probe (`ags-wiki/.bootstrap/probes/`, never
-//! `tests/fixtures/`).
+//! clean evidence for a niko86/laterite issue (never a `tests/fixtures/`
+//! file).
 //!
 //! Two granularities, in order: (1) line-level delta-debugging,
 //! (2) within survivors, drop trailing DATA fields / blank values.
@@ -143,11 +143,16 @@ pub fn minimize(text: &str, oracle: Option<&PyOracle>) -> (String, Sig) {
     }
 }
 
-/// Pre-fill an `insights/` + drafted-`O-NN` stub for the §12.5 flow.
-/// The CLI only *drafts* (it embeds no LLM and never writes
-/// `OBSERVATIONS.md`); the author reviews, fills judgement, and writes
-/// the ratified O-N deliberately.
-pub fn insight_stub(sig: &Sig, injection: &str, repro_rel: &str, next_obs: &str) -> String {
+/// The O-N slot in a drafted stub. Numbering the divergence catalogue is
+/// laterite's job (its `observations.json` is the authority), so forge
+/// never guesses the next number.
+pub const OBS_PLACEHOLDER: &str = "O-?";
+
+/// Pre-fill an `insights/` + drafted-O-N stub for the §12.5 flow.
+/// The CLI only *drafts* (it embeds no LLM and never writes the
+/// catalogue); the author reviews, fills judgement, and laterite assigns
+/// the number when the record is ratified there.
+pub fn insight_stub(sig: &Sig, injection: &str, repro: &str) -> String {
     let (tag, rust, py) = sig;
     format!(
         "---\ntype: insight\nstatus: hypothesis\ngap_kind: rust-vs-python\n\
@@ -156,11 +161,13 @@ pub fn insight_stub(sig: &Sig, injection: &str, repro_rel: &str, next_obs: &str)
          > [!divergence] laterite-ags4-forge surfaced this via Mode-B \
          synthesize+inject; minimized by ddmin (signature-preserving).\n\n\
          - **rust**: `{rust:?}`\n- **python**: `{py:?}`\n\
-         - **verdict**: {tag}\n- **evidence**: `{repro_rel}` (run through \
+         - **verdict**: {tag}\n- **evidence**: `{repro}` (run through \
          both `lat` and `tools/py_ags4_check_json.py`, cwd repo root)\n\n\
          ## Drafted OBSERVATIONS entry (review before ratifying)\n\n\
-         ### {next_obs} [TAG] <title>\n\
-         - **Observed / where**: forge {injection}; minimal repro `{repro_rel}`.\n\
+         `{OBS_PLACEHOLDER}` is a placeholder: laterite assigns the number \
+         when the record lands in its `observations.json`.\n\n\
+         ### {OBS_PLACEHOLDER} [TAG] <title>\n\
+         - **Observed / where**: forge {injection}; minimal repro `{repro}`.\n\
          - **Spec (§…)**: <fill>\n\
          - **Assessment**: <is this a new gap, or the known O-35 \
          presence-only cascade / O-3-narrow? recognise before opening O-N>\n\
@@ -174,6 +181,30 @@ mod tests {
     use super::*;
     use crate::ops::{Injection, synth_injected};
     use crate::synth::Scaffold;
+
+    /// The stub never claims an O-N number: it carries the placeholder and
+    /// says who assigns the real one. Falsify by formatting any `O-<digits>`
+    /// into the heading — the second assertion names it.
+    #[test]
+    fn insight_stub_leaves_the_observation_number_to_laterite() {
+        let sig: Sig = ("PY_ONLY".into(), vec![], vec!["AGS Format Rule 10a".into()]);
+        let stub = insight_stub(&sig, "rule10a", "runs/x/repros/00_rule10a/minimal.ags");
+        assert!(
+            stub.contains(&format!("### {OBS_PLACEHOLDER} [TAG]")),
+            "the drafted heading must carry the placeholder:\n{stub}"
+        );
+        assert!(
+            !stub
+                .lines()
+                .filter(|l| l.starts_with("### "))
+                .any(|l| l.starts_with("### O-") && l.as_bytes()[6].is_ascii_digit()),
+            "a drafted heading claims a real O-N number:\n{stub}"
+        );
+        assert!(
+            stub.contains("laterite assigns the number"),
+            "the stub must say who numbers it:\n{stub}"
+        );
+    }
 
     #[test]
     fn ddmin_preserves_signature_and_is_deterministic() {

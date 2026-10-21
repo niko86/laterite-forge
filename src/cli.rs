@@ -207,8 +207,8 @@ pub struct MineArgs {
     pub scaffold: String,
     /// Directory of .ags files whose Rust signatures define the "covered"
     /// rule-break shapes (default: the vendored python-ags4 corpus at
-    /// laterite-ags4-corpus-qa/vendor/pyags4-tests — run `forge seed vendor`
-    /// first). Absent/empty
+    /// vendor/pyags4-tests in the laterite-forge checkout this binary was
+    /// built from). Absent/empty
     /// → empty covered-set (every synthesized combination reads as a gap).
     #[arg(long)]
     pub corpus: Option<PathBuf>,
@@ -423,7 +423,7 @@ pub struct VendorArgs {
     #[arg(long)]
     pub r#ref: String,
     /// Where to drop the vendored corpus — REQUIRED, no default (e.g.
-    /// `rust-packages/laterite-ags4-corpus-qa/vendor/pyags4-tests`).
+    /// `vendor/pyags4-tests`).
     #[arg(long)]
     pub dest: PathBuf,
 }
@@ -448,4 +448,4 @@ output modes (--output, or auto):
 
 artifacts: `gen` writes <out>/runs/<run-id>/ (the .ags candidates +
 report.json); <out> defaults to ./forge-runs. Confirmed reproducers
-belong in ags-wiki/.bootstrap/probes/, NEVER tests/fixtures/.";
+are evidence for a niko86/laterite issue, NEVER tests/fixtures/ files.";

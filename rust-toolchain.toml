@@ -1,0 +1,8 @@
+# Pin the toolchain so the `pedantic = warn` + `-D warnings` clippy gate is
+# reproducible. Without a pin, a fresh runner installs whatever `stable` is
+# newest, and each clippy release expands lints like `doc_markdown` — so the
+# same code passes on one machine and fails on another. Bump deliberately.
+# Same channel as laterite's rust-packages/rust-toolchain.toml.
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy"]

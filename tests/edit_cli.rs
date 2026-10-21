@@ -1,4 +1,4 @@
-//! `forge edit` end to end, through the real binary (#655).
+//! `forge edit` end to end, through the real binary (niko86/laterite#655).
 //!
 //! The in-module tests cover `apply`. Nothing covered the path a contributor
 //! actually uses: flags parsed by clap, turned into operations, applied, and
@@ -301,7 +301,7 @@ fn a_unit_is_rewritten_and_emptied_through_the_flags() {
 }
 
 /// A preview must preview. The write path is shared, but a flag that reported
-/// a change and then wrote it anyway is one of the three faults #713 found in
+/// a change and then wrote it anyway is one of the three faults niko86/laterite#713 found in
 /// this command, so the new mode asserts it rather than inheriting it.
 #[test]
 fn a_dry_run_set_unit_reports_the_change_and_writes_nothing() {

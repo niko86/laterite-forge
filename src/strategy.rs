@@ -161,9 +161,9 @@ impl Strategy {
             ..Strategy::default()
         };
         format!(
-            "# laterite-ags4-forge strategy — the executable twin of an\n\
-             # ags-wiki/strategies/strat-forge-*.md page. It is authored\n\
-             # from the wiki (parity-matrix blind spots, OBSERVATIONS,\n\
+            "# laterite-ags4-forge strategy — the executable twin of a\n\
+             # docs/strat-forge-*.md page. It is authored from laterite's\n\
+             # wiki (parity-matrix blind spots, OBSERVATIONS,\n\
              # the rule pages); the binary is the deterministic executor.\n\
              #\n# `forge strategy validate <f>` checks this without running\n\
              # anything; `forge run --strategy <f>` executes it.\n\n{}",

@@ -627,7 +627,7 @@ mod tests {
     /// walks: `Rng::seeded(S + i)` for `i` in `0..N`, texts joined by newline.
     /// That is the surface a downstream consumer reads, so a re-roll that this
     /// catches is a re-roll that would have invalidated their committed
-    /// fixtures — see `ags-wiki/design/dec-forge-audience-boundary.md`.
+    /// fixtures — see `docs/dec-forge-audience-boundary.md`.
     ///
     /// Raising these pins is legitimate only alongside deliberately re-rolling
     /// the default draw, which is a notify-downstream change, never a quiet one.
@@ -671,7 +671,7 @@ mod tests {
     }
 
     /// The lane is opt-in, so the default vocabulary must not reach it. This is
-    /// the assertion #697 exists to keep true — a downstream build that never
+    /// the assertion niko86/laterite#697 exists to keep true — a downstream build that never
     /// passes the flag must never see organic ground appear.
     #[test]
     fn the_organic_lane_is_unreachable_without_the_flag() {

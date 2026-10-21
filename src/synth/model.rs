@@ -282,7 +282,7 @@ fn collect_abbr(groups: &[Group], dict: &Dictionary<'static>) -> Group {
 }
 
 // The collection rule — trim, the header-literal exclusions, the PU
-// harvest — is `laterite_ags4_emit::catalog` (#924), shared with the
+// harvest — is `laterite_ags4_emit::catalog` (niko86/laterite#924), shared with the
 // shipped emitter's catalog synthesis. Reliquary row 14 kept the two
 // collectors separate "until they drift"; they drifted (forge kept padded
 // units the emitter trimmed, and never learned the PU harvest, so the
@@ -554,7 +554,7 @@ mod tests {
         m.groups.iter().find(|g| g.code == code).unwrap()
     }
 
-    /// The convergence pin (#924): the SAME logical input as emit's
+    /// The convergence pin (niko86/laterite#924): the SAME logical input as emit's
     /// `collect_units_gathers_unit_rows_and_pu_columns_only` — a padded
     /// unit, a header-literal, a PU column with a blank cell — asserted to
     /// the same expected sets, through forge's own `Group` adapter. Before

@@ -1,7 +1,7 @@
 //! Result documents — the `laterite_cliutil::report` contract (table /
 //! json / ndjson, `--compact` projection), identical UX to
 //! laterite-ags4-corpus-qa. `check`'s documents and the verdict flattening
-//! live in `laterite_ags4_parity::check` since #1109.
+//! live in `laterite_ags4_parity::check` since niko86/laterite#1109.
 
 use std::io::{self, Write};
 
@@ -28,7 +28,7 @@ pub struct Candidate {
 }
 
 impl Candidate {
-    /// Deliberately WITHOUT the per-rule counts (#654). This row type is
+    /// Deliberately WITHOUT the per-rule counts (niko86/laterite#654). This row type is
     /// the generated-candidate row for `gen`, `run` and `mine` alike, and
     /// those emit them by the hundred or thousand — `--compact` exists
     /// because that volume already tells. Counts are a reading aid for one

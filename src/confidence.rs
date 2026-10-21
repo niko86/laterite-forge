@@ -120,17 +120,17 @@ impl Ledger {
         force_burst: u32,
     ) -> Self {
         let path = Self::path(dir);
-        if let Ok(txt) = std::fs::read_to_string(&path) {
-            if let Ok(mut l) = serde_json::from_str::<Ledger>(&txt) {
-                if l.validator_fingerprint == fingerprint && l.oracle_version == oracle_version {
-                    l.cold_started = false;
-                    l.calls_saved = 0;
-                    l.calls_made = 0;
-                    l.floor = floor;
-                    l.force_burst = force_burst;
-                    return l;
-                }
-            }
+        if let Ok(txt) = std::fs::read_to_string(&path)
+            && let Ok(mut l) = serde_json::from_str::<Ledger>(&txt)
+            && l.validator_fingerprint == fingerprint
+            && l.oracle_version == oracle_version
+        {
+            l.cold_started = false;
+            l.calls_saved = 0;
+            l.calls_made = 0;
+            l.floor = floor;
+            l.force_burst = force_burst;
+            return l;
         }
         Ledger {
             validator_fingerprint: fingerprint.to_string(),

@@ -1,6 +1,6 @@
-//! Structured edits to a real AGS4 file (#655).
+//! Structured edits to a real AGS4 file (niko86/laterite#655).
 //!
-//! The investigation behind #653 produced three wrong results in a row from
+//! The investigation behind niko86/laterite#653 produced three wrong results in a row from
 //! hand-manipulating AGS text: a value containing a comma torn in half by a
 //! naive split, line endings converted by a well-meaning text reader, and a
 //! ragged row that made one validator bail and looked for a while like a
@@ -340,7 +340,7 @@ fn last_line(g: &laterite_ags4_parse::ParsedGroup) -> u32 {
 /// Nothing creates a column yet, so `added` is always empty and this returns
 /// exactly what the parse returned — the bytes this module writes are
 /// unchanged. It exists so the operation that does create one registers it in
-/// ONE place, instead of every arm learning to look in two (#723).
+/// ONE place, instead of every arm learning to look in two (niko86/laterite#723).
 #[derive(Debug, Default)]
 struct Shape {
     /// Group code -> headings this patch appended, in creation order. They
@@ -370,7 +370,7 @@ impl Shape {
 
     /// `col`, with the miss already named. Every arm refuses an unknown
     /// heading with the same `NoSuchHeading`, so the refusal is built here
-    /// once instead of at each resolution site (#936).
+    /// once instead of at each resolution site (niko86/laterite#936).
     fn resolve_heading(
         &self,
         g: &laterite_ags4_parse::ParsedGroup,
@@ -513,7 +513,7 @@ pub fn apply(text: &str, ops: &[Op]) -> Result<String, EditError> {
         }
     };
     // Pad line `n` to `want`, set field `at`, plan the rewrite — the strip
-    // every write arm otherwise hand-rolls (#936). `want` stays the caller's:
+    // every write arm otherwise hand-rolls (niko86/laterite#936). `want` stays the caller's:
     // the arms compute it at different points relative to `shape` mutation
     // (`AddColumn` after registering its column), and that timing is theirs.
     let pad_and_write =
@@ -575,7 +575,7 @@ pub fn apply(text: &str, ops: &[Op]) -> Result<String, EditError> {
                 // Registered BEFORE the lines are written, so `arity` already
                 // counts the new column and the padding below reaches it.
                 // This is also what lets a later operation in the same patch
-                // name the heading (#723).
+                // name the heading (niko86/laterite#723).
                 shape
                     .added
                     .entry(group.clone())
@@ -752,7 +752,7 @@ pub fn apply(text: &str, ops: &[Op]) -> Result<String, EditError> {
                 // The separator that followed it, if the next RECORD is blank —
                 // leaving it behind doubles the gap on every deletion. Not
                 // `last + 1`: a last row spanning a newline ends further on
-                // (#1052).
+                // (niko86/laterite#1052).
                 let next = parsed.raw_lines.iter().find(|l| l.number > last);
                 if let Some(next) = next.filter(|l| parsed.line_text(l).trim().is_empty()) {
                     plan.insert(next.number, Line::Drop);
@@ -813,7 +813,7 @@ pub fn apply(text: &str, ops: &[Op]) -> Result<String, EditError> {
     }
     // Paired by POSITION: both are one entry per record, while a line number
     // runs past its record's position after a field spanning a newline
-    // (#1052).
+    // (niko86/laterite#1052).
     for (line, &terminator) in parsed.raw_lines.iter().zip(&terminators) {
         // Each line keeps its OWN terminator, which is what lets a file with
         // mixed endings survive an edit to one of them.
@@ -1322,7 +1322,7 @@ mod tests {
         // PROJ's last row spans lines 5-6, so its separator is line 7, not
         // `last + 1`; and every later line number runs one past its record's
         // position, so a terminator looked up by number lands on its
-        // neighbour's — the lone LF on LOCA's HEADING must survive (#1052).
+        // neighbour's — the lone LF on LOCA's HEADING must survive (niko86/laterite#1052).
         let loca = "\"GROUP\",\"LOCA\"\r\n\"HEADING\",\"LOCA_ID\"\n\
                     \"UNIT\",\"\"\r\n\"TYPE\",\"ID\"\r\n\"DATA\",\"BH01\"\r\n";
         let src = format!(
@@ -2283,7 +2283,7 @@ type = "0DP"
         );
     }
 
-    /// The payoff of #723: a locator naming a column that did not exist when
+    /// The payoff of niko86/laterite#723: a locator naming a column that did not exist when
     /// the file was parsed still resolves, because the patch created it.
     #[test]
     fn a_column_created_in_the_same_patch_can_be_written() {

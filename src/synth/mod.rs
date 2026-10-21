@@ -139,7 +139,7 @@ mod tests {
     ///   descriptor rows. A description lands in a `GEOL_DESC` DATA cell, whose
     ///   declared type is `X` either way, so the pinned set never moves.
     ///
-    /// What DOES break is comparability: `tools/gen-bench-fixtures.sh`,
+    /// What DOES break is comparability: laterite's `tools/gen-bench-fixtures.sh`,
     /// `tools/bench-vs-python-ags4.py` and `tools/bench-cert-parse-share.py`
     /// all draw fixtures from this engine, so numbers taken either side of an
     /// unannounced content change stop measuring the same file.

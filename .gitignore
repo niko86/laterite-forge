@@ -1,0 +1,10 @@
+# Cargo build artifacts. Cargo.lock IS tracked — forge is a binary.
+target/
+
+# Evolutionary dogfood run dir (the default --out-dir) + its cross-run
+# confidence ledger. Regenerated; never tracked.
+forge-runs/
+
+# The python-ags4 oracle's uv environment (uv.lock IS tracked).
+.venv/
+__pycache__/

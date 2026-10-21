@@ -1,0 +1,35 @@
+# cargo-deny — supply-chain policy, adapted from laterite's
+# rust-packages/deny.toml to forge's own dependency tree.
+#   Run locally:  cargo deny check
+#   CI gate:      .github/workflows/ci.yml (the `deny` job)
+# Advisory data: the RustSec advisory DB.
+
+[advisories]
+version = 2
+# In v2 every advisory is an error by default — so this gate catches anything
+# NEW. laterite's acknowledged exceptions (age's i18n chain, zip 8 via calamine)
+# are not in forge's tree, so none are carried here. An exception added later
+# is named and justified, never silent.
+ignore = []
+
+[licenses]
+version = 2
+# Permissive licenses only. A dual/tri-licensed crate (r-efi) is satisfied by
+# its permissive option — no copyleft is taken.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "Unicode-3.0",
+    "Unlicense",
+]
+
+[bans]
+# Duplicate versions are transitive churn — surface them, don't fail on them.
+multiple-versions = "warn"
+
+[sources]
+# Crates must come from crates.io.
+unknown-registry = "deny"
+unknown-git = "deny"

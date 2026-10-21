@@ -7,7 +7,7 @@
 //
 // Allowed rather than fixed because the trade is one-sided HERE and nowhere
 // else: `publish = false`, so no docs.rs reader exists to be misled. The
-// published crates stay strict — #748's `cargo doc` gate is workspace-wide and
+// published crates stay strict — niko86/laterite#748's `cargo doc` gate is workspace-wide and
 // this is the only class exempted from it.
 #![allow(rustdoc::invalid_html_tags)]
 //! `laterite-ags4-forge` — evolutionary AGS4 dual-validation dogfood generator.

@@ -10,7 +10,7 @@
 //! ([`crate::confidence`]). A missing oracle degrades to a Rust-only verdict
 //! (optional QA), never an error.
 //!
-//! The pipeline itself lives in `laterite_ags4_parity::check` since #1109,
+//! The pipeline itself lives in `laterite_ags4_parity::check` since niko86/laterite#1109,
 //! where `laterite-ags4-corpus-qa check` runs the same code; this module
 //! re-exports it so forge's call sites are unchanged, and keeps the tests
 //! that hold forge's own generator to it.
@@ -21,10 +21,11 @@ use laterite_ags4_parity::PyOracle;
 pub use laterite_ags4_parity::check::{Outcome, dual_validate, rust_check};
 
 /// Where the oracle runs: this repo's wrapper script and the uv project at
-/// this repo's root. The parity crate no longer finds them for itself
-/// (#1108), so forge names them — the same values it always resolved to.
+/// this repo's root (its `pyproject.toml` pins python-ags4). The parity crate
+/// does not find them for itself (niko86/laterite#1108), so forge names them.
+/// The crate IS the repo root, so the manifest dir is the project.
 pub fn oracle_site() -> (PathBuf, PathBuf) {
-    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     (repo.join("tools/py_ags4_check_json.py"), repo)
 }
 
@@ -42,6 +43,51 @@ mod tests {
     use crate::ops::{Injection, synth_combined, synth_injected};
     use crate::synth::{Scaffold, synth};
 
+    /// The oracle site is this repo's own root: the wrapper and the uv
+    /// project that pins python-ags4 must both be where `oracle_site` says.
+    /// Needs no python, so a wrong path fails here rather than degrading
+    /// every run to Rust-only without a word.
+    #[test]
+    fn oracle_site_names_this_repos_wrapper_and_project() {
+        let (wrapper, project) = oracle_site();
+        assert!(wrapper.is_file(), "missing {}", wrapper.display());
+        assert!(
+            project.join("pyproject.toml").is_file(),
+            "no uv project at {}",
+            project.display()
+        );
+    }
+
+    /// One vendored python-ags4 file through both engines. Without uv and
+    /// python-ags4 this skips with the reason printed; with
+    /// `FORGE_REQUIRE_ORACLE=1` (CI sets it) a missing oracle is a failure,
+    /// so the skip cannot hide there.
+    #[test]
+    fn the_oracle_returns_a_verdict_on_a_vendored_file() {
+        let Some((oracle, version)) = build_oracle(120) else {
+            assert!(
+                std::env::var_os("FORGE_REQUIRE_ORACLE").is_none(),
+                "FORGE_REQUIRE_ORACLE is set but python-ags4 is unavailable \
+                 (run `uv sync` at the repo root)"
+            );
+            eprintln!(
+                "SKIP the_oracle_returns_a_verdict_on_a_vendored_file: python-ags4 \
+                 unavailable (no uv, or `uv sync` not run at the repo root)"
+            );
+            return;
+        };
+        assert_eq!(version, laterite_ags4_parity::EXPECTED_PYAGS4);
+        let file =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("vendor/pyags4-tests/example1.ags");
+        let out = dual_validate(&file, Some(&oracle));
+        assert!(out.verdict.is_some(), "no verdict: {out:?}");
+        assert!(
+            matches!(&out.python, Some(Ok(_))),
+            "python side failed: {:?}",
+            out.python
+        );
+    }
+
     fn rust_on(text: &str) -> RustResult {
         let tmp = tempfile::tempdir().expect("tempdir");
         let p = tmp.path().join("c.ags");
@@ -52,7 +98,7 @@ mod tests {
     /// The one label a clean synthetic base cannot avoid: `Wide` carries the
     /// standard LBST group, whose KEY tuple contains SAMP's while it declares
     /// LBSG, so `FYI (Related to Rule 10c)` fires on the DICTIONARY's shape
-    /// rather than on anything the generator did (#759 / O-56). Named here
+    /// rather than on anything the generator did (niko86/laterite#759 / O-56). Named here
     /// rather than relaxing the net to "no errors", because the net's job is
     /// that EVERY other finding is a generator bug.
     const DICTIONARY_SHAPE_ADVISORY: &str = "FYI (Related to Rule 10c)";

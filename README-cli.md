@@ -14,8 +14,8 @@ mutate/validate/report muscle and embeds **no LLM**.
 > vendor`; the persistent adaptive parity-confidence ledger; first
 > finding ratified ([[strat-forge-rule10a-relational]] retired the
 > Rule-10a parity blind spot; the O-35/O-3-narrow cascade was
-> reproduced, not re-opened). See `ags-wiki/tools/laterite-ags4-forge.md` and
-> `ags-wiki/concepts/evolutionary-dogfooding.md`.
+> reproduced, not re-opened). See `docs/laterite-ags4-forge.md` in this repo
+> and `ags-wiki/concepts/evolutionary-dogfooding.md` in niko86/laterite.
 
 ## Commands
 
@@ -27,7 +27,8 @@ laterite-ags4-forge gen [--scaffold minimal|loca-samp] [--inject TOK]... \
 
 - **check** — dual-validate existing files; print each side's rule set,
   its **per-rule finding counts**, and the parity verdict. The verdict
-  stays presence-only by design (see `ags-wiki/concepts/parity-model.md`);
+  stays presence-only by design (see `ags-wiki/concepts/parity-model.md` in
+  niko86/laterite);
   the counts sit beside it because one side saying a rule nine times and
   the other saying it once is the same verdict and a very different file.
   A **directory** is walked recursively for `.ags` files (extension match
@@ -68,7 +69,7 @@ array). `--readme` prints this guide.
 - Generated files are written only under the run dir; a `--out-dir`
   resolving inside `laterite-ags4-validator/tests/fixtures/` is refused
   (that tree is asserted hard-error-free). Confirmed reproducers are
-  promoted to `ags-wiki/.bootstrap/probes/`, never `tests/fixtures/`.
+  evidence for a niko86/laterite issue, never `tests/fixtures/` files.
 - The synthetic base is clean **by construction** from the validator's
   bundled v4.2 standard dictionary; a test asserts `RustResult::Clean`
   on the un-injected base, so a generator bug is a test failure, never

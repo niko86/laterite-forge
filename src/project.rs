@@ -1,4 +1,4 @@
-//! Project a cell value into a different AGS TYPE (#725).
+//! Project a cell value into a different AGS TYPE (niko86/laterite#725).
 //!
 //! Retyping a column and leaving its values alone gives a file whose cells
 //! contradict their own declaration. That is sometimes exactly the point — it
@@ -20,7 +20,7 @@
 //! AGS is a rendering convention for the same measurement. A `DT` projection
 //! will NOT drop a real time: `dt_to_unit_precision` truncates only when every
 //! digit it discards is a zero, and refuses otherwise — a decision taken in
-//! #715 for the emitter, where `None` means "write what you were given and let
+//! niko86/laterite#715 for the emitter, where `None` means "write what you were given and let
 //! the validity mode judge it". Here `None` means the operation is refused by
 //! name instead. So a `DT` column carrying real times cannot be projected down
 //! to `yyyy-mm-dd`; the caller is told which row, and can blank the times or
@@ -72,7 +72,7 @@ pub(crate) fn is_known_type(ags_type: &str) -> bool {
 /// `unit` is the heading's DECLARED unit, and it is what decides a `DT`
 /// value's precision — never the shape of the value itself. A `DT` heading
 /// declaring `yyyy-mm-dd` gets a date even if the cell held a full timestamp,
-/// because the declaration is what the file promises its readers (#695/#715).
+/// because the declaration is what the file promises its readers (niko86/laterite#695/#715).
 pub(crate) fn project(value: &str, ags_type: &str, unit: &str) -> Option<String> {
     // An empty cell is empty in every type. Projecting it into a zero, a
     // false or an epoch would invent data the file never carried.

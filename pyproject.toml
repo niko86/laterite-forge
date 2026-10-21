@@ -1,0 +1,21 @@
+# The python-ags4 oracle's environment, nothing else. Forge runs
+# `uv run python tools/py_ags4_check_json.py` with this directory as the
+# working directory (see `oracle_site` in src/pipeline.rs), so `uv run`
+# resolves the pin below. No Python package is built from this repo.
+[project]
+name = "laterite-forge-oracle"
+version = "0.0.0"
+requires-python = ">=3.12"
+dependencies = [
+    # Oracle PIN, not a floor — the same pin laterite's root pyproject holds.
+    # The parity reconcile arms forge shares through laterite-ags4-parity are
+    # encoded against python-ags4 1.2.0 source behaviour, and the oracle's
+    # self-check compares against that crate's EXPECTED_PYAGS4. A silent
+    # bump would invalidate those arms with no test failure.
+    "python-ags4==1.2.0",
+    # python-ags4 needs pandas, and not pandas 3 (laterite pins it the same way).
+    "pandas<3",
+]
+
+[tool.uv]
+package = false

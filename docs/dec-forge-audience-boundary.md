@@ -16,7 +16,7 @@ sources: []
 *proven* parity divergences, and says nothing about who else might use it.
 Nothing else in this workspace does — but `laterite-showcase`, building a
 demonstration deliverable, became forge's first consumer from outside the
-parity mission and filed two issues (#697, #698) asking for output that is
+parity mission and filed two issues (niko86/laterite#697, niko86/laterite#698) asking for output that is
 **convincing**, not merely valid.
 
 Both asks sit furthest from the commissioned mission, and the capability
@@ -27,8 +27,8 @@ because two of its supporting claims turned out to be false.
 `scale` is **not** evidence of a second audience — `tools/gen-bench-fixtures.sh`,
 `tools/bench-vs-python-ags4.py` and `tools/bench-cert-parse-share.py` all
 drive it, so its sized fixtures serve the first audience. And the realism ask
-is **not** one thing: the half of #698 concerning result *values* is a parity
-defect on its own terms, split out as #707 and decided in
+is **not** one thing: the half of niko86/laterite#698 concerning result *values* is a parity
+defect on its own terms, split out as niko86/laterite#707 and decided in
 [[dec-forge-type-axis-instrument]]. What remained after that split is the
 genuine second-audience question, and it is much smaller than it looked.
 
@@ -36,7 +36,7 @@ genuine second-audience question, and it is much smaller than it looked.
 1. **Commit fully** — build the realism lane: stratigraphy shaping, depths
    derived from a profile, values keyed to the strata the description engine
    already invents, plus the organic/peat lane.
-2. **Decline** — forge serves one audience; close #697 and #698 as `wontfix`
+2. **Decline** — forge serves one audience; close niko86/laterite#697 and niko86/laterite#698 as `wontfix`
    and let consumers build their own layer.
 3. **A bounded second audience** — ratify the role the consumer already
    derived from use: forge owns the descriptions and the byte-target
@@ -48,9 +48,9 @@ owns the [[bs5930-soil-descriptions]] engine that writes every `GEOL_DESC`,
 and the borehole-count calibration `scale` performs against a byte target. It
 does **not** own the geological model those descriptions sit in.
 
-Consequently #697 (the organic/peat lane) is **in scope**, rescoped to include
+Consequently niko86/laterite#697 (the organic/peat lane) is **in scope**, rescoped to include
 the `--principal`/`--lane` selector it offers as optional; and the realism
-remainder of #698 is **declined**.
+remainder of niko86/laterite#698 is **declined**.
 
 ## Why
 The boundary was not invented to settle this question — it was derived
@@ -91,15 +91,15 @@ Commits us to:
   happens — the determinism contract asserts only that a seed reproduces
   itself, and the safety net asserts the base validates *clean*, not
   identically — while the bench fixtures drawn from this engine quietly stop
-  being comparable across the change. #698 asked for this discipline for its
-  own request; #697 inherits it. Turning the lane on by default is a deliberate
+  being comparable across the change. niko86/laterite#698 asked for this discipline for its
+  own request; niko86/laterite#697 inherits it. Turning the lane on by default is a deliberate
   re-roll with the fixtures regenerated in the same change.
 - **A re-roll reaches further than our own fixtures.** The downstream consumer
   commits output drawn from this engine, so the same shift that de-bases our
   benches invalidates *their* checked-in files, on their schedule and in their
   repo where nothing here can see it. Flipping the default is therefore a
   notify-and-re-baseline change, not a regenerate-ours-and-ship change — the
-  bullet above is the smaller half of the obligation. #697 closed the silent
+  bullet above is the smaller half of the obligation. niko86/laterite#697 closed the silent
   part of this: `the_unflagged_draw_is_pinned_to_pre_lane_bytes` pins the
   default draw of `forge describe` to bytes captured before the lane existed,
   so a re-roll now has to be argued past a red test instead of landing green.

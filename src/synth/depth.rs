@@ -8,7 +8,7 @@
 //! add their own specimen KEY (`SPEC_REF`, `SPEC_DPTH`), so a clean row is
 //! a copy of a real SAMP row's keys + a uniquified specimen. This is the
 //! deeper relational level the Rule-10c chain (LOCA→SAMP→lab-test) and the
-//! divergence-mining campaign want more group context from (#172).
+//! divergence-mining campaign want more group context from (niko86/laterite#172).
 //!
 //! Clean-by-construction, exactly as breadth: only KEY + REQUIRED headings
 //! are emitted, every value is type-correct (reusing breadth's [`value`]),

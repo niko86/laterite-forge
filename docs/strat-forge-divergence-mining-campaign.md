@@ -20,11 +20,11 @@ sources: []
 > shapes → spend the python oracle ONLY on the novel *divergence-prone*
 > signatures. This page is the matrix that drives it **over time** and
 > the harvest loop that feeds the per-PR divergence-lock gate
-> (`packages/laterite/tests/test_parity_divergences.py` (dev satellite), #190).
+> (`packages/laterite/tests/test_parity_divergences.py` (dev satellite), niko86/laterite#190).
 
 ## Sequencing
-**Runs AFTER the forge injector improvements** (#169 laterite-ags4-compliance crate;
-#172 synthetic DEPTH). The campaign is partly runnable today over the 9
+**Runs AFTER the forge injector improvements** (niko86/laterite#169 laterite-ags4-compliance crate;
+niko86/laterite#172 synthetic DEPTH). The campaign is partly runnable today over the 9
 single-injectable faults, but its *coverage* is bounded by the injector
 menu — so the higher-value, wider campaign waits on those improvements to
 inject more rule classes (below).
@@ -51,7 +51,7 @@ separately by `--max-oracle` (only the divergence-prone gaps are spent on).
    divergence-prone gaps against the real python-ags4 (the sibling clone /
    pinned 1.2.0).
 3. **Harvest** → each *confirmed* divergence becomes a **new probe + an
-   O-N + an entry in the divergence-lock gate** (#190). Recognised
+   O-N + an entry in the divergence-lock gate** (niko86/laterite#190). Recognised
    divergences (already an O-N) are NOT re-churned — the persistent
    confidence ledger (`forge confidence`) + the vendor corpus track
    coverage so successive runs EXPLORE new territory.
@@ -67,14 +67,14 @@ separately by `--max-oracle` (only the divergence-prone gaps are spent on).
 
 ## The "improvements still" (parallel track — widens the matrix)
 forge can inject 10 rules today; the rest are `not_single_injectable`
-(`forge catalog`). Adding injectors is forge work (#169) and each widens
+(`forge catalog`). Adding injectors is forge work (niko86/laterite#169) and each widens
 this campaign:
 - **candidate injectors** (forge already flags them): `rule15`
   (undefined UNIT). (`rule10b` — empty REQUIRED — has since landed and is
   in the 10 above.)
 - **byte-level emitter**: Rules 1 / 2a / 3 / 6 (need >255 code points,
   LF-only lines, bad descriptors, embedded CR) — also unlocks the
-  field-count class (Rule 4) behind #191's early-failure axis.
+  field-count class (Rule 4) behind niko86/laterite#191's early-failure axis.
 - heading-rename (9/18/19a/19b), reorder (2b), record-link (11a/b/c),
   FILE (20) — domain setup, later.
 
@@ -84,7 +84,7 @@ this campaign:
   the cheap Rust-only profile first).
 - Output: `report.json` per run (`combo · seed · signature ·
   divergence_prone · verdict · python_rules`).
-- Harvest target: the divergence-lock gate (#190) + a probe per confirmed
+- Harvest target: the divergence-lock gate (niko86/laterite#190) + a probe per confirmed
   divergence in `ags-wiki/.bootstrap/probes/`.
 
 ## Related
