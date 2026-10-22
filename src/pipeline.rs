@@ -74,6 +74,13 @@ impl OracleSite {
         }
     }
 
+    /// The vendored python-ags4 corpus in this checkout, which `mine`
+    /// subtracts by default. It is LGPL data and stays in the checkout rather
+    /// than in the binary.
+    pub fn corpus(&self) -> PathBuf {
+        self.project.join("vendor/pyags4-tests")
+    }
+
     /// python-ags4 at this site and its version, or why not and how to
     /// supply one. The layout is checked before uv runs: uv given a missing
     /// working directory fails to spawn, which reads as "no uv" when it is
