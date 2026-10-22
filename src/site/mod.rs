@@ -8,3 +8,4 @@ pub mod build;
 mod draw;
 mod ground;
 pub mod preset;
+pub mod properties;

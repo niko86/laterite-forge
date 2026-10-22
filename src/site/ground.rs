@@ -16,7 +16,7 @@ use super::preset::{Extent, Range};
 const WAVES: usize = 3;
 
 /// A smooth scalar field over the site, valued in `[0, 1]`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Field {
     /// (wavenumber x, wavenumber y, phase, amplitude) per wave.
     waves: [(f64, f64, f64, f64); WAVES],
