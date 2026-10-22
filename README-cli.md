@@ -56,6 +56,9 @@ downloaded release was built elsewhere, so point it at a laterite-forge
 checkout with `--oracle-project DIR` (or `$AGS4_FORGE_ORACLE_PROJECT`) and run
 `uv sync` there. When no oracle is found, forge falls back to Rust-only
 verdicts (`"oracle": false`), and stderr says why and how to supply one.
+The verdicts are written for python-ags4 1.2.0, the version the checkout
+pins; if the project reports any other version, forge still uses it and warns
+on stderr.
 
 ## Conventions (shared CLI contract)
 
