@@ -84,18 +84,24 @@ fn the_environment_variable_names_the_project() {
     );
 }
 
-/// Pointed at a synced checkout, `check` consults python-ags4. This is what
-/// a downloaded binary does with `--oracle-project`. Without uv and
-/// python-ags4 it skips with the reason printed; with
+/// A copy of this checkout's oracle project, somewhere the compile-time
+/// default does not point, stands in for the checkout a downloaded binary is
+/// given. `uv run` builds its environment from the copied lock. Without uv and
+/// python-ags4 the test skips with the reason printed; with
 /// `FORGE_REQUIRE_ORACLE=1` (CI sets it) the skip is a failure.
 #[test]
-fn a_synced_checkout_is_used_as_the_oracle() {
+fn a_checkout_elsewhere_is_used_as_the_oracle() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir(dir.path().join("tools")).unwrap();
+    for f in ["pyproject.toml", "uv.lock", "tools/py_ags4_check_json.py"] {
+        std::fs::copy(repo().join(f), dir.path().join(f)).expect(f);
+    }
     let out = forge(
         &[
             "check",
             &example(),
             "--oracle-project",
-            repo().to_str().unwrap(),
+            dir.path().to_str().unwrap(),
             "--json",
         ],
         &[],
@@ -108,7 +114,7 @@ fn a_synced_checkout_is_used_as_the_oracle() {
             String::from_utf8_lossy(&out.stderr)
         );
         eprintln!(
-            "SKIP a_synced_checkout_is_used_as_the_oracle: {}",
+            "SKIP a_checkout_elsewhere_is_used_as_the_oracle: {}",
             String::from_utf8_lossy(&out.stderr).trim()
         );
         return;
@@ -117,4 +123,32 @@ fn a_synced_checkout_is_used_as_the_oracle() {
     // the oracle's, so it is not asserted here.
     assert_eq!(doc["oracle"], true);
     assert_ne!(doc["verdict"], "RUST_ONLY", "python was not consulted");
+    // The default checkout would also give an oracle, so `"oracle": true`
+    // alone cannot show the flag was used. uv leaves its environment in the
+    // project it ran in.
+    assert!(
+        dir.path().join(".venv").is_dir(),
+        "uv did not run in the --oracle-project copy"
+    );
+}
+
+/// A path that does not exist is rejected before the oracle is probed: the
+/// probe costs a uv start, and its notes would land before the real error.
+#[test]
+fn a_missing_file_is_rejected_before_the_oracle_is_probed() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let missing = dir.path().join("nope.ags");
+    let out = forge(
+        &[
+            "check",
+            missing.to_str().unwrap(),
+            "--oracle-project",
+            dir.path().to_str().unwrap(),
+            "--json",
+        ],
+        &[],
+    );
+    assert_eq!(out.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains("python-ags4"), "probed first: {stderr}");
 }

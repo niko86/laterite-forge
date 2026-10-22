@@ -65,12 +65,16 @@ fn combo_meta(injs: &[Injection]) -> (String, Option<String>) {
 ///
 /// Forge probes the oracle before handing over, because `run`'s own probe can
 /// only say "unavailable", not why or what to do about it (#5). When forge's
-/// probe fails, `run` is told to skip python rather than probe again.
+/// probe fails, `run` is told to skip python rather than probe again; when it
+/// succeeds, `run` probes once more (the parity crate takes no prebuilt
+/// oracle). A missing path is `run`'s error to report, so nothing is probed
+/// ahead of it.
 pub fn check(args: &CheckArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
-    let no_oracle = args.no_oracle || site.build_oracle(args.timeout).is_none();
-    if no_oracle && !args.no_oracle {
-        note("check: python-ags4 unavailable — Rust-only verdict (optional QA)");
-    }
+    let probe = !args.no_oracle && args.paths.iter().all(|p| p.exists());
+    let no_oracle = !probe
+        || site
+            .build_oracle(args.timeout, "check: Rust-only verdict (optional QA)")
+            .is_none();
     Ok(laterite_ags4_parity::check::run(
         &args.paths,
         &site.wrapper,
@@ -185,13 +189,11 @@ pub fn generate(args: &GenArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
     std::fs::create_dir_all(&dir)?;
 
     let oracle = if args.validate && !args.no_oracle {
-        site.build_oracle(args.timeout).map(|(o, _)| o)
+        site.build_oracle(args.timeout, "gen: Rust-only verdicts (optional QA)")
+            .map(|(o, _)| o)
     } else {
         None
     };
-    if args.validate && !args.no_oracle && oracle.is_none() {
-        note("gen: python-ags4 unavailable — Rust-only verdicts (optional QA)");
-    }
 
     let mut candidates = Vec::new();
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
@@ -328,16 +330,13 @@ pub fn run(args: &RunArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
     let (oracle, oracle_ver) = if let Some((o, v)) = if args.no_oracle {
         None
     } else {
-        site.build_oracle(args.timeout)
+        site.build_oracle(
+            args.timeout,
+            "run: Rust-only loop (deterministic; no parity verdicts). optional QA.",
+        )
     } {
         (Some(o), v)
     } else {
-        if !args.no_oracle {
-            note(
-                "run: python-ags4 unavailable — Rust-only loop \
-                 (deterministic; no parity verdicts). optional QA.",
-            );
-        }
         (None, "none".to_string())
     };
 
@@ -465,13 +464,12 @@ pub fn mine(args: &MineArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
     let oracle = if args.no_oracle {
         None
     } else {
-        site.build_oracle(args.timeout).map(|(o, _)| o)
+        site.build_oracle(
+            args.timeout,
+            "mine: Rust-only (gaps + divergence flags, no parity verdict)",
+        )
+        .map(|(o, _)| o)
     };
-    if !args.no_oracle && oracle.is_none() {
-        note(
-            "mine: python-ags4 unavailable — Rust-only (gaps + divergence flags, no parity verdict)",
-        );
-    }
 
     let run_id = new_run_id();
     let dir = run_dir(&out, &run_id);
@@ -839,7 +837,11 @@ pub fn minimize(args: &MinimizeArgs, site: &OracleSite, ctx: Ctx) -> Result<i32>
     let oracle = if args.no_oracle {
         None
     } else {
-        site.build_oracle(args.timeout).map(|(o, _)| o)
+        site.build_oracle(
+            args.timeout,
+            "minimize: Rust-only signature (no parity verdict)",
+        )
+        .map(|(o, _)| o)
     };
     let text = std::fs::read_to_string(&args.file)?;
     let (minimal, sig) = ddmin(&text, oracle.as_ref());

@@ -1,6 +1,6 @@
 # The python-ags4 oracle's environment, nothing else. Forge runs
 # `uv run python tools/py_ags4_check_json.py` with this directory as the
-# working directory (see `oracle_site` in src/pipeline.rs), so `uv run`
+# working directory (see `OracleSite` in src/pipeline.rs), so `uv run`
 # resolves the pin below. No Python package is built from this repo.
 [project]
 name = "laterite-forge-oracle"

@@ -25,10 +25,30 @@ use laterite_cliutil::report::note;
 /// The wrapper script, relative to the uv project that runs it.
 const WRAPPER: &str = "tools/py_ags4_check_json.py";
 
-/// How to point forge at an oracle, appended to every reason it gives for
-/// not finding one.
+/// The usual fix when the oracle is missing: name a checkout that has one.
 const HOW: &str = "Point --oracle-project (or $AGS4_FORGE_ORACLE_PROJECT) at a \
                    laterite-forge checkout and run `uv sync` there.";
+
+/// Why python-ags4 could not be reached, and what the user can do about it.
+pub struct Unavailable {
+    why: String,
+    fix: String,
+}
+
+impl Unavailable {
+    fn new(why: String) -> Self {
+        Self {
+            why,
+            fix: HOW.to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for Unavailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "python-ags4 unavailable: {}. {}", self.why, self.fix)
+    }
+}
 
 /// Where the oracle runs: a uv project whose `pyproject.toml` pins
 /// python-ags4, holding the wrapper script. The parity crate does not find
@@ -58,15 +78,15 @@ impl OracleSite {
     /// supply one. The layout is checked before uv runs: uv given a missing
     /// working directory fails to spawn, which reads as "no uv" when it is
     /// really "wrong directory".
-    pub fn oracle(&self, timeout_secs: u64) -> Result<(PyOracle, String), String> {
+    pub fn oracle(&self, timeout_secs: u64) -> Result<(PyOracle, String), Unavailable> {
         if !self.project.join("pyproject.toml").is_file() {
-            return Err(unavailable(&format!(
+            return Err(Unavailable::new(format!(
                 "no uv project at {} (no pyproject.toml)",
                 self.project.display()
             )));
         }
         if !self.wrapper.is_file() {
-            return Err(unavailable(&format!(
+            return Err(Unavailable::new(format!(
                 "{} has no {WRAPPER}",
                 self.project.display()
             )));
@@ -83,32 +103,32 @@ impl OracleSite {
         }
     }
 
-    /// [`Self::oracle`] for callers that degrade to Rust-only: the reason
-    /// goes to stderr and the oracle is simply absent.
-    pub fn build_oracle(&self, timeout_secs: u64) -> Option<(PyOracle, String)> {
-        self.oracle(timeout_secs).map_err(note).ok()
+    /// [`Self::oracle`] for callers that degrade to Rust-only. `fallback`
+    /// says what the command does instead (`"gen: Rust-only verdicts"`); it
+    /// and the reason go to stderr as one line, and the oracle is absent.
+    pub fn build_oracle(&self, timeout_secs: u64, fallback: &str) -> Option<(PyOracle, String)> {
+        self.oracle(timeout_secs)
+            .map_err(|e| note(format!("{fallback} — {e}")))
+            .ok()
     }
 }
 
 /// Why the self-check failed, in terms of what the user can do about it.
-fn reason(err: &OracleError, project: &Path) -> String {
+fn reason(err: &OracleError, project: &Path) -> Unavailable {
+    let p = project.display();
     match err {
-        OracleError::NotImportable => format!(
-            "python-ags4 unavailable: it is not importable in {p}. Run `uv sync` \
-             in {p}, or point --oracle-project (or $AGS4_FORGE_ORACLE_PROJECT) \
-             at a synced laterite-forge checkout.",
-            p = project.display()
-        ),
-        OracleError::Unavailable(e) => format!(
-            "python-ags4 unavailable: could not run uv ({e}). Install uv \
-             (https://docs.astral.sh/uv/), then run `uv sync` in {}.",
-            project.display()
-        ),
+        OracleError::NotImportable => Unavailable {
+            why: format!("it is not importable in {p}"),
+            fix: format!(
+                "Run `uv sync` in {p}, or point --oracle-project (or \
+                 $AGS4_FORGE_ORACLE_PROJECT) at a synced laterite-forge checkout."
+            ),
+        },
+        OracleError::Unavailable(e) => Unavailable {
+            why: format!("could not run uv ({e})"),
+            fix: format!("Install uv (https://docs.astral.sh/uv/), then run `uv sync` in {p}."),
+        },
     }
-}
-
-fn unavailable(why: &str) -> String {
-    format!("python-ags4 unavailable: {why}. {HOW}")
 }
 
 #[cfg(test)]
@@ -119,10 +139,6 @@ mod tests {
     use crate::ops::{Injection, synth_combined, synth_injected};
     use crate::synth::{Scaffold, synth};
 
-    /// The default oracle site is this repo's own root: the wrapper and the
-    /// uv project that pins python-ags4 must both be where `OracleSite`
-    /// says. Needs no python, so a wrong path fails here rather than
-    /// degrading every run to Rust-only.
     /// A uv project without the wrapper is caught before uv runs, and the
     /// reason names what is missing and how to supply an oracle.
     #[test]
@@ -132,6 +148,7 @@ mod tests {
         let Err(why) = OracleSite::new(Some(dir.path())).oracle(5) else {
             panic!("an oracle without a wrapper");
         };
+        let why = why.to_string();
         assert!(why.contains("tools/py_ags4_check_json.py"), "{why}");
         assert!(why.contains("--oracle-project"), "{why}");
     }
@@ -140,7 +157,7 @@ mod tests {
     /// project, so the reason says exactly that.
     #[test]
     fn python_ags4_not_importable_says_to_sync_the_project() {
-        let why = reason(&OracleError::NotImportable, Path::new("/srv/forge"));
+        let why = reason(&OracleError::NotImportable, Path::new("/srv/forge")).to_string();
         assert!(why.contains("not importable in /srv/forge"), "{why}");
         assert!(why.contains("Run `uv sync` in /srv/forge"), "{why}");
     }
@@ -152,7 +169,8 @@ mod tests {
         let why = reason(
             &OracleError::Unavailable("No such file or directory (os error 2)".into()),
             Path::new("/srv/forge"),
-        );
+        )
+        .to_string();
         assert!(
             why.contains("could not run uv (No such file or directory"),
             "{why}"
@@ -160,6 +178,10 @@ mod tests {
         assert!(why.contains("Install uv"), "{why}");
     }
 
+    /// The default oracle site is this repo's own root: the wrapper and the
+    /// uv project that pins python-ags4 must both be where `OracleSite`
+    /// says. Needs no python, so a wrong path fails here rather than
+    /// degrading every run to Rust-only.
     #[test]
     fn the_default_oracle_site_is_this_repos_wrapper_and_project() {
         let site = OracleSite::new(None);
@@ -177,7 +199,8 @@ mod tests {
     /// so the skip cannot hide there.
     #[test]
     fn the_oracle_returns_a_verdict_on_a_vendored_file() {
-        let Some((oracle, version)) = OracleSite::new(None).build_oracle(120) else {
+        let Some((oracle, version)) = OracleSite::new(None).build_oracle(120, "test: skipped")
+        else {
             assert!(
                 std::env::var_os("FORGE_REQUIRE_ORACLE").is_none(),
                 "FORGE_REQUIRE_ORACLE is set but python-ags4 is unavailable \

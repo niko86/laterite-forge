@@ -22,7 +22,7 @@ mutate/validate/report muscle and embeds **no LLM**.
 ```
 laterite-ags4-forge check <path>... [--no-oracle] [--timeout S] [--oracle-project DIR]
 laterite-ags4-forge gen [--scaffold minimal|loca-samp] [--inject TOK]... \
-               [--validate] [--no-oracle] [--out-dir D]
+               [--validate] [--no-oracle] [--oracle-project DIR] [--out-dir D]
 ```
 
 - **check** — dual-validate existing files; print each side's rule set,
