@@ -1,0 +1,51 @@
+# london-basin: River Terrace Deposits over weathered and unweathered London
+# Clay (ADR 0001, #24). Every range carries its basis. A basis names the
+# source as found (book, edition, chapter, printed page, table) and the
+# original paper where the book names one. "forge judgement" marks a value
+# that describes the synthetic site or a modelling choice, not the ground.
+#
+# Description constraints (not ranges, so they carry no basis field) follow
+# these sources:
+# - RTD: light brown, slightly sandy flint GRAVEL (ICE Manual of Geotechnical
+#   Engineering Vol. 1, 2012, ch. 13, Fig. 13.1(a), p.142); brown fine to
+#   medium sand and gravel (same, ch. 4, Fig. 4.4, p.21).
+# - Weathered London Clay: brown silty CLAY (ICE Vol. 1, ch. 13, Fig. 13.1(a),
+#   p.142); weathered "brown" against unweathered "blue" (Head, Manual of Soil
+#   Laboratory Testing Vol. 2, 2nd ed., Table 14.5, p.372); orange-mottled
+#   brown (Head Vol. 1, 3rd ed., Table 7.1, p.371).
+# - London Clay: grey silty CLAY (ICE Vol. 1, ch. 13, Fig. 13.1(a), p.142);
+#   blue grey fissured silty clay (ICE Vol. 1, ch. 36, Table 36.2, p.496,
+#   after Czerewko et al. 2003a; BGS Lexicon, London Clay Formation).
+schema = 1
+name = "london-basin"
+version = 1
+summary = "River Terrace Deposits over weathered and unweathered London Clay, London Basin."
+
+[site]
+extent_m = { x = 300.0, y = 200.0 }
+ground_level_m = { min = 5.0, max = 30.0, basis = "forge judgement: a synthetic local datum, not a real elevation" }
+
+[[hole_types]]
+code = "CP"
+weight = 1
+final_depth_m = { min = 20.0, max = 40.0, basis = "forge judgement: an investigation choice; within the 50-60 m percussion boreholes generally reach (Craig's Soil Mechanics, 7th ed., 2004, s10.2, p.376)" }
+
+[[units]]
+id = "RTD"
+name = "River Terrace Deposits"
+thickness_m = { min = -2.0, max = 9.0, basis = "BGS Lexicon of Named Rock Units, Taplow Gravel Member (TPGR): average 5 m, locally to 9 m; Kempton Park Gravel Member (KPGR): average 6 m. Minimum below zero: forge judgement, modelling patchy terrace cover" }
+description = { principals = ["GRAVEL", "SAND"], secondaries = ["sand", "gravel"], colours = ["light brown", "brown"] }
+sampling = { types = ["B", "D"], interval_m = { min = 1.0, max = 1.5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 53, s53.7.2, p.791: sampling typically every 1.5 m; Craig's Soil Mechanics, 7th ed., 2004, ch. 8, p.297: SPT every 0.75-1.5 m" } }
+
+[[units]]
+id = "WLC"
+name = "Weathered London Clay"
+thickness_m = { min = 2.0, max = 8.0, basis = "ICE Manual of Geotechnical Engineering Vol. 1, 2012, ch. 36, s36.3, p.497: weathering to 7-8 m in UK overconsolidated clays and mudrocks (general, not London Clay specific); one London log shows about 3 m (same, ch. 13, Fig. 13.1(a), p.142)" }
+description = { principals = ["CLAY"], secondaries = ["silt"], colours = ["brown", "orangeish brown", "light brown"] }
+sampling = { types = ["U", "D"], interval_m = { min = 1.0, max = 1.5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 53, s53.7.2, p.791: sampling typically every 1.5 m" } }
+
+[[units]]
+id = "LC"
+name = "London Clay"
+description = { principals = ["CLAY"], secondaries = ["silt"], colours = ["grey", "bluish grey"] }
+sampling = { types = ["U", "D"], interval_m = { min = 1.0, max = 1.5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 53, s53.7.2, p.791: sampling typically every 1.5 m" } }
