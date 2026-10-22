@@ -89,6 +89,18 @@ fn an_injection_lands_on_a_site_base() {
     assert!(rules.contains("Rule 8"), "{rules}");
 }
 
+/// With SAMP in the base, a SAMP-targeting injector trips its rule.
+#[test]
+fn a_samp_injection_lands_on_a_site_base() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = preset(dir.path(), PRESET);
+    let out = gen_site(dir.path(), &p, &["--inject", "rule10a"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let doc: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let rules = doc["candidates"][0]["rust_rules"].to_string();
+    assert!(rules.contains("Rule 10"), "{rules}");
+}
+
 #[test]
 fn site_and_scaffold_together_are_refused() {
     let dir = tempfile::tempdir().unwrap();
