@@ -123,6 +123,12 @@ pub struct Vocab {
 }
 
 impl Vocab {
+    /// The Table-8 consistency terms, in order (Very soft … Very stiff).
+    #[cfg(test)]
+    pub fn consistency_terms(&self) -> &[String] {
+        &self.consistency
+    }
+
     /// Parse the vendored skill data. Panics only if the in-repo JSON is
     /// malformed (a build-time guarantee, asserted by the tests).
     pub fn load() -> Vocab {
