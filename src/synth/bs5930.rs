@@ -678,12 +678,17 @@ impl UnitDescription {
         for sec in &self.secondaries {
             if !UNIT_SECONDARIES.contains(&sec.as_str()) {
                 out.push(format!("unknown secondary {sec:?}"));
-            } else if UNIT_PRINCIPALS
-                .iter()
-                .any(|(name, own, _)| own == sec && self.principals.iter().any(|p| p == name))
+            } else if !self.principals.is_empty()
+                && self.principals.iter().all(|p| {
+                    UNIT_PRINCIPALS
+                        .iter()
+                        .any(|(name, own, _)| name == p && own == sec)
+                })
             {
+                // Only a fraction no listed principal can carry is refused: the
+                // draw skips the drawn principal's own fraction.
                 out.push(format!(
-                    "secondary {sec:?} is the own fraction of a listed principal"
+                    "secondary {sec:?} is the own fraction of every listed principal"
                 ));
             }
         }
@@ -1387,6 +1392,24 @@ mod tests {
         assert!(p[0].contains("own fraction"), "{p:?}");
         let p = one(unit(&["CLAY"], &[], &[]));
         assert!(p[0].contains("empty palette"), "{p:?}");
+    }
+
+    /// A secondary that some listed principal can carry is usable: in a
+    /// CLAY-or-SILT unit, a CLAY stratum can be silty, and the draw never
+    /// gives a SILT stratum its own fraction.
+    #[test]
+    fn a_mixed_unit_may_list_a_fraction_one_principal_can_carry() {
+        let v = vocab();
+        let u = unit(&["CLAY", "SILT"], &["silt", "clay"], &["grey"]);
+        assert_eq!(u.problems(&v), Vec::<String>::new());
+        for seed in 0..200u64 {
+            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, None).unwrap();
+            let own = d.principal.to_ascii_lowercase();
+            assert!(
+                d.secondaries.iter().all(|s| s.soil != own),
+                "seed {seed}: {d:?}"
+            );
+        }
     }
 
     #[test]
