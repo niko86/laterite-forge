@@ -638,9 +638,6 @@ pub fn catalog(ctx: Ctx) -> Result<i32> {
     Ok(0)
 }
 
-/// Salt for the made-ground lane's own RNG stream (`describe --made-ground`).
-const MADE_GROUND_SALT: u64 = 0x4d41_4445_4752_4e44;
-
 /// `forge describe` — preview the BS 5930 soil-description engine (the
 /// realistic `GEOL_DESC` source). Pure generation; always exit 0.
 pub fn describe(args: &crate::cli::DescribeArgs, ctx: Ctx) -> Result<i32> {
@@ -717,7 +714,7 @@ pub fn describe(args: &crate::cli::DescribeArgs, ctx: Ctx) -> Result<i32> {
             let (text, matrix, constituents) = if args.made_ground {
                 // Its own stream, salted off the seed: the matrix draw above
                 // is untouched.
-                let mut mg_rng = Rng::seeded(seed ^ MADE_GROUND_SALT);
+                let mut mg_rng = Rng::seeded(seed ^ crate::synth::made_ground::SALT);
                 let g = crate::synth::made_ground::made_ground(&d, vocab, &mut mg_rng);
                 let parts = g
                     .constituents

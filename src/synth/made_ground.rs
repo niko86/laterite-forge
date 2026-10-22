@@ -89,6 +89,11 @@ pub struct MadeGround {
     pub constituents: Vec<Constituent>,
 }
 
+/// Salt for the lane's own RNG stream, so drawing constituents never moves the
+/// matrix draw. `describe --made-ground` and the tests share it, so a seed
+/// gives the same constituents in both.
+pub const SALT: u64 = 0x4d41_4445_4752_4e44;
+
 /// Turn a drawn matrix description into made ground, drawing from `rng`
 /// (use a stream of its own, not the one that drew the matrix).
 // `below(n)` returns a value < n, and every n here is a small `Vec::len()`
@@ -169,7 +174,7 @@ mod tests {
 
     fn draw(seed: u64, lanes: Lanes) -> MadeGround {
         let m = describe_with(vocab(), &mut Rng::seeded(seed), lanes);
-        made_ground(&m, vocab(), &mut Rng::seeded(seed ^ 0x4d47))
+        made_ground(&m, vocab(), &mut Rng::seeded(seed ^ SALT))
     }
 
     #[test]
@@ -245,7 +250,7 @@ mod tests {
         // Sand is angular fine."; the clause lands before the first stop.
         assert_eq!(
             draw(2, Lanes::STANDARD).description.text,
-            "MADE GROUND: Very loose cream very gravelly clayey SAND with numerous ash \
+            "MADE GROUND: Very loose cream very gravelly clayey SAND with frequent metal \
              fragments. Sand is angular fine."
         );
     }
