@@ -1,5 +1,10 @@
-//! The site model: believable synthetic ground for `--site`.
-// Nothing calls this yet; it is wired in by #21.
-#![allow(dead_code)]
+//! The site model: believable synthetic ground for `--site` (ADR 0001).
+//!
+//! A preset ([`preset`]) tells the site's story; [`build`] generates holes and
+//! strata from it with keyed draws ([`draw`]) over smooth fields ([`ground`]),
+//! and lowers them into the model the emitter writes.
 
+pub mod build;
+mod draw;
+mod ground;
 pub mod preset;

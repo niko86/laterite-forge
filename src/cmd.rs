@@ -17,7 +17,7 @@ use crate::cli::{
 use crate::evolve::evolve;
 use crate::mine::{MineCfg, run_mine};
 use crate::minimize::{insight_stub, minimize as ddmin};
-use crate::ops::{Injection, synth_combined_lab, synth_injected_lab};
+use crate::ops::{Injection, inject_into, synth_combined_lab};
 use crate::pipeline::{OracleSite, dual_validate};
 use crate::report::{
     Candidate, CatalogEntry, CatalogReport, DescribeReport, DescribeRow, ForgeReport,
@@ -25,6 +25,7 @@ use crate::report::{
 };
 use crate::strategy::{ConfidenceCfg, Strategy};
 use crate::synth::Scaffold;
+use crate::synth::model::ProjectModel;
 
 /// Parse one `--combine` spec (`"rule10a,rule8,rule5"`) into its injector
 /// sequence. `Err(tok)` names the first unknown token. Empty tokens
@@ -135,7 +136,15 @@ pub fn generate(args: &GenArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
             .flatten()
             .copied()
             .any(super::ops::Injection::needs_relational);
-    if scaffold == Scaffold::Minimal && needs_relational {
+    // `--site`: the base is a site model instead of a scaffold (ADR 0001).
+    let site_base = match site_base(args) {
+        Ok(b) => b,
+        Err(code) => return Ok(code),
+    };
+    let base_name = site_base
+        .as_ref()
+        .map_or_else(|| args.scaffold.clone(), |(_, name)| name.clone());
+    if site_base.is_none() && scaffold == Scaffold::Minimal && needs_relational {
         eprintln!(
             "error: a relational injector needs --scaffold loca-samp \
              (minimal has no LOCA→SAMP base)"
@@ -153,7 +162,7 @@ pub fn generate(args: &GenArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
             format!(
                 "would synthesize {} candidate(s) [scaffold={}] and {}",
                 total,
-                args.scaffold,
+                base_name,
                 if args.validate {
                     "dual-validate"
                 } else {
@@ -161,7 +170,7 @@ pub fn generate(args: &GenArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
                 },
             ),
         )
-        .with("scaffold", args.scaffold.clone())
+        .with("scaffold", base_name.clone())
         .with(
             "injections",
             injections
@@ -195,10 +204,14 @@ pub fn generate(args: &GenArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
         None
     };
 
+    let candidate = |injs: &[Injection]| match &site_base {
+        Some((model, _)) => inject_into(model.clone(), args.seed, injs),
+        None => synth_combined_lab(scaffold, args.seed, injs, args.lab_test_rate),
+    };
     let mut candidates = Vec::new();
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
     for (seq, inj) in injections.iter().enumerate() {
-        let text = synth_injected_lab(scaffold, args.seed, *inj, args.lab_test_rate);
+        let text = candidate(std::slice::from_ref(inj));
         let fname = format!("cand_{seq:03}_{inj}.ags");
         let path = dir.join(fname.replace([':', '/'], "_"));
         std::fs::write(&path, text.as_bytes())?;
@@ -221,7 +234,7 @@ pub fn generate(args: &GenArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
     for (k, injs) in combos.iter().enumerate() {
         let seq = injections.len() + k;
         let (label, target) = combo_meta(injs);
-        let text = synth_combined_lab(scaffold, args.seed, injs, args.lab_test_rate);
+        let text = candidate(injs);
         let fname = format!("cand_{seq:03}_combo_{label}.ags");
         let path = dir.join(fname.replace([':', '/', '+'], "_"));
         std::fs::write(&path, text.as_bytes())?;
@@ -241,7 +254,7 @@ pub fn generate(args: &GenArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
         schema: 1,
         created: chrono::Utc::now().to_rfc3339(),
         strategy: "gen (flag-driven)".into(),
-        scaffold: args.scaffold.clone(),
+        scaffold: base_name,
         oracle: oracle.is_some(),
         counts,
         candidates,
@@ -254,6 +267,42 @@ pub fn generate(args: &GenArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
     let action = report.actions_present();
     emit(&report, &ctx)?;
     Ok(i32::from(action))
+}
+
+/// The `--site` base for `gen`: the site model and its report name
+/// (`site:<preset>`), `None` without `--site`, or the exit code for a preset or
+/// grid the user must fix (5, after saying why on stderr).
+fn site_base(args: &GenArgs) -> std::result::Result<Option<(ProjectModel, String)>, i32> {
+    use crate::site::build::{self, Grid};
+    let Some(arg) = &args.site else {
+        return Ok(None);
+    };
+    let preset = crate::site::preset::resolve(arg).map_err(|e| {
+        eprintln!("error: preset {arg}:\n{e}");
+        5
+    })?;
+    let problems = build::problems(&preset);
+    if !problems.is_empty() {
+        eprintln!("error: preset {arg}:\n{}", problems.join("\n"));
+        return Err(5);
+    }
+    let grid = match args.origin.as_deref() {
+        None => Grid::Local,
+        Some(origin) => {
+            let parsed = origin
+                .split_once(',')
+                .and_then(|(e, n)| Some((e.trim().parse().ok()?, n.trim().parse().ok()?)))
+                .filter(|(e, n): &(f64, f64)| e.is_finite() && n.is_finite());
+            let Some((easting, northing)) = parsed else {
+                eprintln!("error: --origin '{origin}' is not E,N in metres (e.g. 530000,180000)");
+                return Err(5);
+            };
+            Grid::Bng { easting, northing }
+        }
+    };
+    let site = build::build(&preset, args.seed, build::default_hole_count(args.seed));
+    let model = build::lower(&site, &preset, args.seed, grid);
+    Ok(Some((model, format!("site:{}", preset.name))))
 }
 
 /// `forge run` — the evolutionary loop. Builds a `Strategy` from the flags

@@ -55,7 +55,13 @@ pub fn synth_combined_lab(
     injections: &[Injection],
     lab_rate: f64,
 ) -> String {
-    let mut model = varied_model_lab(scaffold, seed, lab_rate);
+    inject_into(varied_model_lab(scaffold, seed, lab_rate), seed, injections)
+}
+
+/// Apply `injections` to an already built `model` at seeded sites and emit
+/// it: the injection half of [`synth_combined`], for a base that is not a
+/// scaffold (a `--site` model).
+pub fn inject_into(mut model: ProjectModel, seed: u64, injections: &[Injection]) -> String {
     let mut rng = Rng::seeded(seed ^ PLACEMENT_SALT);
     for inj in injections {
         inj.apply_model(&mut model, &mut rng);
@@ -67,16 +73,6 @@ pub fn synth_combined_lab(
 /// the one-element combination (same base, same single RNG draw).
 pub fn synth_injected(scaffold: Scaffold, seed: u64, injection: Injection) -> String {
     synth_combined(scaffold, seed, std::slice::from_ref(&injection))
-}
-
-/// [`synth_injected`] + a `lab_rate` (see [`synth_combined_lab`]).
-pub fn synth_injected_lab(
-    scaffold: Scaffold,
-    seed: u64,
-    injection: Injection,
-    lab_rate: f64,
-) -> String {
-    synth_combined_lab(scaffold, seed, std::slice::from_ref(&injection), lab_rate)
 }
 
 /// A targeted, single-rule violation injected into a clean synthetic

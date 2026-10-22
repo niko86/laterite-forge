@@ -160,6 +160,19 @@ pub struct GenArgs {
     /// Artifact dir (default: $`AGS4_FORGE_DIR` or ./forge-runs).
     #[arg(long)]
     pub out_dir: Option<PathBuf>,
+    /// Generate from a site-model preset (a shipped name or a TOML path)
+    /// instead of a scaffold. Hidden until its descriptions are complete
+    /// (ADR 0001).
+    #[arg(long, hide = true, conflicts_with = "scaffold")]
+    pub site: Option<String>,
+    /// `--site` only: add national-grid coordinates. The one grid is `bng`,
+    /// which needs `--origin`.
+    #[arg(long, hide = true, requires_all = ["site", "origin"], value_parser = ["bng"])]
+    pub grid: Option<String>,
+    /// `--grid bng` only: the national-grid origin `E,N` of the site's local
+    /// grid. The consumer chooses it and is responsible for it.
+    #[arg(long, hide = true, requires = "grid", value_name = "E,N")]
+    pub origin: Option<String>,
 }
 
 #[derive(Args)]
