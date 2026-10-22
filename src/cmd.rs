@@ -269,14 +269,14 @@ pub fn generate(args: &GenArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
     Ok(i32::from(action))
 }
 
-/// The `--site` base for `gen`: the site model and its report name
-/// (`site:<preset>`), `None` without `--site`, or the exit code for a preset or
-/// grid the user must fix (5, after saying why on stderr).
-fn site_base(args: &GenArgs) -> std::result::Result<Option<(ProjectModel, String)>, i32> {
+/// Resolve a `--site` argument and `--origin` into a checked preset and its
+/// grid, shared by `gen` and `scale`. The error is the exit code (5, after
+/// saying why on stderr).
+fn resolve_site(
+    arg: &str,
+    origin: Option<&str>,
+) -> std::result::Result<(crate::site::preset::Preset, crate::site::build::Grid), i32> {
     use crate::site::build::{self, Grid};
-    let Some(arg) = &args.site else {
-        return Ok(None);
-    };
     let preset = crate::site::preset::resolve(arg).map_err(|e| {
         eprintln!("error: preset {arg}:\n{e}");
         5
@@ -286,7 +286,7 @@ fn site_base(args: &GenArgs) -> std::result::Result<Option<(ProjectModel, String
         eprintln!("error: preset {arg}:\n{}", problems.join("\n"));
         return Err(5);
     }
-    let grid = match args.origin.as_deref() {
+    let grid = match origin {
         None => Grid::Local,
         Some(origin) => {
             let parsed = origin
@@ -300,6 +300,18 @@ fn site_base(args: &GenArgs) -> std::result::Result<Option<(ProjectModel, String
             Grid::Bng { easting, northing }
         }
     };
+    Ok((preset, grid))
+}
+
+/// The `--site` base for `gen`: the site model and its report name
+/// (`site:<preset>`), `None` without `--site`, or the exit code for a preset or
+/// grid the user must fix (5, after saying why on stderr).
+fn site_base(args: &GenArgs) -> std::result::Result<Option<(ProjectModel, String)>, i32> {
+    use crate::site::build;
+    let Some(arg) = &args.site else {
+        return Ok(None);
+    };
+    let (preset, grid) = resolve_site(arg, args.origin.as_deref())?;
     let site = build::build(&preset, args.seed, build::default_hole_count(args.seed));
     let model = build::lower(&site, &preset, args.seed, grid);
     Ok(Some((model, format!("site:{}", preset.name))))
@@ -732,18 +744,42 @@ pub fn describe(args: &crate::cli::DescribeArgs, ctx: Ctx) -> Result<i32> {
 pub fn scale(args: &crate::cli::ScaleArgs, ctx: Ctx) -> Result<i32> {
     use std::io::{BufWriter, Write};
 
-    let Some(scaffold) = Scaffold::parse(&args.scaffold) else {
-        eprintln!(
-            "error: unknown --scaffold '{}' (use: loca-samp | wide)",
-            args.scaffold
-        );
-        return Ok(5);
+    let size_ok = crate::scale::parse_size(&args.size);
+    // The base: a site model (`--site`) or a scaffold. `label` names it in
+    // the report and the default output path.
+    let site = match &args.site {
+        Some(arg) => match resolve_site(arg, args.origin.as_deref()) {
+            Ok(r) => Some(r),
+            Err(code) => return Ok(code),
+        },
+        None => None,
     };
-    let Some(target) = crate::scale::parse_size(&args.size) else {
+    let scaffold = if site.is_some() {
+        None
+    } else {
+        let Some(s) = Scaffold::parse(&args.scaffold) else {
+            eprintln!(
+                "error: unknown --scaffold '{}' (use: loca-samp | wide)",
+                args.scaffold
+            );
+            return Ok(5);
+        };
+        Some(s)
+    };
+    let label = site.as_ref().map_or_else(
+        || args.scaffold.clone(),
+        |(p, _)| format!("site:{}", p.name),
+    );
+    let Some(target) = size_ok else {
         eprintln!("error: bad --size '{}' (e.g. 500KB, 50MB, 1GB)", args.size);
         return Ok(5);
     };
-    let cal = match crate::scale::calibrate(scaffold, args.seed, target) {
+    let cal = match (&site, scaffold) {
+        (Some((preset, grid)), _) => crate::scale::calibrate_site(preset, args.seed, *grid, target),
+        (None, Some(sc)) => crate::scale::calibrate(sc, args.seed, target),
+        (None, None) => unreachable!("a scaffold is parsed whenever there is no site"),
+    };
+    let cal = match cal {
         Ok(c) => c,
         Err(e) => {
             eprintln!("error: {e}");
@@ -765,7 +801,7 @@ pub fn scale(args: &crate::cli::ScaleArgs, ctx: Ctx) -> Result<i32> {
     let path = args.out.clone().unwrap_or_else(|| {
         out.join("scale").join(format!(
             "{}_{}.ags",
-            args.scaffold,
+            label.replace(':', "_"),
             args.size.to_lowercase().replace(['/', ' '], "_")
         ))
     });
@@ -775,13 +811,13 @@ pub fn scale(args: &crate::cli::ScaleArgs, ctx: Ctx) -> Result<i32> {
             "scale",
             format!(
                 "would synthesize a {} file ~{} bytes ({} boreholes) → {}",
-                args.scaffold,
+                label,
                 cal.predicted_bytes,
                 cal.n_loca,
                 path.display()
             ),
         )
-        .with("scaffold", args.scaffold.clone())
+        .with("scaffold", label.clone())
         .with("target_bytes", target)
         .with("predicted_bytes", cal.predicted_bytes)
         .with("n_loca", cal.n_loca as u64)
@@ -807,7 +843,14 @@ pub fn scale(args: &crate::cli::ScaleArgs, ctx: Ctx) -> Result<i32> {
     }
     // Build once; corrupt in place if a fault-density mode is active (the
     // clean twin is exactly this model with no `apply_dense`); stream out.
-    let mut model = crate::synth::model::varied_model_n(scaffold, args.seed, Some(cal.n_loca));
+    let mut model = match (&site, scaffold) {
+        (Some((preset, grid)), _) => {
+            let built = crate::site::build::build(preset, args.seed, cal.n_loca);
+            crate::site::build::lower(&built, preset, args.seed, *grid)
+        }
+        (None, Some(sc)) => crate::synth::model::varied_model_n(sc, args.seed, Some(cal.n_loca)),
+        (None, None) => unreachable!("a scaffold is parsed whenever there is no site"),
+    };
     let dirty_sites = match dirty {
         Some((inj, density)) => inj.apply_dense(&mut model, args.seed, density),
         None => 0,
@@ -832,7 +875,7 @@ pub fn scale(args: &crate::cli::ScaleArgs, ctx: Ctx) -> Result<i32> {
     ));
     let report = crate::report::ScaleReport {
         schema: 2,
-        scaffold: args.scaffold.clone(),
+        scaffold: label,
         seed: args.seed,
         target_bytes: target,
         predicted_bytes: cal.predicted_bytes,

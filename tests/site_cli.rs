@@ -159,3 +159,69 @@ fn a_bad_preset_exits_5_naming_the_field() {
         stderr(&out)
     );
 }
+
+fn scale_site(dir: &Path, preset: &str, extra: &[&str]) -> Output {
+    let out = dir.join("out");
+    let mut args = vec!["scale", "--site", preset, "--json", "--out-dir"];
+    args.push(out.to_str().unwrap());
+    args.extend_from_slice(extra);
+    forge(&args)
+}
+
+/// `scale --site` writes a clean file near the target, reported under the
+/// preset's name; `--inject`/`--density` dirty it as they do a scaffold.
+#[test]
+fn scale_site_writes_a_file_near_the_target() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = preset(dir.path(), PRESET);
+    let out = scale_site(dir.path(), &p, &["--size", "200KB"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let doc: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(doc["scaffold"], "site:cli-basin");
+    let actual = doc["actual_bytes"].as_f64().unwrap();
+    assert!((0.98..=1.02).contains(&(actual / 200_000.0)), "{doc}");
+    let text = std::fs::read_to_string(doc["path"].as_str().unwrap()).unwrap();
+    assert!(text.contains("from site preset cli-basin v1"));
+
+    let out = scale_site(
+        dir.path(),
+        &p,
+        &["--size", "200KB", "--inject", "rule8", "--density", "0.5"],
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let doc: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(doc["dirty_sites"].as_u64().unwrap() > 0, "{doc}");
+}
+
+#[test]
+fn scale_site_and_scaffold_together_are_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = preset(dir.path(), PRESET);
+    let out = scale_site(dir.path(), &p, &["--size", "100KB", "--scaffold", "wide"]);
+    assert_eq!(out.status.code(), Some(5), "{}", stderr(&out));
+}
+
+#[test]
+fn scale_site_with_a_bad_preset_exits_5() {
+    let dir = tempfile::tempdir().unwrap();
+    let bad = preset(
+        dir.path(),
+        &PRESET.replacen(r#", basis = "test fixture" }"#, " }", 1),
+    );
+    let out = scale_site(dir.path(), &bad, &["--size", "100KB"]);
+    assert_eq!(out.status.code(), Some(5));
+    assert!(
+        stderr(&out).contains("site.ground_level_m"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn scale_site_flags_are_hidden_from_help() {
+    let out = forge(&["scale", "--help"]);
+    let help = String::from_utf8_lossy(&out.stdout);
+    for flag in ["--site", "--grid", "--origin"] {
+        assert!(!help.contains(flag), "{flag} is visible in scale --help");
+    }
+}

@@ -15,6 +15,8 @@
 
 use std::io::{self, Write};
 
+use crate::site::build::{self, Grid};
+use crate::site::preset::Preset;
 use crate::synth::Scaffold;
 use crate::synth::emit;
 use crate::synth::model::{id_width_for, varied_model_sized};
@@ -121,6 +123,72 @@ pub fn calibrate(scaffold: Scaffold, seed: u64, target: u64) -> Result<Calibrati
     })
 }
 
+/// Hole counts the first site calibration pass measures.
+const SITE_SAMPLES: (usize, usize) = (64, 256);
+
+/// Bytes the emitter writes for the first `holes` holes of a site model —
+/// counted, not buffered.
+pub fn emit_bytes_site(preset: &Preset, seed: u64, grid: Grid, holes: usize) -> u64 {
+    let site = build::build(preset, seed, holes);
+    let model = build::lower(&site, preset, seed, grid);
+    let mut c = Counter(0);
+    emit::emit(&model, &mut c).expect("counting writer never errors");
+    c.0
+}
+
+/// Two-point calibration of a site model's hole count, as [`calibrate`] does
+/// for a scaffold. Site holes differ in size (each draws its own depth and
+/// strata) and carry unpadded ids (`BH9`, `BH10`), so the samples are large
+/// enough to average the hole-to-hole spread, and a second pass re-fits the
+/// per-hole bytes inside the target's id-digit band: both sample points have
+/// the first guess's digit count. Holes are prefix-stable, so a smaller
+/// count is a prefix of a larger one.
+pub fn calibrate_site(
+    preset: &Preset,
+    seed: u64,
+    grid: Grid,
+    target: u64,
+) -> Result<Calibration, String> {
+    // Same bounds as `calibrate`: the documented byte range keeps the narrowing
+    // casts in range, and float-to-int casts saturate.
+    #[allow(clippy::cast_possible_truncation)]
+    let invert = |k: f64, overhead: f64| -> usize {
+        (((target as f64 - overhead) / k).round() as i64).max(1) as usize
+    };
+    let fit = |n1: usize, n2: usize| -> Result<(f64, f64), String> {
+        let b1 = emit_bytes_site(preset, seed, grid, n1) as f64;
+        let b2 = emit_bytes_site(preset, seed, grid, n2) as f64;
+        let k = (b2 - b1) / (n2 - n1) as f64;
+        if k <= 0.0 {
+            return Err("the preset's file does not grow with hole count".to_string());
+        }
+        Ok((k, b1 - k * n1 as f64))
+    };
+    // Pass 1: a rough count from the default samples.
+    let (k0, oh0) = fit(SITE_SAMPLES.0, SITE_SAMPLES.1)?;
+    let n0 = invert(k0, oh0);
+    // Pass 2: sample inside the target's digit band `[10^(d-1), 10^d)`, so
+    // the per-hole bytes include the id width most of the final file has.
+    let lo = 10usize.pow(n0.ilog10());
+    let span = SITE_SAMPLES.1 - SITE_SAMPLES.0;
+    // A target below the default samples refits around the rough count
+    // instead, rather than extrapolating back from larger files.
+    let (k, overhead) = if lo >= SITE_SAMPLES.1 {
+        fit(lo, lo + span)?
+    } else if n0 < SITE_SAMPLES.0 {
+        fit((n0 / 2).max(1), (n0 * 3 / 2).max(2))?
+    } else {
+        (k0, oh0)
+    };
+    let n_holes = invert(k, overhead);
+    #[allow(clippy::cast_possible_truncation)]
+    let predicted_bytes = (overhead + k * n_holes as f64).round().max(0.0) as u64;
+    Ok(Calibration {
+        n_loca: n_holes,
+        predicted_bytes,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,6 +225,89 @@ mod tests {
             assert!(
                 (0.9..=1.12).contains(&ratio),
                 "target {target}: actual {actual} ratio {ratio:.3} (n_loca {})",
+                c.n_loca
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod site_tests {
+    use super::*;
+
+    const SITE_PRESET: &str = r#"
+schema = 1
+name = "scale-basin"
+version = 1
+summary = "A fixture."
+
+[site]
+extent_m = { x = 200.0, y = 100.0 }
+ground_level_m = { min = 10.0, max = 12.0, basis = "test fixture" }
+
+[[hole_types]]
+code = "CP"
+weight = 1
+final_depth_m = { min = 10.0, max = 20.0, basis = "test fixture" }
+
+[[units]]
+id = "TOP"
+name = "Top"
+thickness_m = { min = 1.0, max = 3.0, basis = "test fixture" }
+description = { principals = ["SAND"], secondaries = [], colours = ["brown"] }
+sampling = { types = ["B"], interval_m = { min = 1.0, max = 1.5, basis = "test fixture" } }
+
+[[units]]
+id = "BASE"
+name = "Base"
+description = { principals = ["CLAY"], secondaries = [], colours = ["grey"] }
+sampling = { types = ["U"], interval_m = { min = 1.5, max = 3.0, basis = "test fixture" } }
+"#;
+
+    fn site_preset() -> Preset {
+        Preset::from_toml(SITE_PRESET).expect("fixture loads")
+    }
+
+    /// A site scaled to a smaller and a larger size: in every group the
+    /// smaller file's rows are the first rows of the larger's.
+    #[test]
+    fn a_smaller_site_is_a_prefix_of_a_larger_one_in_every_group() {
+        let p = site_preset();
+        let model = |target| {
+            let c = calibrate_site(&p, 3, Grid::Local, target).unwrap();
+            build::lower(&build::build(&p, 3, c.n_loca), &p, 3, Grid::Local)
+        };
+        let (small, large) = (model(100_000), model(400_000));
+        let mut grown = 0;
+        for g in &small.groups {
+            let big = large.groups.iter().find(|b| b.code == g.code).unwrap();
+            assert!(g.rows.len() <= big.rows.len(), "{}", g.code);
+            if matches!(g.code.as_str(), "LOCA" | "GEOL") {
+                assert!(g.rows.len() < big.rows.len(), "{} did not grow", g.code);
+                grown += 1;
+            }
+            for (a, b) in g.rows.iter().zip(&big.rows) {
+                assert_eq!(a.values, b.values, "{}", g.code);
+            }
+        }
+        assert_eq!(grown, 2, "LOCA and GEOL were compared");
+    }
+
+    /// The site calibration meets the band scaffolds do, across id-digit
+    /// boundaries, and is deterministic.
+    #[test]
+    fn calibrated_site_size_is_near_target_and_deterministic() {
+        let p = site_preset();
+        for target in [20_000u64, 200_000, 1_000_000, 5_000_000] {
+            let c = calibrate_site(&p, 7, Grid::Local, target).unwrap();
+            let c2 = calibrate_site(&p, 7, Grid::Local, target).unwrap();
+            assert_eq!(c.n_loca, c2.n_loca, "calibration is deterministic");
+            let actual = emit_bytes_site(&p, 7, Grid::Local, c.n_loca);
+            let ratio = actual as f64 / target as f64;
+            // Well inside the scaffold band (0.9..=1.12) asserted above.
+            assert!(
+                (0.98..=1.02).contains(&ratio),
+                "target {target}: actual {actual} ratio {ratio:.3} (holes {})",
                 c.n_loca
             );
         }
