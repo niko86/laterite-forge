@@ -12,6 +12,7 @@ use laterite_ags4_validator::{DictVersion, Dictionary};
 use super::draw::{Key, uniform};
 use super::ground::Field;
 use super::preset::{DescriptionSpec, Extent, Lens, Preset, Sampling};
+use super::properties::PropertyModel;
 use crate::synth::bs5930::{self, UnitDescription};
 use crate::synth::generic;
 use crate::synth::model::{Group, ProjectModel, Row, collect_abbr, collect_type, collect_unit};
@@ -30,6 +31,9 @@ pub enum Grid {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Site {
     pub holes: Vec<Hole>,
+    /// The index properties, density and groundwater behind the holes. Nothing
+    /// from it is written to the file yet (#41).
+    pub(super) properties: PropertyModel,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -200,7 +204,10 @@ pub fn build(preset: &Preset, seed: u64, holes: usize) -> Site {
             }
         })
         .collect();
-    Site { holes }
+    Site {
+        holes,
+        properties: PropertyModel::new(preset, seed),
+    }
 }
 
 /// The site-wide fields and footprints the strata of every hole read.

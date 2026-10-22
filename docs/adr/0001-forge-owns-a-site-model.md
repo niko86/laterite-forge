@@ -105,11 +105,12 @@ consumer can replace.
   using cited BS EN ISO 14688-2 boundaries. That keeps the description in step
   with the LLPL and LNMC rows in the same file. Undrained strength follows its
   own correlation. For coarse soils the term comes from SPT N.
-- A fine unit's properties are drawn as liquid limit, plasticity index and
-  liquidity index; plastic limit and moisture content are derived from them
-  (PL = LL − PI, w = PL + LI·PI). Contradictions such as PL > LL cannot occur,
-  and the consistency index (1 − LI) comes from a cited range rather than
-  from chance. A coarse unit draws SPT N and moisture content.
+- A fine unit's properties are drawn as plastic limit, plasticity index and
+  liquidity index; liquid limit and moisture content are derived from them
+  (LL = PL + PI, w = PL + LI·PI). Drawing PL rather than LL keeps it from
+  going negative, contradictions such as PL > LL cannot occur, and the
+  consistency index (1 − LI) comes from a cited range rather than from
+  chance. A coarse unit draws SPT N and moisture content.
 - Each property is a smooth field across the site mapped onto its cited
   range, plus an optional cited depth gradient. About one stratum in fifty
   takes an outlier on a drawn quantity, beyond its range by 25–75% of the

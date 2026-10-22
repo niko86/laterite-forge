@@ -12,6 +12,8 @@ use laterite_ags4_validator::{DictVersion, Dictionary};
 use toml::Table;
 use toml::Value;
 
+use super::properties::{self as props, Domain};
+
 /// The only schema this forge reads.
 const SCHEMA: i64 = 1;
 
@@ -34,10 +36,16 @@ pub struct Preset {
     pub lenses: Vec<Lens>,
 }
 
+// Every field carries its unit as the TOML key does (`_m`).
+#[allow(clippy::struct_field_names)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Site {
     pub extent_m: Extent,
     pub ground_level_m: Range,
+    /// The water table's depth below ground level, metres. `None` when the
+    /// preset gives no groundwater (every stratum then uses its own degree of
+    /// saturation).
+    pub groundwater_depth_m: Option<Range>,
 }
 
 /// Size of the local grid, whose origin is (0, 0).
@@ -64,6 +72,8 @@ pub struct Unit {
     pub thickness_m: Option<Range>,
     pub description: DescriptionSpec,
     pub sampling: Sampling,
+    /// Index properties; absent on presets that do not model them.
+    pub properties: Option<Properties>,
 }
 
 /// A unit with a limited, lenticular footprint inside one host unit. In plan
@@ -86,6 +96,8 @@ pub struct Lens {
     pub depth_in_host: Range,
     pub description: DescriptionSpec,
     pub sampling: Sampling,
+    /// Index properties; absent on presets that do not model them.
+    pub properties: Option<Properties>,
 }
 
 /// Constraints for the unit's description. The site layer checks the terms
@@ -110,6 +122,48 @@ pub struct Range {
     pub min: f64,
     pub max: f64,
     pub basis: String,
+}
+
+/// A cited range with an optional depth gradient: the value at depth `z`
+/// below the unit's top is the field value in `range` plus `per_m` x `z`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Quantity {
+    pub range: Range,
+    /// Change per metre of depth; its own cited range.
+    pub per_m: Option<Range>,
+}
+
+/// The index properties a unit or lens may carry (ADR 0001, "Values and
+/// descriptions"). `fine` is required when any principal is CLAY or SILT, and
+/// `coarse` when any is SAND or GRAVEL.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Properties {
+    pub fine: Option<FineProperties>,
+    pub coarse: Option<CoarseProperties>,
+    /// Particle density ratio Gs.
+    pub particle_density_ratio: Quantity,
+    /// Sr above the water table; 1 when absent.
+    pub degree_of_saturation: Option<Quantity>,
+    /// The chance, per hole, unit and quantity, of an outlier; a range so the
+    /// rate may vary smoothly across the site. Default
+    /// [`props::OUTLIER_RATE_DEFAULT`].
+    pub outlier_rate: Option<Range>,
+}
+
+/// Drawn for CLAY and SILT units. Liquid limit, moisture content and the
+/// consistency index are derived from these.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FineProperties {
+    pub plastic_limit_percent: Quantity,
+    pub plasticity_index_percent: Quantity,
+    pub liquidity_index: Quantity,
+}
+
+/// Drawn for SAND and GRAVEL units.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CoarseProperties {
+    pub spt_n: Quantity,
+    pub moisture_content_percent: Quantity,
 }
 
 /// Every problem found in a preset, one line each, naming where it is.
@@ -308,6 +362,13 @@ fn str_list(n: &mut Node, key: &'static str, errs: &mut Vec<String>) -> Option<V
 /// Reads `{ min, max, basis }` under `key`.
 fn read_range(n: &mut Node, key: &'static str, errs: &mut Vec<String>) -> Option<Range> {
     let mut r = req_table(n, key, errs)?;
+    let range = range_in(&mut r, errs);
+    r.finish(errs);
+    range
+}
+
+/// The `min`, `max` and `basis` of the table `r`; the caller finishes `r`.
+fn range_in(r: &mut Node, errs: &mut Vec<String>) -> Option<Range> {
     let min = num(r.get("min"), &r.at("min"), errs);
     let max = num(r.get("max"), &r.at("max"), errs);
     let basis = match r.get("basis") {
@@ -330,12 +391,185 @@ fn read_range(n: &mut Node, key: &'static str, errs: &mut Vec<String>) -> Option
     {
         errs.push(format!("{}: min {lo} is greater than max {hi}", r.path));
     }
-    r.finish(errs);
     Some(Range {
         min: min?,
         max: max?,
         basis: basis?,
     })
+}
+
+/// A range that must lie inside `domain`, each bound checked and named.
+fn check_domain(r: &Range, at: &str, domain: &Domain, errs: &mut Vec<String>) {
+    for (which, v) in [("min", r.min), ("max", r.max)] {
+        if !domain.contains(v) {
+            errs.push(format!(
+                "{at}: {which} {v} is outside its domain ({})",
+                domain.describe()
+            ));
+        }
+    }
+}
+
+/// Reads `{ min, max, basis, per_m? }` under `key`, inside `domain`.
+fn read_quantity(
+    n: &mut Node,
+    key: &'static str,
+    domain: &Domain,
+    errs: &mut Vec<String>,
+) -> Option<Quantity> {
+    let mut q = req_table(n, key, errs)?;
+    let range = range_in(&mut q, errs);
+    if let Some(r) = &range {
+        check_domain(r, &q.path, domain, errs);
+    }
+    let per_m = if q.table.contains_key("per_m") {
+        read_range(&mut q, "per_m", errs)
+    } else {
+        q.get("per_m");
+        None
+    };
+    q.finish(errs);
+    Some(Quantity {
+        range: range?,
+        per_m,
+    })
+}
+
+/// A quantity of a property set. `unusable` is why the unit cannot use the
+/// set, if it cannot: the key is then refused when written, and otherwise it
+/// is required.
+fn set_quantity(
+    p: &mut Node,
+    key: &'static str,
+    domain: &Domain,
+    unusable: Option<&str>,
+    errs: &mut Vec<String>,
+) -> Option<Quantity> {
+    if let Some(reason) = unusable {
+        if p.table.contains_key(key) {
+            p.get(key);
+            errs.push(format!("{}: {reason}, so it cannot use this", p.at(key)));
+        }
+        None
+    } else {
+        read_quantity(p, key, domain, errs)
+    }
+}
+
+/// The `properties` table of a unit or lens whose principals are
+/// `principals`. `None` when it has problems (which are then in `errs`).
+fn read_properties(
+    u: &mut Node,
+    principals: &[String],
+    errs: &mut Vec<String>,
+) -> Option<Properties> {
+    let has = |names: [&str; 2]| principals.iter().any(|p| names.contains(&p.as_str()));
+    let (fine, coarse) = (has(["CLAY", "SILT"]), has(["SAND", "GRAVEL"]));
+    let mut p = req_table(u, "properties", errs)?;
+    if !fine && !coarse {
+        errs.push(format!(
+            "{}: no principal is fine (CLAY, SILT) or coarse (SAND, GRAVEL), so no property set applies",
+            p.path
+        ));
+        return None;
+    }
+    let no_fine = (!fine).then_some("the unit has no fine principal (CLAY, SILT)");
+    let no_coarse = (!coarse).then_some("the unit has no coarse principal (SAND, GRAVEL)");
+    let pl = set_quantity(
+        &mut p,
+        "plastic_limit_percent",
+        &props::PLASTIC_LIMIT_PERCENT,
+        no_fine,
+        errs,
+    );
+    let pi = set_quantity(
+        &mut p,
+        "plasticity_index_percent",
+        &props::PLASTICITY_INDEX_PERCENT,
+        no_fine,
+        errs,
+    );
+    let li = set_quantity(
+        &mut p,
+        "liquidity_index",
+        &props::LIQUIDITY_INDEX,
+        no_fine,
+        errs,
+    );
+    let spt = set_quantity(&mut p, "spt_n", &props::SPT_N, no_coarse, errs);
+    let w = set_quantity(
+        &mut p,
+        "moisture_content_percent",
+        &props::MOISTURE_CONTENT_PERCENT,
+        no_coarse,
+        errs,
+    );
+    let gs = read_quantity(
+        &mut p,
+        "particle_density_ratio",
+        &props::PARTICLE_DENSITY_RATIO,
+        errs,
+    );
+    let sr = if p.table.contains_key("degree_of_saturation") {
+        read_quantity(
+            &mut p,
+            "degree_of_saturation",
+            &props::DEGREE_OF_SATURATION,
+            errs,
+        )
+    } else {
+        p.get("degree_of_saturation");
+        None
+    };
+    let rate = if p.table.contains_key("outlier_rate") {
+        let rate = read_range(&mut p, "outlier_rate", errs);
+        if let Some(r) = &rate {
+            check_domain(r, &p.at("outlier_rate"), &props::OUTLIER_RATE, errs);
+        }
+        rate
+    } else {
+        p.get("outlier_rate");
+        None
+    };
+    p.finish(errs);
+    Some(Properties {
+        fine: if fine {
+            Some(FineProperties {
+                plastic_limit_percent: pl?,
+                plasticity_index_percent: pi?,
+                liquidity_index: li?,
+            })
+        } else {
+            None
+        },
+        coarse: if coarse {
+            Some(CoarseProperties {
+                spt_n: spt?,
+                moisture_content_percent: w?,
+            })
+        } else {
+            None
+        },
+        particle_density_ratio: gs?,
+        degree_of_saturation: sr,
+        outlier_rate: rate,
+    })
+}
+
+/// The unit or lens's `properties`, if it has any. They depend on the
+/// principals, so a description that failed to load leaves them unchecked.
+fn optional_properties(
+    n: &mut Node,
+    description: Option<&DescriptionSpec>,
+    errs: &mut Vec<String>,
+) -> Option<Properties> {
+    match description {
+        Some(d) if n.table.contains_key("properties") => read_properties(n, &d.principals, errs),
+        _ => {
+            n.get("properties");
+            None
+        }
+    }
 }
 
 fn read_preset(root: &Table, errs: &mut Vec<String>) -> Option<Preset> {
@@ -392,11 +626,27 @@ fn read_site(n: &mut Node, errs: &mut Vec<String>) -> Option<Site> {
     let mut s = req_table(n, "site", errs)?;
     let extent = read_extent(&mut s, errs);
     let ground = read_range(&mut s, "ground_level_m", errs);
+    let groundwater = if s.table.contains_key("groundwater_depth_m") {
+        let g = read_range(&mut s, "groundwater_depth_m", errs);
+        if let Some(r) = &g {
+            check_domain(
+                r,
+                &s.at("groundwater_depth_m"),
+                &props::GROUNDWATER_DEPTH_M,
+                errs,
+            );
+        }
+        g
+    } else {
+        s.get("groundwater_depth_m");
+        None
+    };
     s.finish(errs);
     let (x, y) = extent?;
     Some(Site {
         extent_m: Extent { x, y },
         ground_level_m: ground?,
+        groundwater_depth_m: groundwater,
     })
 }
 
@@ -549,6 +799,7 @@ fn read_units(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Unit>> {
 
         let description = read_description(&mut u, errs);
         let sampling = read_sampling(&mut u, &samp, errs);
+        let properties = optional_properties(&mut u, description.as_ref(), errs);
         u.finish(errs);
         if let (Some(id), Some(name), Some(description), Some(sampling)) =
             (id, name, description, sampling)
@@ -560,6 +811,7 @@ fn read_units(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Unit>> {
                 thickness_m: thickness,
                 description,
                 sampling,
+                properties,
             });
         }
     }
@@ -658,6 +910,7 @@ fn read_lenses(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Lens>> {
         }
         let description = read_description(&mut l, errs);
         let sampling = read_sampling(&mut l, &samp, errs);
+        let properties = optional_properties(&mut l, description.as_ref(), errs);
         l.finish(errs);
         if let (
             Some(id),
@@ -687,6 +940,7 @@ fn read_lenses(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Lens>> {
                 depth_in_host,
                 description,
                 sampling,
+                properties,
             });
         }
     }
@@ -1161,6 +1415,288 @@ sampling = { types = ["D"], interval_m = { min = 0.5, max = 1.0, basis = "test f
                 panic!("shipped preset {name} is refused:\n{e}");
             }
             assert!(resolve(name).is_ok(), "{name} does not resolve by name");
+        }
+    }
+
+    const RTD_PROPS: &str = r#"
+[units.properties]
+spt_n = { min = 8, max = 40, basis = "test fixture", per_m = { min = 0.5, max = 1.5, basis = "test fixture" } }
+moisture_content_percent = { min = 8, max = 20, basis = "test fixture" }
+particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
+degree_of_saturation = { min = 0.6, max = 0.9, basis = "test fixture" }
+"#;
+
+    const LC_PROPS: &str = r#"
+[units.properties]
+plastic_limit_percent = { min = 20, max = 30, basis = "test fixture" }
+plasticity_index_percent = { min = 30, max = 50, basis = "test fixture" }
+liquidity_index = { min = -0.1, max = 0.5, basis = "test fixture" }
+particle_density_ratio = { min = 2.65, max = 2.75, basis = "test fixture" }
+outlier_rate = { min = 0.0, max = 0.05, basis = "test fixture" }
+"#;
+
+    /// The fixture with a properties block on each unit.
+    fn with_props(rtd: &str, lc: &str) -> String {
+        let text = VALID.replacen(
+            "\n[[units]]\nid = \"LC\"",
+            &format!("{rtd}\n[[units]]\nid = \"LC\""),
+            1,
+        );
+        format!("{text}{lc}")
+    }
+
+    /// The valid property blocks with one exact snippet replaced.
+    fn props_with(from: &str, to: &str) -> String {
+        let both = format!("{RTD_PROPS}{LC_PROPS}");
+        assert!(both.contains(from), "property fixtures lack {from:?}");
+        let (rtd, lc) = (
+            RTD_PROPS.replacen(from, to, 1),
+            LC_PROPS.replacen(from, to, 1),
+        );
+        with_props(&rtd, &lc)
+    }
+
+    #[test]
+    fn a_valid_properties_block_loads() {
+        let p = Preset::from_toml(&with_props(RTD_PROPS, LC_PROPS)).expect("valid");
+        let coarse = p.units[0].properties.as_ref().unwrap();
+        assert!(coarse.fine.is_none());
+        let c = coarse.coarse.as_ref().unwrap();
+        assert_eq!((c.spt_n.range.min, c.spt_n.range.max), (8.0, 40.0));
+        assert_eq!(c.spt_n.per_m.as_ref().unwrap().max, 1.5);
+        assert_eq!(coarse.degree_of_saturation.as_ref().unwrap().range.min, 0.6);
+        assert_eq!(coarse.outlier_rate, None);
+        let fine = p.units[1].properties.as_ref().unwrap();
+        assert!(fine.coarse.is_none());
+        let f = fine.fine.as_ref().unwrap();
+        assert_eq!(f.liquidity_index.range.min, -0.1);
+        assert_eq!(f.plastic_limit_percent.per_m, None);
+        assert_eq!(fine.outlier_rate.as_ref().unwrap().max, 0.05);
+        assert_eq!(fine.degree_of_saturation, None);
+    }
+
+    #[test]
+    fn properties_stay_optional() {
+        let p = Preset::from_toml(VALID).unwrap();
+        assert!(p.units.iter().all(|u| u.properties.is_none()));
+        assert_eq!(p.site.groundwater_depth_m, None);
+    }
+
+    #[test]
+    fn a_site_may_carry_a_groundwater_depth() {
+        let text = with(
+            "ground_level_m = { min = 8.0, max = 22.0, basis = \"test fixture\" }",
+            "ground_level_m = { min = 8.0, max = 22.0, basis = \"test fixture\" }\ngroundwater_depth_m = { min = 1.0, max = 4.0, basis = \"test fixture\" }",
+        );
+        let g = Preset::from_toml(&text)
+            .unwrap()
+            .site
+            .groundwater_depth_m
+            .unwrap();
+        assert_eq!((g.min, g.max), (1.0, 4.0));
+    }
+
+    #[test]
+    fn a_lens_may_carry_properties() {
+        let text = format!(
+            "{}{}",
+            with_lens(),
+            "\n[lenses.properties]\nspt_n = { min = 5, max = 20, basis = \"test fixture\" }\nmoisture_content_percent = { min = 10, max = 20, basis = \"test fixture\" }\nparticle_density_ratio = { min = 2.6, max = 2.7, basis = \"test fixture\" }\n"
+        );
+        let p = Preset::from_toml(&text).expect("valid");
+        assert!(p.lenses[0].properties.as_ref().unwrap().coarse.is_some());
+    }
+
+    #[test]
+    fn the_groundwater_depth_may_not_be_negative() {
+        let text = with(
+            "ground_level_m = { min = 8.0, max = 22.0, basis = \"test fixture\" }",
+            "ground_level_m = { min = 8.0, max = 22.0, basis = \"test fixture\" }\ngroundwater_depth_m = { min = -1.0, max = 4.0, basis = \"test fixture\" }",
+        );
+        assert_refused(
+            &text,
+            "site.groundwater_depth_m: min -1 is outside its domain (>= 0)",
+        );
+    }
+
+    #[test]
+    fn a_coarse_unit_must_give_the_coarse_set() {
+        let text = with_props(&RTD_PROPS.replace("spt_n = {", "spt_x = {"), LC_PROPS);
+        let errs = errors_of(&text);
+        assert_eq!(
+            errs,
+            vec![
+                "units[0] (RTD).properties.spt_n: missing".to_string(),
+                "units[0] (RTD).properties: unknown key \"spt_x\"".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_fine_unit_must_give_the_fine_set() {
+        let text = with_props(
+            RTD_PROPS,
+            &LC_PROPS.replace("liquidity_index", "liquidity_ndx"),
+        );
+        let errs = errors_of(&text);
+        assert!(errs.contains(&"units[1] (LC).properties.liquidity_index: missing".to_string()));
+    }
+
+    #[test]
+    fn particle_density_is_required() {
+        let text = with_props(
+            RTD_PROPS,
+            &LC_PROPS.replace("particle_density_ratio", "particle_density"),
+        );
+        assert!(
+            errors_of(&text)
+                .contains(&"units[1] (LC).properties.particle_density_ratio: missing".to_string())
+        );
+    }
+
+    #[test]
+    fn a_property_the_unit_cannot_use_is_refused() {
+        let fine_on_coarse = format!(
+            "{RTD_PROPS}plastic_limit_percent = {{ min = 20, max = 30, basis = \"test fixture\" }}\n"
+        );
+        assert_refused(
+            &with_props(&fine_on_coarse, LC_PROPS),
+            "units[0] (RTD).properties.plastic_limit_percent: the unit has no fine principal (CLAY, SILT), so it cannot use this",
+        );
+        let coarse_on_fine =
+            format!("{LC_PROPS}spt_n = {{ min = 20, max = 30, basis = \"test fixture\" }}\n");
+        assert_refused(
+            &with_props(RTD_PROPS, &coarse_on_fine),
+            "units[1] (LC).properties.spt_n: the unit has no coarse principal (SAND, GRAVEL), so it cannot use this",
+        );
+    }
+
+    #[test]
+    fn a_unit_with_both_kinds_of_principal_needs_both_sets() {
+        let text = with(
+            "principals = [\"CLAY\"]",
+            "principals = [\"CLAY\", \"SAND\"]",
+        );
+        let text = format!(
+            "{}{LC_PROPS}",
+            text.replacen(
+                "\n[[units]]\nid = \"LC\"",
+                &format!("{RTD_PROPS}\n[[units]]\nid = \"LC\""),
+                1
+            )
+        );
+        assert_eq!(
+            errors_of(&text),
+            vec![
+                "units[1] (LC).properties.spt_n: missing".to_string(),
+                "units[1] (LC).properties.moisture_content_percent: missing".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn properties_on_a_unit_with_no_fine_or_coarse_principal_are_refused() {
+        let text = with("principals = [\"CLAY\"]", "principals = [\"PEAT\"]");
+        let text = format!("{text}{LC_PROPS}");
+        assert_refused(
+            &text,
+            "units[1] (LC).properties: no principal is fine (CLAY, SILT) or coarse (SAND, GRAVEL), so no property set applies",
+        );
+    }
+
+    #[test]
+    fn an_unknown_property_key_is_refused() {
+        let text = with_props(
+            RTD_PROPS,
+            &format!(
+                "{LC_PROPS}undrained_strength = {{ min = 1, max = 2, basis = \"test fixture\" }}\n"
+            ),
+        );
+        assert_refused(
+            &text,
+            "units[1] (LC).properties: unknown key \"undrained_strength\"",
+        );
+        let text = props_with(
+            "min = 0.5, max = 1.5, basis = \"test fixture\" }",
+            "min = 0.5, max = 1.5, basis = \"test fixture\", rate = 1 }",
+        );
+        assert_refused(
+            &text,
+            "units[0] (RTD).properties.spt_n.per_m: unknown key \"rate\"",
+        );
+    }
+
+    #[test]
+    fn a_property_without_a_basis_is_refused() {
+        let text = with_props(
+            &RTD_PROPS.replace(
+                "moisture_content_percent = { min = 8, max = 20, basis = \"test fixture\" }",
+                "moisture_content_percent = { min = 8, max = 20 }",
+            ),
+            LC_PROPS,
+        );
+        assert_refused(
+            &text,
+            "units[0] (RTD).properties.moisture_content_percent: no basis",
+        );
+        let text = props_with(
+            "per_m = { min = 0.5, max = 1.5, basis = \"test fixture\" }",
+            "per_m = { min = 0.5, max = 1.5 }",
+        );
+        assert_refused(&text, "units[0] (RTD).properties.spt_n.per_m: no basis");
+    }
+
+    #[test]
+    fn ranges_outside_a_physical_domain_are_refused_by_name() {
+        for (from, to, expected) in [
+            (
+                "plastic_limit_percent = { min = 20,",
+                "plastic_limit_percent = { min = 0,",
+                "units[1] (LC).properties.plastic_limit_percent: min 0 is outside its domain (> 0)",
+            ),
+            (
+                "plasticity_index_percent = { min = 30, max = 50,",
+                "plasticity_index_percent = { min = -5, max = 50,",
+                "units[1] (LC).properties.plasticity_index_percent: min -5 is outside its domain (> 0)",
+            ),
+            (
+                "liquidity_index = { min = -0.1, max = 0.5,",
+                "liquidity_index = { min = -0.1, max = 3.5,",
+                "units[1] (LC).properties.liquidity_index: max 3.5 is outside its domain (>= -1 and <= 3)",
+            ),
+            (
+                "particle_density_ratio = { min = 2.65, max = 2.75,",
+                "particle_density_ratio = { min = 0.9, max = 2.75,",
+                "units[1] (LC).properties.particle_density_ratio: min 0.9 is outside its domain (> 1 and <= 4)",
+            ),
+            (
+                "outlier_rate = { min = 0.0, max = 0.05,",
+                "outlier_rate = { min = 0.0, max = 1.5,",
+                "units[1] (LC).properties.outlier_rate: max 1.5 is outside its domain (>= 0 and <= 1)",
+            ),
+        ] {
+            let text = with_props(RTD_PROPS, &LC_PROPS.replacen(from, to, 1));
+            assert_refused(&text, expected);
+        }
+        for (from, to, expected) in [
+            (
+                "spt_n = { min = 8,",
+                "spt_n = { min = -1,",
+                "units[0] (RTD).properties.spt_n: min -1 is outside its domain (>= 0)",
+            ),
+            (
+                "moisture_content_percent = { min = 8,",
+                "moisture_content_percent = { min = -8,",
+                "units[0] (RTD).properties.moisture_content_percent: min -8 is outside its domain (>= 0)",
+            ),
+            (
+                "degree_of_saturation = { min = 0.6, max = 0.9,",
+                "degree_of_saturation = { min = 0.6, max = 1.2,",
+                "units[0] (RTD).properties.degree_of_saturation: max 1.2 is outside its domain (> 0 and <= 1)",
+            ),
+        ] {
+            let text = with_props(&RTD_PROPS.replacen(from, to, 1), LC_PROPS);
+            assert_refused(&text, expected);
         }
     }
 }
