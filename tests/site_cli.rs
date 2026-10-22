@@ -15,6 +15,7 @@ summary = "A fixture."
 [site]
 extent_m = { x = 200.0, y = 100.0 }
 ground_level_m = { min = 10.0, max = 12.0, basis = "test fixture" }
+groundwater_depth_m = { min = 1.0, max = 4.0, basis = "test fixture" }
 
 [[hole_types]]
 code = "CP"
@@ -28,11 +29,22 @@ thickness_m = { min = 1.0, max = 3.0, basis = "test fixture" }
 description = { principals = ["SAND"], secondaries = [], colours = ["brown"] }
 sampling = { types = ["B"], interval_m = { min = 1.0, max = 1.5, basis = "test fixture" } }
 
+[units.properties]
+spt_n = { min = 10, max = 30, basis = "test fixture" }
+moisture_content_percent = { min = 8, max = 15, basis = "test fixture" }
+particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
+
 [[units]]
 id = "BASE"
 name = "Base"
 description = { principals = ["CLAY"], secondaries = [], colours = ["grey"] }
 sampling = { types = ["U"], interval_m = { min = 1.5, max = 3.0, basis = "test fixture" } }
+
+[units.properties]
+plastic_limit_percent = { min = 20, max = 30, basis = "test fixture" }
+plasticity_index_percent = { min = 30, max = 50, basis = "test fixture" }
+liquidity_index = { min = 0.0, max = 0.3, basis = "test fixture" }
+particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
 "#;
 
 fn forge(args: &[&str]) -> Output {
@@ -224,4 +236,42 @@ fn scale_site_flags_are_hidden_from_help() {
     for flag in ["--site", "--grid", "--origin"] {
         assert!(!help.contains(flag), "{flag} is visible in scale --help");
     }
+}
+
+/// Properties are required on every unit, and groundwater on the site: a
+/// preset without them exits 5 naming the field.
+#[test]
+fn a_preset_without_properties_or_groundwater_exits_5_naming_the_field() {
+    let dir = tempfile::tempdir().unwrap();
+    let water = "groundwater_depth_m = { min = 1.0, max = 4.0, basis = \"test fixture\" }\n";
+    assert!(PRESET.contains(water));
+    let no_water = preset(dir.path(), &PRESET.replacen(water, "", 1));
+    let out = gen_site(dir.path(), &no_water, &[]);
+    assert_eq!(out.status.code(), Some(5), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("site.groundwater_depth_m: missing"),
+        "{}",
+        stderr(&out)
+    );
+
+    // Every `[units.properties]` table runs to the next blank line.
+    let mut bare = String::new();
+    let mut skipping = false;
+    for line in PRESET.lines() {
+        if line == "[units.properties]" {
+            skipping = true;
+        } else if line.is_empty() {
+            skipping = false;
+        }
+        if !skipping {
+            bare.push_str(line);
+            bare.push('\n');
+        }
+    }
+    let no_props = preset(dir.path(), &bare);
+    let out = gen_site(dir.path(), &no_props, &[]);
+    assert_eq!(out.status.code(), Some(5), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(err.contains("units[0] (TOP).properties: missing"), "{err}");
+    assert!(err.contains("units[1] (BASE).properties: missing"), "{err}");
 }

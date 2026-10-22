@@ -16,14 +16,26 @@
 # - London Clay: grey silty CLAY (ICE Vol. 1, ch. 13, Fig. 13.1(a), p.142);
 #   blue grey fissured silty clay (ICE Vol. 1, ch. 36, Table 36.2, p.496,
 #   after Czerewko et al. 2003a; BGS Lexicon, London Clay Formation).
+#
+# Index properties (v2) set the leading strength or density term of each
+# description at mid-depth. Each range carries its own basis; the sources are:
+# - RTD SPT N: Craig's Soil Mechanics 7th ed., ch. 8, Table 8.3, p.298
+#   (medium dense, after Terzaghi and Peck); logged N 15 in terrace gravel,
+#   ICE Vol. 1, ch. 13, Fig. 13.1(a), p.142.
+# - Plasticity and liquidity of the clays: ICE Vol. 2, ch. 53, Table 53.7,
+#   p.784 (WLC, LC); ICE Vol. 1, ch. 36, Table 36.3, p.498, after Cripps and
+#   Taylor 1981 and others (LC plastic limit and plasticity index).
+# - Particle density: Head, Manual of Soil Laboratory Testing Vol. 1, 3rd ed.,
+#   Table 3.1, p.126 (kaolinite 2.6, quartz 2.65, calcite 2.71).
 schema = 1
 name = "london-basin"
-version = 1
+version = 2
 summary = "River Terrace Deposits over weathered and unweathered London Clay, London Basin."
 
 [site]
 extent_m = { x = 300.0, y = 200.0 }
 ground_level_m = { min = 5.0, max = 30.0, basis = "forge judgement: a synthetic local datum, not a real elevation" }
+groundwater_depth_m = { min = 1.0, max = 5.0, basis = "forge judgement" }
 
 [[hole_types]]
 code = "CP"
@@ -37,6 +49,11 @@ thickness_m = { min = -2.0, max = 9.0, basis = "BGS Lexicon of Named Rock Units,
 description = { principals = ["GRAVEL", "SAND"], secondaries = ["sand", "gravel"], colours = ["light brown", "brown"] }
 sampling = { types = ["B", "D"], interval_m = { min = 1.0, max = 1.5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 53, s53.7.2, p.791: sampling typically every 1.5 m; Craig's Soil Mechanics, 7th ed., 2004, ch. 8, p.297: SPT every 0.75-1.5 m" } }
 
+[units.properties]
+spt_n = { min = 10, max = 30, basis = "Craig's Soil Mechanics, 7th ed., ch. 8, Table 8.3, p.298 (medium dense, after Terzaghi and Peck); logged N 15 in terrace gravel, ICE Manual of Geotechnical Engineering Vol. 1, ch. 13, Fig. 13.1(a), p.142" }
+moisture_content_percent = { min = 5, max = 15, basis = "forge judgement" }
+particle_density_ratio = { min = 2.64, max = 2.66, basis = "Head, Manual of Soil Laboratory Testing Vol. 1, 3rd ed., Table 3.1, p.126 (quartz 2.65)" }
+
 [[units]]
 id = "WLC"
 name = "Weathered London Clay"
@@ -44,8 +61,20 @@ thickness_m = { min = 2.0, max = 8.0, basis = "ICE Manual of Geotechnical Engine
 description = { principals = ["CLAY"], secondaries = ["silt"], colours = ["brown", "orangeish brown", "light brown"] }
 sampling = { types = ["U", "D"], interval_m = { min = 1.0, max = 1.5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 53, s53.7.2, p.791: sampling typically every 1.5 m" } }
 
+[units.properties]
+plastic_limit_percent = { min = 25, max = 35, basis = "Derived from ICE Manual of Geotechnical Engineering Vol. 2, ch. 53, Table 53.7, p.784 (w 30-35, PI 50, LI 0 to +0.1)" }
+plasticity_index_percent = { min = 50, max = 50, basis = "ICE Manual of Geotechnical Engineering Vol. 2, ch. 53, Table 53.7, p.784" }
+liquidity_index = { min = 0.0, max = 0.1, basis = "ICE Manual of Geotechnical Engineering Vol. 2, ch. 53, Table 53.7, p.784" }
+particle_density_ratio = { min = 2.60, max = 2.71, basis = "Head, Manual of Soil Laboratory Testing Vol. 1, 3rd ed., Table 3.1, p.126 (kaolinite 2.6, quartz 2.65, calcite 2.71). Mineral values; use as a soil-level range is forge judgement" }
+
 [[units]]
 id = "LC"
 name = "London Clay"
 description = { principals = ["CLAY"], secondaries = ["silt"], colours = ["grey", "bluish grey"] }
 sampling = { types = ["U", "D"], interval_m = { min = 1.0, max = 1.5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 53, s53.7.2, p.791: sampling typically every 1.5 m" } }
+
+[units.properties]
+plastic_limit_percent = { min = 22, max = 35, basis = "ICE Manual of Geotechnical Engineering Vol. 1, ch. 36, Table 36.3, p.498, after Cripps and Taylor 1981 and others" }
+plasticity_index_percent = { min = 40, max = 65, basis = "ICE Manual of Geotechnical Engineering Vol. 1, ch. 36, Table 36.3, p.498, after Cripps and Taylor 1981 and others" }
+liquidity_index = { min = -0.1, max = 0.0, basis = "ICE Manual of Geotechnical Engineering Vol. 2, ch. 53, Table 53.7, p.784" }
+particle_density_ratio = { min = 2.60, max = 2.71, basis = "Head, Manual of Soil Laboratory Testing Vol. 1, 3rd ed., Table 3.1, p.126 (kaolinite 2.6, quartz 2.65, calcite 2.71). Mineral values; use as a soil-level range is forge judgement" }

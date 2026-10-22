@@ -727,24 +727,37 @@ fn fraction_static(soil: &str) -> &'static str {
         .expect("validated fraction")
 }
 
+/// The leading terms a caller supplies to [`describe_unit`], one per lane.
+/// The unit draws its own principal, so the caller cannot know which lane
+/// will be needed: it gives the term for each lane the unit can reach and the
+/// draw uses the one matching the principal it drew.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Lead<'a> {
+    /// A consistency term, used when the principal is SILT or CLAY.
+    pub fine: Option<&'a str>,
+    /// A relative-density term, used when the principal is SAND or GRAVEL.
+    pub coarse: Option<&'a str>,
+}
+
 /// Draw one description inside `unit`'s constraints.
 ///
-/// `lead` is the leading term, supplied by the caller: `None` leaves the
-/// description without one (`SoilDescription::lead` is then empty), `Some(term)`
-/// must be a consistency term for a fine principal or a relative-density term
-/// for a coarse one. Errors only on a constraint [`UnitDescription::problems`]
-/// would report, or a lead in the wrong lane.
+/// `lead` holds the leading term per lane, supplied by the caller: a lane left
+/// `None` leaves the description without a term when that lane is drawn
+/// (`SoilDescription::lead` is then empty). A `fine` term must be a consistency
+/// term and a `coarse` one a relative-density term, whichever principal is
+/// drawn. Errors only on a constraint [`UnitDescription::problems`] would
+/// report, or a lead that is not a term of its lane.
 ///
 /// A separate path from [`describe_with`]: it shares that path's band and
 /// adjective helpers but draws nothing the pinned paths draw.
 // `rng.range(1, hi) as u32`: the range is bounded by the budgets below (at most
 // 72), well inside u32.
-#[allow(dead_code, clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_truncation)]
 pub fn describe_unit(
     vocab: &Vocab,
     rng: &mut Rng,
     unit: &UnitDescription,
-    lead: Option<&str>,
+    lead: Lead<'_>,
 ) -> Result<SoilDescription, String> {
     let problems = unit.problems(vocab);
     if !problems.is_empty() {
@@ -755,18 +768,21 @@ pub fn describe_unit(
         .iter()
         .find(|(n, _, _)| n == name)
         .expect("validated principal");
-    if let Some(term) = lead {
-        let (lane, kind) = if class == PrincipalClass::Fine {
-            (&vocab.consistency, "consistency")
-        } else {
-            (&vocab.density, "relative-density")
-        };
-        if !lane.iter().any(|t| t == term) {
-            return Err(format!(
-                "lead {term:?} is not a {kind} term, which a {principal} needs"
-            ));
+    for (term, lane, kind) in [
+        (lead.fine, &vocab.consistency, "consistency"),
+        (lead.coarse, &vocab.density, "relative-density"),
+    ] {
+        if let Some(term) = term
+            && !lane.iter().any(|t| t == term)
+        {
+            return Err(format!("lead {term:?} is not a {kind} term"));
         }
     }
+    let lead = if class == PrincipalClass::Fine {
+        lead.fine
+    } else {
+        lead.coarse
+    };
     let allowed = |soil: &str| unit.secondaries.iter().any(|s| s == soil);
 
     let mut secondaries: Vec<Secondary> = Vec::new();
@@ -853,6 +869,20 @@ pub fn describe_unit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fine(term: &str) -> Lead<'_> {
+        Lead {
+            fine: Some(term),
+            coarse: None,
+        }
+    }
+
+    fn coarse(term: &str) -> Lead<'_> {
+        Lead {
+            fine: None,
+            coarse: Some(term),
+        }
+    }
 
     /// The two entry points agree: `describe` is `describe_with(STANDARD)`.
     ///
@@ -1215,7 +1245,7 @@ mod tests {
         let u = unit(&["CLAY"], &["silt"], &["grey", "dark grey"]);
         let mut with_silt = 0;
         for seed in 0..300u64 {
-            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, Some("Firm")).unwrap();
+            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, fine("Firm")).unwrap();
             assert_eq!(d.principal, "CLAY", "seed {seed}");
             assert_eq!(d.principal_class, PrincipalClass::Fine);
             assert!(
@@ -1240,7 +1270,7 @@ mod tests {
         let v = vocab();
         let u = unit(&["SAND", "GRAVEL", "SILT", "CLAY"], &[], &["brown"]);
         for seed in 0..200u64 {
-            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, None).unwrap();
+            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, Lead::default()).unwrap();
             assert!(d.secondaries.is_empty(), "seed {seed}: {d:?}");
         }
     }
@@ -1251,7 +1281,7 @@ mod tests {
         let u = unit(&["SAND", "GRAVEL", "SILT", "CLAY"], &[], &["brown"]);
         let mut seen = std::collections::BTreeSet::new();
         for seed in 0..200u64 {
-            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, None).unwrap();
+            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, Lead::default()).unwrap();
             let want = if matches!(d.principal, "SAND" | "GRAVEL") {
                 PrincipalClass::Coarse
             } else {
@@ -1272,7 +1302,7 @@ mod tests {
         let u = unit(&["SAND"], &["gravel", "silt"], &["brown"]);
         let mut both = 0;
         for seed in 0..400u64 {
-            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, Some("Dense")).unwrap();
+            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, coarse("Dense")).unwrap();
             let sum: u32 = d.secondaries.iter().map(|s| s.pct).sum();
             assert!(sum <= 45, "seed {seed}: {d:?}");
             for s in &d.secondaries {
@@ -1297,7 +1327,7 @@ mod tests {
         let v = vocab();
         let u = unit(&["SILT"], &["sand", "gravel", "clay"], &["grey"]);
         for seed in 0..400u64 {
-            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, None).unwrap();
+            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, Lead::default()).unwrap();
             let sum: u32 = d.secondaries.iter().map(|s| s.pct).sum();
             assert!(sum <= 80, "seed {seed}: {d:?}");
             let pcts: Vec<u32> = d
@@ -1323,15 +1353,15 @@ mod tests {
     #[test]
     fn the_lead_is_the_callers_not_the_rngs() {
         let v = vocab();
-        let fine = unit(&["CLAY"], &[], &["grey"]);
-        let coarse = unit(&["SAND"], &[], &["grey"]);
-        let d = describe_unit(&v, &mut Rng::seeded(1), &fine, None).unwrap();
+        let fine_unit = unit(&["CLAY"], &[], &["grey"]);
+        let coarse_unit = unit(&["SAND"], &[], &["grey"]);
+        let d = describe_unit(&v, &mut Rng::seeded(1), &fine_unit, Lead::default()).unwrap();
         assert_eq!(d.lead, "");
         assert_eq!(d.text, "Grey CLAY.");
-        let d = describe_unit(&v, &mut Rng::seeded(1), &fine, Some("Firm")).unwrap();
+        let d = describe_unit(&v, &mut Rng::seeded(1), &fine_unit, fine("Firm")).unwrap();
         assert_eq!(d.lead, "Firm");
         assert_eq!(d.text, "Firm grey CLAY.");
-        let d = describe_unit(&v, &mut Rng::seeded(1), &coarse, Some("Very dense")).unwrap();
+        let d = describe_unit(&v, &mut Rng::seeded(1), &coarse_unit, coarse("Very dense")).unwrap();
         assert_eq!(d.lead, "Very dense");
         assert_eq!(d.text, "Very dense grey SAND.");
     }
@@ -1339,28 +1369,47 @@ mod tests {
     #[test]
     fn a_lead_in_the_wrong_lane_is_an_error() {
         let v = vocab();
-        let coarse = unit(&["SAND"], &[], &["grey"]);
-        let fine = unit(&["CLAY"], &[], &["grey"]);
-        assert!(describe_unit(&v, &mut Rng::seeded(1), &coarse, Some("Firm")).is_err());
-        assert!(describe_unit(&v, &mut Rng::seeded(1), &fine, Some("Dense")).is_err());
-        assert!(describe_unit(&v, &mut Rng::seeded(1), &fine, Some("Nonsense")).is_err());
+        let coarse_unit = unit(&["SAND"], &[], &["grey"]);
+        let fine_unit = unit(&["CLAY"], &[], &["grey"]);
+        let draw = |u, lead| describe_unit(&v, &mut Rng::seeded(1), u, lead);
+        assert!(draw(&coarse_unit, coarse("Firm")).is_err());
+        assert!(draw(&fine_unit, fine("Dense")).is_err());
+        assert!(draw(&fine_unit, fine("Nonsense")).is_err());
+        // A term for the lane the unit cannot draw is still checked.
+        assert!(draw(&fine_unit, coarse("Firm")).is_err());
     }
 
     #[test]
-    fn a_mixed_unit_rejects_a_lead_that_misses_the_drawn_lane() {
+    fn a_mixed_unit_uses_the_term_of_the_drawn_lane() {
         let v = vocab();
         let u = unit(&["SAND", "CLAY"], &[], &["grey"]);
-        let (mut ok, mut err) = (0, 0);
+        let lead = Lead {
+            fine: Some("Firm"),
+            coarse: Some("Dense"),
+        };
+        let (mut sand, mut clay) = (0, 0);
         for seed in 0..50u64 {
-            match describe_unit(&v, &mut Rng::seeded(seed), &u, Some("Firm")) {
-                Ok(d) => {
-                    ok += 1;
-                    assert_eq!(d.principal, "CLAY");
-                }
-                Err(_) => err += 1,
+            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, lead).unwrap();
+            if d.principal == "CLAY" {
+                clay += 1;
+                assert_eq!(d.lead, "Firm", "seed {seed}");
+            } else {
+                sand += 1;
+                assert_eq!(d.lead, "Dense", "seed {seed}");
             }
+            assert!(d.text.starts_with(&d.lead), "{}", d.text);
         }
-        assert!(ok > 0 && err > 0);
+        assert!(sand > 0 && clay > 0);
+    }
+
+    #[test]
+    fn a_lane_without_a_term_draws_without_one() {
+        let v = vocab();
+        let u = unit(&["SAND", "CLAY"], &[], &["grey"]);
+        for seed in 0..50u64 {
+            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, fine("Firm")).unwrap();
+            assert_eq!(d.lead, if d.principal == "CLAY" { "Firm" } else { "" });
+        }
     }
 
     #[test]
@@ -1422,7 +1471,7 @@ mod tests {
         let u = unit(&["CLAY", "SILT"], &["silt", "clay"], &["grey"]);
         assert_eq!(u.problems(&v), Vec::<String>::new());
         for seed in 0..200u64 {
-            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, None).unwrap();
+            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, Lead::default()).unwrap();
             let own = d.principal.to_ascii_lowercase();
             assert!(
                 d.secondaries.iter().all(|s| s.soil != own),
@@ -1492,7 +1541,7 @@ mod tests {
     fn an_invalid_constraint_is_refused_by_the_draw() {
         let v = vocab();
         let u = unit(&["CLAY"], &["clay"], &["grey"]);
-        let e = describe_unit(&v, &mut Rng::seeded(1), &u, None).unwrap_err();
+        let e = describe_unit(&v, &mut Rng::seeded(1), &u, Lead::default()).unwrap_err();
         assert!(e.contains("own fraction"), "{e}");
     }
 
@@ -1500,10 +1549,10 @@ mod tests {
     fn a_unit_draw_is_deterministic_per_seed() {
         let v = vocab();
         let u = unit(&["SAND", "CLAY"], &["silt", "gravel"], &["grey", "brown"]);
-        let a = describe_unit(&v, &mut Rng::seeded(9), &u, None)
+        let a = describe_unit(&v, &mut Rng::seeded(9), &u, Lead::default())
             .unwrap()
             .text;
-        let b = describe_unit(&v, &mut Rng::seeded(9), &u, None)
+        let b = describe_unit(&v, &mut Rng::seeded(9), &u, Lead::default())
             .unwrap()
             .text;
         assert_eq!(a, b);

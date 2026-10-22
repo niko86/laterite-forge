@@ -6,11 +6,11 @@
 //! limit, moisture content and the consistency index are derived from them
 //! (so the plastic limit cannot go negative, which drawing the liquid limit
 //! and plasticity index would allow). Coarse units draw SPT N and moisture
-//! content. Nothing here is written to the file yet; the description term
-//! and the results groups read it later (#41).
+//! content. The description term reads it ([`PropertyModel::lead`]); the
+//! results groups will read the rest (#1).
 //!
-//! Every draw is keyed (`draw::Key`) under tags of its own, so a preset
-//! without properties consumes exactly the streams it always did.
+//! Every draw is keyed (`draw::Key`) under tags of its own, so the property
+//! model consumes no stream the geometry, sampling or description draws use.
 
 use super::build::{Hole, Site};
 use super::draw::{Key, uniform};
@@ -331,8 +331,16 @@ impl UnitModel {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PropertyModel {
     seed: u64,
-    groundwater: Option<(Range, Field)>,
+    groundwater: (Range, Field),
     units: Vec<UnitModel>,
+}
+
+/// The leading terms a unit's description can take at its mid-depth, one per
+/// lane the unit has properties for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct LeadTerms {
+    pub fine: Option<&'static str>,
+    pub coarse: Option<&'static str>,
 }
 
 /// The index properties and phase relations at one depth in one hole.
@@ -341,7 +349,6 @@ pub struct PropertyModel {
 /// units fill `spt_n`, and a unit with both principals fills both, taking
 /// its moisture content from the fine set.
 #[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)] // read by tests only until the description term and results use it (#41)
 pub struct Evaluated {
     pub fine: Option<FineValues>,
     /// Whole blows.
@@ -355,7 +362,6 @@ pub struct Evaluated {
 
 /// The fine-soil set: PL, PI and LI are drawn, the rest derived from them.
 #[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)] // read by tests only until the description term and results use it (#41)
 pub struct FineValues {
     pub plastic_limit_percent: f64,
     pub plasticity_index_percent: f64,
@@ -368,7 +374,7 @@ pub struct FineValues {
 
 /// Stresses at a depth in a hole, kPa.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[allow(dead_code)] // read by tests only until the description term and results use it (#41)
+#[allow(dead_code)] // read by tests only until the results groups use it (#1)
 #[allow(clippy::struct_field_names)] // the unit is part of each name
 pub struct Stress {
     /// Total vertical stress sigma-v.
@@ -387,42 +393,84 @@ impl PropertyModel {
             .iter()
             .map(|u| (u.id.as_str(), &u.properties))
             .chain(preset.lenses.iter().map(|l| (l.id.as_str(), &l.properties)))
-            .filter_map(|(id, p)| Some(UnitModel::new(id, p.as_ref()?, seed, extent)))
+            .map(|(id, p)| UnitModel::new(id, p, seed, extent))
             .collect();
         PropertyModel {
             seed,
-            groundwater: preset.site.groundwater_depth_m.as_ref().map(|r| {
-                (
-                    r.clone(),
-                    Field::new(&mut Key::site("groundwater").rng(seed), extent),
-                )
-            }),
+            groundwater: (
+                preset.site.groundwater_depth_m.clone(),
+                Field::new(&mut Key::site("groundwater").rng(seed), extent),
+            ),
             units,
         }
     }
 
-    /// The water table's depth below ground at `hole`, if the preset has one.
-    pub fn groundwater_depth(&self, hole: &Hole) -> Option<f64> {
-        let (range, field) = self.groundwater.as_ref()?;
-        Some(GROUNDWATER_DEPTH_M.clamp(field.in_range(range, hole.x, hole.y)))
+    /// The water table's depth below ground at `hole`.
+    #[allow(dead_code)] // read by tests only until the results groups use it (#1)
+    pub fn groundwater_depth(&self, hole: &Hole) -> f64 {
+        self.groundwater_depth_at(hole.x, hole.y)
+    }
+
+    fn groundwater_depth_at(&self, x: f64, y: f64) -> f64 {
+        let (range, field) = &self.groundwater;
+        GROUNDWATER_DEPTH_M.clamp(field.in_range(range, x, y))
     }
 
     /// The quantities of `unit` at `depth` in hole number `index`. `None` when
-    /// the unit has no properties or is not in the hole.
+    /// the unit is not in the hole.
+    #[allow(dead_code)] // read by tests only until the results groups use it (#1)
     pub fn evaluate(&self, index: usize, hole: &Hole, unit: &str, depth: f64) -> Option<Evaluated> {
-        let model = self.units.iter().find(|u| u.id == unit)?;
         // Depth below the unit's top in this hole, from its first stratum so
         // a host split by a lens keeps one trend.
         let top = hole.strata.iter().find(|s| s.unit == unit)?.top;
+        self.evaluate_at(index, (hole.x, hole.y), unit, top, depth)
+    }
+
+    /// The leading terms of `unit` over `top..base` in hole number `index`
+    /// at (`x`, `y`): the consistency term for its fine principals from Ic and
+    /// the relative-density term for its coarse ones from SPT N, both at the
+    /// mid-depth. `unit_top` is where the unit starts in this hole (the
+    /// reference of its depth trends), which differs from `top` for the
+    /// parts of a host split by a lens. A lane the unit has no properties for
+    /// is `None`.
+    pub(super) fn lead(
+        &self,
+        index: usize,
+        at: (f64, f64),
+        unit: &str,
+        unit_top: f64,
+        span: (f64, f64),
+    ) -> LeadTerms {
+        let mid = f64::midpoint(span.0, span.1);
+        let e = self
+            .evaluate_at(index, at, unit, unit_top, mid)
+            .expect("every unit and lens carries properties");
+        LeadTerms {
+            fine: e.fine.map(|f| {
+                catalogue::consistency_term_from_ic(f.consistency_index).expect("Ic is finite")
+            }),
+            coarse: e.spt_n.map(catalogue::spt_relative_density_term),
+        }
+    }
+
+    fn evaluate_at(
+        &self,
+        index: usize,
+        (x, y): (f64, f64),
+        unit: &str,
+        unit_top: f64,
+        depth: f64,
+    ) -> Option<Evaluated> {
+        let model = self.units.iter().find(|u| u.id == unit)?;
         let spot = Spot {
             seed: self.seed,
             hole: index,
             unit,
-            x: hole.x,
-            y: hole.y,
-            z: (depth - top).max(0.0),
+            x,
+            y,
+            z: (depth - unit_top).max(0.0),
         };
-        let rate = model.outlier_rate(hole.x, hole.y);
+        let rate = model.outlier_rate(x, y);
         let gs = model.particle_density.smooth(spot.x, spot.y, spot.z);
 
         let fine = model.fine.as_ref().map(|f| {
@@ -445,9 +493,7 @@ impl PropertyModel {
             (None, None) => unreachable!("the loader requires a property set"),
         };
 
-        let below_table = self
-            .groundwater_depth(hole)
-            .is_some_and(|table| depth > table);
+        let below_table = depth > self.groundwater_depth_at(x, y);
         let sr = if below_table {
             1.0
         } else {
@@ -484,7 +530,7 @@ impl PropertyModel {
     }
 }
 
-#[allow(dead_code)] // used by tests only until the description term and results use it (#41)
+#[allow(dead_code)] // read by tests only until the results groups use it (#1)
 impl Site {
     /// The properties at `depth` in hole number `hole`, in the stratum there
     /// (the lower one on a boundary). `None` outside the hole or where the
@@ -524,10 +570,7 @@ impl Site {
         }
         let water_weight =
             catalogue::unit_weight_kn_m3(WATER_DENSITY_KG_M3).expect("water density is positive");
-        let pore = self
-            .properties
-            .groundwater_depth(h)
-            .map_or(0.0, |table| (depth - table).max(0.0) * water_weight);
+        let pore = (depth - self.properties.groundwater_depth(h)).max(0.0) * water_weight;
         Some(Stress {
             total_kpa: total,
             pore_pressure_kpa: pore,
@@ -646,7 +689,9 @@ particle_density_ratio = { min = 2.5, max = 2.5, basis = "test fixture" }
         Preset::from_toml(&text).unwrap_or_else(|e| panic!("{e}\n{text}"))
     }
 
-    const NO_WATER: &str = "";
+    const NOTHING: &str = "";
+    /// A water table below every hole, so none of the ground is saturated by it.
+    const DRY: &str = "groundwater_depth_m = { min = 50.0, max = 50.0, basis = \"test fixture\" }";
     const RATE_HALF: &str = "outlier_rate = { min = 0.5, max = 0.5, basis = \"test fixture\" }";
 
     fn close(a: f64, b: f64) -> bool {
@@ -673,8 +718,8 @@ particle_density_ratio = { min = 2.5, max = 2.5, basis = "test fixture" }
     fn a_two_stratum_hole_gives_the_hand_computed_stresses() {
         let p = load(
             "groundwater_depth_m = { min = 1.5, max = 1.5, basis = \"test fixture\" }",
-            NO_WATER,
-            NO_WATER,
+            NOTHING,
+            NOTHING,
         );
         let site = build(&p, 3, 2);
         for hole in 0..2 {
@@ -692,29 +737,24 @@ particle_density_ratio = { min = 2.5, max = 2.5, basis = "test fixture" }
     }
 
     #[test]
-    fn stress_is_none_outside_the_hole_or_without_properties() {
-        let p = load(NO_WATER, NO_WATER, NO_WATER);
+    fn stress_is_none_outside_the_hole() {
+        let p = load(DRY, NOTHING, NOTHING);
         let site = build(&p, 3, 1);
         assert!(site.stress_at(0, -1.0).is_none());
         assert!(site.stress_at(0, 20.5).is_none());
         assert!(site.stress_at(1, 1.0).is_none());
-        // No water table: u is zero everywhere and sigma' = sigma.
+        // A table below the hole: u is zero everywhere and sigma' = sigma.
         let s = site.stress_at(0, 4.0).unwrap();
         assert_eq!(s.pore_pressure_kpa, 0.0);
         assert_eq!(s.effective_kpa, s.total_kpa);
-        // A preset without properties has nothing to answer with.
-        let bare = crate::site::preset::resolve("london-basin").unwrap();
-        let site = build(&bare, 3, 1);
-        assert!(site.properties_at(0, 1.0).is_none());
-        assert!(site.stress_at(0, 4.0).is_none());
     }
 
     #[test]
     fn evaluation_gives_the_worked_density_and_derived_values() {
         let p = load(
             "groundwater_depth_m = { min = 1.5, max = 1.5, basis = \"test fixture\" }",
-            NO_WATER,
-            NO_WATER,
+            NOTHING,
+            NOTHING,
         );
         let site = build(&p, 3, 1);
         let rtd = site.properties_at(0, 1.0).unwrap();
@@ -806,7 +846,7 @@ particle_density_ratio = { min = 2.5, max = 2.5, basis = "test fixture" }
 
     fn with_gradient(per_m: f64) -> Preset {
         let text = BASE
-            .replace("@GW@", "")
+            .replace("@GW@", DRY)
             .replace("@RTD@", "")
             .replace("@LC@", "")
             .replace(

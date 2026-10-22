@@ -12,8 +12,8 @@ use laterite_ags4_validator::{DictVersion, Dictionary};
 use super::draw::{Key, uniform};
 use super::ground::Field;
 use super::preset::{DescriptionSpec, Extent, Lens, Preset, Sampling};
-use super::properties::PropertyModel;
-use crate::synth::bs5930::{self, UnitDescription};
+use super::properties::{LeadTerms, PropertyModel};
+use crate::synth::bs5930::{self, Lead, UnitDescription};
 use crate::synth::generic;
 use crate::synth::model::{Group, ProjectModel, Row, collect_abbr, collect_type, collect_unit};
 
@@ -31,8 +31,9 @@ pub enum Grid {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Site {
     pub holes: Vec<Hole>,
-    /// The index properties, density and groundwater behind the holes. Nothing
-    /// from it is written to the file yet (#41).
+    /// The index properties, density and groundwater behind the holes. The
+    /// descriptions' leading terms come from it; no value is written to the
+    /// file yet (#1).
     pub(super) properties: PropertyModel,
 }
 
@@ -113,6 +114,13 @@ fn unit_description(d: &DescriptionSpec) -> UnitDescription {
     }
 }
 
+fn lead(terms: &LeadTerms) -> Lead<'static> {
+    Lead {
+        fine: terms.fine,
+        coarse: terms.coarse,
+    }
+}
+
 /// The thinnest stratum written: one unit in the last decimal place.
 const MIN_THICKNESS: f64 = 0.01;
 
@@ -170,6 +178,7 @@ pub fn build(preset: &Preset, seed: u64, holes: usize) -> Site {
         .map(|l| (l, Footprint::new(l, extent, seed)))
         .collect();
     let layers = Layers { surfaces, lenses };
+    let properties = PropertyModel::new(preset, seed);
     let total_weight: u64 = preset.hole_types.iter().map(|t| u64::from(t.weight)).sum();
 
     let holes = (0..holes)
@@ -200,14 +209,11 @@ pub fn build(preset: &Preset, seed: u64, holes: usize) -> Site {
                 y,
                 ground_level: round2(ground.in_range(&preset.site.ground_level_m, x, y)),
                 final_depth,
-                strata: strata(preset, &layers, seed, k, x, y, final_depth),
+                strata: strata(preset, &layers, &properties, seed, (k, x, y), final_depth),
             }
         })
         .collect();
-    Site {
-        holes,
-        properties: PropertyModel::new(preset, seed),
-    }
+    Site { holes, properties }
 }
 
 /// The site-wide fields and footprints the strata of every hole read.
@@ -221,13 +227,16 @@ struct Layers<'a> {
 /// `final_depth`, with a unit's lenses splitting it where they reach the hole.
 /// A unit whose thickness here is zero or less is absent; the last unit runs
 /// to final depth; nothing continues below final depth.
+///
+/// Each description leads with the term the property model gives at the
+/// unit's mid-depth in this hole (a lens's, at the lens's). A host split by
+/// lenses keeps one description, taken over its whole span.
 fn strata(
     preset: &Preset,
     layers: &Layers,
+    properties: &PropertyModel,
     seed: u64,
-    k: usize,
-    x: f64,
-    y: f64,
+    (k, x, y): (usize, f64, f64),
     final_depth: f64,
 ) -> Vec<Stratum> {
     let vocab = bs5930::vocab();
@@ -253,10 +262,15 @@ fn strata(
             continue;
         }
         let mut rng = Key::stratum("description", k, &unit.id).rng(seed);
-        let description =
-            bs5930::describe_unit(vocab, &mut rng, &unit_description(&unit.description), None)
-                .expect("problems() was checked before build")
-                .text;
+        let terms = properties.lead(k, (x, y), &unit.id, top, (top, base));
+        let description = bs5930::describe_unit(
+            vocab,
+            &mut rng,
+            &unit_description(&unit.description),
+            lead(&terms),
+        )
+        .expect("problems() was checked before build")
+        .text;
         let inside = lens_spans(&layers.lenses, &unit.id, x, y, top, base);
         if inside.is_empty() {
             // The common case, with the keys it always had.
@@ -301,11 +315,12 @@ fn strata(
                 host_part(&mut out, cursor, span.top);
                 let lens = span.lens;
                 let mut rng = Key::stratum("description", k, &lens.id).rng(seed);
+                let terms = properties.lead(k, (x, y), &lens.id, span.top, (span.top, span.base));
                 let text = bs5930::describe_unit(
                     vocab,
                     &mut rng,
                     &unit_description(&lens.description),
-                    None,
+                    lead(&terms),
                 )
                 .expect("problems() was checked before build")
                 .text;
@@ -611,6 +626,7 @@ summary = "A fixture."
 [site]
 extent_m = { x = 400.0, y = 300.0 }
 ground_level_m = { min = 8.0, max = 22.0, basis = "test fixture" }
+groundwater_depth_m = { min = 1.0, max = 4.0, basis = "test fixture" }
 
 [[hole_types]]
 code = "CP"
@@ -629,6 +645,11 @@ thickness_m = { min = -3.0, max = 6.0, basis = "test fixture" }
 description = { principals = ["SAND", "GRAVEL"], secondaries = ["gravel", "sand", "clay"], colours = ["orangeish brown", "brown"] }
 sampling = { types = ["B", "D"], interval_m = { min = 1.0, max = 1.5, basis = "test fixture" } }
 
+[units.properties]
+spt_n = { min = 10, max = 30, basis = "test fixture" }
+moisture_content_percent = { min = 8, max = 15, basis = "test fixture" }
+particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
+
 [[units]]
 id = "WLC"
 name = "Weathered London Clay"
@@ -636,11 +657,23 @@ thickness_m = { min = 2.0, max = 8.0, basis = "test fixture" }
 description = { principals = ["CLAY"], secondaries = ["silt"], colours = ["brown", "orangeish brown"] }
 sampling = { types = ["U", "D"], interval_m = { min = 1.0, max = 1.5, basis = "test fixture" } }
 
+[units.properties]
+plastic_limit_percent = { min = 20, max = 30, basis = "test fixture" }
+plasticity_index_percent = { min = 30, max = 50, basis = "test fixture" }
+liquidity_index = { min = 0.0, max = 0.3, basis = "test fixture" }
+particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
+
 [[units]]
 id = "LC"
 name = "London Clay"
 description = { principals = ["CLAY"], secondaries = ["silt"], colours = ["grey", "dark grey"] }
 sampling = { types = ["U", "D"], interval_m = { min = 1.5, max = 3.0, basis = "test fixture" } }
+
+[units.properties]
+plastic_limit_percent = { min = 20, max = 30, basis = "test fixture" }
+plasticity_index_percent = { min = 30, max = 50, basis = "test fixture" }
+liquidity_index = { min = 0.0, max = 0.3, basis = "test fixture" }
+particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
 "#;
 
     fn fixture() -> Preset {
@@ -687,6 +720,11 @@ depth_in_host = { min = 0.2, max = 0.8, basis = "test fixture" }
 description = { principals = ["SAND"], secondaries = ["silt"], colours = ["brown"] }
 sampling = { types = ["D", "B"], interval_m = { min = 0.3, max = 0.6, basis = "test fixture" } }
 
+[lenses.properties]
+spt_n = { min = 10, max = 30, basis = "test fixture" }
+moisture_content_percent = { min = 8, max = 15, basis = "test fixture" }
+particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
+
 [[lenses]]
 id = "CL"
 name = "Clayey sand body"
@@ -696,6 +734,11 @@ thickness_m = { min = 1.0, max = 3.0, basis = "test fixture" }
 depth_in_host = { min = 0.3, max = 0.7, basis = "test fixture" }
 description = { principals = ["SAND"], secondaries = ["clay"], colours = ["grey"] }
 sampling = { types = ["D"], interval_m = { min = 0.5, max = 1.0, basis = "test fixture" } }
+
+[lenses.properties]
+spt_n = { min = 10, max = 30, basis = "test fixture" }
+moisture_content_percent = { min = 8, max = 15, basis = "test fixture" }
+particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
 "#;
 
     /// `FIXTURE` plus `LENSES` with the given plan radius range.
@@ -959,7 +1002,7 @@ sampling = { types = ["D"], interval_m = { min = 0.5, max = 1.0, basis = "test f
         let thin = Preset::from_toml(&thin).unwrap();
         let plain = fixture();
         for seed in 0..10 {
-            assert_eq!(build(&thin, seed, 8), build(&plain, seed, 8));
+            assert_eq!(build(&thin, seed, 8).holes, build(&plain, seed, 8).holes);
         }
     }
 
@@ -1056,8 +1099,10 @@ sampling = { types = ["D"], interval_m = { min = 0.5, max = 1.0, basis = "test f
         }
     }
 
-    /// A preset without lenses gives the bytes it gave before lenses
-    /// existed. The hashes were taken from the pre-lens code.
+    /// A preset without lenses gives the same bytes whatever the lens code
+    /// does. The hashes were first taken from the pre-lens code and re-taken
+    /// when the descriptions gained their property-model leading term (#41),
+    /// the only change since; the fixture carries properties for it.
     #[test]
     fn a_preset_without_lenses_is_byte_identical_to_before() {
         use sha2::{Digest, Sha256};
@@ -1065,18 +1110,18 @@ sampling = { types = ["D"], interval_m = { min = 0.5, max = 1.0, basis = "test f
         for (seed, sha, len) in [
             (
                 0u64,
-                "93cf8772f2b2e5dea760cc4b9bd9863e32c5a4eec01757c447a8efb63e6ccb14",
-                7530usize,
+                "eb3867ad5abc2a094fbb1b431ecd8cdce969701aba9bbf29838768b0bc763f48",
+                7679usize,
             ),
             (
                 1,
-                "1184f005b3dc146790900cac1bf1feda21e96bd537ad75d1eafdb6042bfcb0b7",
-                7033,
+                "b2a23f970d75aa1cb8af90008165695e9d11c27dd9d9eed0504150754d4b618c",
+                7131,
             ),
             (
                 2,
-                "8d500364149f362c227680860bc142e3d28f70da3c4a59742ce667bc0ebaaa0d",
-                7956,
+                "3081accfb70f0c2208734dd6de7d2428fc869c6173c744b5553bd0e0ae8892f5",
+                8053,
             ),
         ] {
             let out = emit_to_string(&file(&p, seed, 6, Grid::Local));
@@ -1272,8 +1317,8 @@ sampling = { types = ["D"], interval_m = { min = 0.5, max = 1.0, basis = "test f
                 for (sa, sb) in ha.strata.iter().zip(&hb.strata) {
                     assert_eq!((sa.top, sa.base, &sa.unit), (sb.top, sb.base, &sb.unit));
                     if sa.unit == "WLC" {
-                        // With no leading term the colour opens the sentence.
-                        assert!(sb.description.starts_with("Light brown "), "{sb:?}");
+                        // The leading term comes first, then the colour.
+                        assert!(sb.description.contains(" light brown "), "{sb:?}");
                     } else {
                         assert_eq!(sa.description, sb.description);
                     }
@@ -1384,6 +1429,112 @@ sampling = { types = ["D"], interval_m = { min = 0.5, max = 1.0, basis = "test f
             assert_eq!(row.values[col("LOCA_GREF")], "OSGB");
         }
     }
+
+    /// The expected leading term of a stratum: the catalogue's term for the
+    /// property model's value at the stratum's mid-depth.
+    fn expected_term(site: &Site, hole: usize, s: &Stratum) -> (&'static str, bool) {
+        let mid = f64::midpoint(s.top, s.base);
+        let e = site.properties_at(hole, mid).expect("inside the hole");
+        match (e.fine, e.spt_n) {
+            (Some(f), None) => (
+                crate::catalogue::consistency_term_from_ic(f.consistency_index).unwrap(),
+                true,
+            ),
+            (None, Some(n)) => (crate::catalogue::spt_relative_density_term(n), false),
+            other => panic!("{other:?}: a fixture unit has one kind of property set"),
+        }
+    }
+
+    #[test]
+    fn a_description_leads_with_the_term_of_its_mid_depth_properties() {
+        let p = fixture();
+        let (mut checked, mut terms) = (0, std::collections::BTreeSet::new());
+        for seed in 0..40 {
+            let site = build(&p, seed, 6);
+            for (k, hole) in site.holes.iter().enumerate() {
+                for s in &hole.strata {
+                    let (term, fine) = expected_term(&site, k, s);
+                    // RTD is the only coarse unit of the fixture.
+                    assert_eq!(fine, s.unit != "RTD", "{s:?}");
+                    assert!(
+                        s.description.starts_with(&format!("{term} ")),
+                        "seed {seed} hole {k} {s:?}: expected {term:?}"
+                    );
+                    terms.insert(term);
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 200, "{checked}");
+        assert!(terms.len() >= 3, "the fixture varies its terms: {terms:?}");
+    }
+
+    /// The lens carries its own term, from its own properties at its own
+    /// mid-depth; a host split around it keeps one description for all parts.
+    #[test]
+    fn a_lens_and_a_split_host_lead_with_their_own_terms() {
+        let p = lens_preset();
+        let mut lens_strata = 0;
+        for seed in 0..20 {
+            let site = build(&p, seed, 6);
+            for (k, hole) in site.holes.iter().enumerate() {
+                for s in &hole.strata {
+                    if s.unit == "SB" || s.unit == "CL" {
+                        let (term, fine) = expected_term(&site, k, s);
+                        assert!(!fine, "{s:?}");
+                        assert!(s.description.starts_with(&format!("{term} ")), "{s:?}");
+                        lens_strata += 1;
+                    }
+                }
+                for unit in ["WLC", "LC"] {
+                    let parts: Vec<_> = hole.strata.iter().filter(|s| s.unit == unit).collect();
+                    assert!(
+                        parts
+                            .windows(2)
+                            .all(|w| w[0].description == w[1].description),
+                        "{parts:?}"
+                    );
+                }
+            }
+        }
+        assert!(lens_strata > 10, "{lens_strata}");
+    }
+
+    /// A unit with both a fine and a coarse principal carries both property
+    /// sets, and each description takes the term of the principal it drew.
+    #[test]
+    fn a_mixed_unit_leads_with_the_term_of_the_principal_drawn() {
+        let mixed = FIXTURE.replace(
+            r#"description = { principals = ["CLAY"], secondaries = ["silt"], colours = ["grey", "dark grey"] }"#,
+            r#"description = { principals = ["CLAY", "SAND"], secondaries = ["silt"], colours = ["grey"] }"#,
+        ) + "spt_n = { min = 10, max = 30, basis = \"test fixture\" }\nmoisture_content_percent = { min = 8, max = 15, basis = \"test fixture\" }\n";
+        let p = Preset::from_toml(&mixed).unwrap();
+        let (mut fine, mut coarse) = (0, 0);
+        for seed in 0..40 {
+            let site = build(&p, seed, 6);
+            for (k, hole) in site.holes.iter().enumerate() {
+                for s in hole.strata.iter().filter(|s| s.unit == "LC") {
+                    let mid = f64::midpoint(s.top, s.base);
+                    let e = site.properties_at(k, mid).unwrap();
+                    let ic = e.fine.as_ref().unwrap().consistency_index;
+                    let consistency = crate::catalogue::consistency_term_from_ic(ic).unwrap();
+                    let density = crate::catalogue::spt_relative_density_term(e.spt_n.unwrap());
+                    if s.description.ends_with("CLAY.") {
+                        assert!(
+                            s.description.starts_with(&format!("{consistency} ")),
+                            "{s:?}"
+                        );
+                        fine += 1;
+                    } else {
+                        assert!(s.description.starts_with(&format!("{density} ")), "{s:?}");
+                        assert!(s.description.ends_with("SAND."), "{s:?}");
+                        coarse += 1;
+                    }
+                }
+            }
+        }
+        assert!(fine > 10 && coarse > 10, "{fine} fine, {coarse} coarse");
+    }
 }
 
 #[cfg(test)]
@@ -1405,7 +1556,9 @@ mod shipped_pins {
     /// Each shipped preset's default file, pinned like the scaffolds
     /// (`synth_output_bytes_are_pinned`). Consumers commit output from these,
     /// so moving a pin is a preset version bump they must be told about
-    /// (ADR 0001): bump `version`, re-pin, and say so in the PR.
+    /// (ADR 0001): bump `version`, re-pin, and say so in the PR. Re-taken once
+    /// for london-basin v2 (#41), which adds the properties the descriptions'
+    /// leading terms come from.
     #[test]
     fn shipped_preset_output_bytes_are_pinned() {
         use sha2::{Digest, Sha256};
@@ -1413,20 +1566,20 @@ mod shipped_pins {
             (
                 "london-basin",
                 0u64,
-                "17b31bb2551e87980a87d2795c3598ac612f0ad508e3a89ee542fe49e4697f98",
-                6728usize,
+                "b3b5a734b7555e3348320e09d1abb103f00ba8bf7738906330f1d52fe853702d",
+                6848usize,
             ),
             (
                 "london-basin",
                 1,
-                "373caf98f8362af22d5e8b2edcdf49bb8b5af48d7a637cb6d3ff4ab50b2a36f2",
-                5416,
+                "9e7ec1f406533b49cb50deedad67d77f6b00b41467d788c2d49602336bd62175",
+                5506,
             ),
             (
                 "london-basin",
                 2,
-                "0c702cec22b1b23c72c08f448a2af01c61e694595e3dd951c57feaed3bb5e72d",
-                8718,
+                "750078211ebbb2b89f00ac354aced1e777b0b009abe355b4f21fe2a3126867c9",
+                8842,
             ),
         ] {
             let text = shipped(name, seed);

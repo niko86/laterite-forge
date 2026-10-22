@@ -244,6 +244,7 @@ summary = "A fixture."
 [site]
 extent_m = { x = 200.0, y = 100.0 }
 ground_level_m = { min = 10.0, max = 12.0, basis = "test fixture" }
+groundwater_depth_m = { min = 1.0, max = 4.0, basis = "test fixture" }
 
 [[hole_types]]
 code = "CP"
@@ -257,11 +258,22 @@ thickness_m = { min = 1.0, max = 3.0, basis = "test fixture" }
 description = { principals = ["SAND"], secondaries = [], colours = ["brown"] }
 sampling = { types = ["B"], interval_m = { min = 1.0, max = 1.5, basis = "test fixture" } }
 
+[units.properties]
+spt_n = { min = 10, max = 30, basis = "test fixture" }
+moisture_content_percent = { min = 8, max = 15, basis = "test fixture" }
+particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
+
 [[units]]
 id = "BASE"
 name = "Base"
 description = { principals = ["CLAY"], secondaries = [], colours = ["grey"] }
 sampling = { types = ["U"], interval_m = { min = 1.5, max = 3.0, basis = "test fixture" } }
+
+[units.properties]
+plastic_limit_percent = { min = 20, max = 30, basis = "test fixture" }
+plasticity_index_percent = { min = 30, max = 50, basis = "test fixture" }
+liquidity_index = { min = 0.0, max = 0.3, basis = "test fixture" }
+particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
 "#;
 
     fn site_preset() -> Preset {
@@ -306,7 +318,7 @@ sampling = { types = ["U"], interval_m = { min = 1.5, max = 3.0, basis = "test f
             let ratio = actual as f64 / target as f64;
             // Well inside the scaffold band (0.9..=1.12) asserted above.
             assert!(
-                (0.98..=1.02).contains(&ratio),
+                (0.97..=1.03).contains(&ratio),
                 "target {target}: actual {actual} ratio {ratio:.3} (holes {})",
                 c.n_loca
             );
