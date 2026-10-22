@@ -53,7 +53,24 @@ pub struct Stratum {
     pub top: f64,
     pub base: f64,
     pub description: String,
+    /// Top-down, each wholly inside `top..=base`.
+    pub samples: Vec<Sample>,
 }
+
+/// One sample taken from a stratum.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Sample {
+    pub top: f64,
+    pub base: f64,
+    /// Its `SAMP_TYPE` code.
+    pub code: String,
+}
+
+/// The length of every sample, metres: 0.45 m is the usual UK driven-sample
+/// length (a U100 tube barrel). `SAMP_BASE` is required, and a fixed length
+/// keeps the sampling schedule to the one thing the preset specifies, the
+/// spacing of tops.
+pub const SAMPLE_LENGTH_M: f64 = 0.45;
 
 /// The hole count `gen --site` uses when nothing sets one: 3–7, like a
 /// scaffold file, drawn from its own stream so it moves no hole.
@@ -178,8 +195,38 @@ fn strata(
             top,
             base,
             description: description.text,
+            samples: samples(unit, seed, k, top, base),
         });
         top = base;
+    }
+    out
+}
+
+/// The samples of one stratum: the first top falls within one interval of the
+/// stratum top, and each next top is a drawn interval below the last (never
+/// overlapping the sample above). A sample whose base would pass the stratum
+/// base is dropped, and so is everything below it. Depths are rounded to the 2
+/// decimal places they are written with, and `top` and `base` are already
+/// such values, so a rounded sample can never leave its stratum.
+fn samples(unit: &Unit, seed: u64, k: usize, top: f64, base: f64) -> Vec<Sample> {
+    let sampling = &unit.sampling;
+    let range = &sampling.interval_m;
+    let mut rng = Key::stratum("sampling", k, &unit.id).rng(seed);
+    let mut out = Vec::new();
+    let mut at = round2(top + uniform(&mut rng, 0.0, range.max));
+    loop {
+        let sample_base = round2(at + SAMPLE_LENGTH_M);
+        if at < top || sample_base > base {
+            break;
+        }
+        let pick = usize::try_from(rng.below(sampling.types.len() as u64)).expect("small index");
+        out.push(Sample {
+            top: at,
+            base: sample_base,
+            code: sampling.types[pick].clone(),
+        });
+        let step = uniform(&mut rng, range.min, range.max);
+        at = round2(at + step).max(sample_base);
     }
     out
 }
@@ -202,11 +249,12 @@ pub fn marker(preset: &Preset) -> String {
 }
 
 /// Lower `site` into the groups the emitter writes: PROJ (with the marker),
-/// TRAN, LOCA, GEOL, then ABBR/UNIT/TYPE covering exactly what those use.
+/// TRAN, LOCA, GEOL, SAMP, then ABBR/UNIT/TYPE covering exactly what those use.
 pub fn lower(site: &Site, preset: &Preset, seed: u64, grid: Grid) -> ProjectModel {
     let dict = Dictionary::bundled(DictVersion::V4_2);
     let mut groups = vec![proj(preset, seed), tran(seed), loca(site, grid)];
     groups.push(geol(site));
+    groups.push(samp(site));
     let abbr = collect_abbr(&groups, &dict);
     let unit = collect_unit(&groups);
     let types = collect_type(&groups);
@@ -329,6 +377,45 @@ fn geol(site: &Site) -> Group {
             ("GEOL_TOP", "m", "2DP"),
             ("GEOL_BASE", "m", "2DP"),
             ("GEOL_DESC", "", "X"),
+        ],
+        rows,
+    )
+}
+
+/// SAMP, in dictionary heading order: the five-part KEY, then `SAMP_BASE`.
+/// `SAMP_REF` counts the hole's samples top-down, which with the top makes
+/// the KEY unique; `SAMP_ID` repeats it with the hole so it reads on its own.
+fn samp(site: &Site) -> Group {
+    let rows = site
+        .holes
+        .iter()
+        .flat_map(|h| {
+            h.strata
+                .iter()
+                .flat_map(|s| &s.samples)
+                .enumerate()
+                .map(|(n, s)| {
+                    let reference = (n + 1).to_string();
+                    Row::owned(vec![
+                        h.id.clone(),
+                        m2(s.top),
+                        reference.clone(),
+                        s.code.clone(),
+                        format!("{}-{reference}", h.id),
+                        m2(s.base),
+                    ])
+                })
+        })
+        .collect();
+    group(
+        "SAMP",
+        &[
+            ("LOCA_ID", "", "ID"),
+            ("SAMP_TOP", "m", "2DP"),
+            ("SAMP_REF", "", "X"),
+            ("SAMP_TYPE", "", "PA"),
+            ("SAMP_ID", "", "ID"),
+            ("SAMP_BASE", "m", "2DP"),
         ],
         rows,
     )
@@ -513,7 +600,75 @@ sampling = { types = ["U", "D"], interval_m = { min = 1.5, max = 3.0, basis = "t
             assert_eq!(rows(&small, "LOCA"), &rows(&large, "LOCA")[..10]);
             let n = rows(&small, "GEOL").len();
             assert_eq!(rows(&small, "GEOL"), &rows(&large, "GEOL")[..n]);
+            let n = rows(&small, "SAMP").len();
+            assert_eq!(rows(&small, "SAMP"), &rows(&large, "SAMP")[..n]);
             assert_eq!(rows(&small, "PROJ"), rows(&large, "PROJ"));
+        }
+    }
+
+    /// No sample straddles a stratum boundary or reaches below final depth,
+    /// and the schedule actually produces samples.
+    #[test]
+    fn samples_lie_wholly_inside_their_stratum() {
+        let p = fixture();
+        let mut count = 0;
+        for seed in 0..60 {
+            for h in build(&p, seed, 8).holes {
+                for s in &h.strata {
+                    for m in &s.samples {
+                        count += 1;
+                        assert!(m.top >= s.top && m.base <= s.base, "{h:?} {m:?}");
+                        assert!(m.top < m.base && m.base <= h.final_depth, "{h:?} {m:?}");
+                    }
+                    for pair in s.samples.windows(2) {
+                        assert!(pair[0].base <= pair[1].top, "{pair:?}");
+                    }
+                }
+            }
+        }
+        assert!(count > 1000, "{count}");
+    }
+
+    /// Sampling is a pass of its own: strip the samples and LOCA and GEOL do
+    /// not change by a byte.
+    #[test]
+    fn sampling_moves_no_loca_or_geol_byte() {
+        let p = fixture();
+        for seed in [0, 3, 11] {
+            let with = build(&p, seed, 8);
+            let mut without = with.clone();
+            for s in without.holes.iter_mut().flat_map(|h| &mut h.strata) {
+                s.samples.clear();
+            }
+            let (a, b) = (
+                lower(&with, &p, seed, Grid::Local),
+                lower(&without, &p, seed, Grid::Local),
+            );
+            for code in ["PROJ", "TRAN", "LOCA", "GEOL"] {
+                assert_eq!(rows(&a, code), rows(&b, code), "{code}");
+            }
+            assert!(rows(&b, "SAMP").is_empty());
+            assert!(!rows(&a, "SAMP").is_empty());
+        }
+    }
+
+    /// SAMP keys are unique and every `SAMP_TYPE` is in ABBR.
+    #[test]
+    fn samp_keys_are_unique_and_types_are_abbreviated() {
+        let p = fixture();
+        let m = file(&p, 4, 12, Grid::Local);
+        let mut keys: Vec<&[String]> = rows(&m, "SAMP").iter().map(|r| &r.values[..5]).collect();
+        let n = keys.len();
+        keys.sort();
+        keys.dedup();
+        assert_eq!(keys.len(), n);
+        for r in rows(&m, "SAMP") {
+            assert!(
+                rows(&m, "ABBR")
+                    .iter()
+                    .any(|a| a.values[0] == "SAMP_TYPE" && a.values[1] == r.values[3]),
+                "{r:?}"
+            );
         }
     }
 
