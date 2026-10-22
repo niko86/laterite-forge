@@ -41,6 +41,16 @@ pub struct Cli {
     /// array (json/ndjson) / per-row list (table).
     #[arg(long, global = true)]
     pub compact: bool,
+    /// The uv project that runs python-ags4: a laterite-forge checkout
+    /// after `uv sync`. Defaults to the checkout this binary was built
+    /// from, so a downloaded release needs it to reach the oracle.
+    #[arg(
+        long,
+        global = true,
+        env = "AGS4_FORGE_ORACLE_PROJECT",
+        value_name = "DIR"
+    )]
+    pub oracle_project: Option<PathBuf>,
 
     #[command(subcommand)]
     pub command: Commands,

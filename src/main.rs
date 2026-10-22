@@ -83,15 +83,17 @@ fn main() {
         no_color: cli.no_color,
     };
 
+    let site = pipeline::OracleSite::new(cli.oracle_project.as_deref());
+
     let result = match &cli.command {
-        Commands::Check(a) => cmd::check(a, ctx),
-        Commands::Gen(a) => cmd::generate(a, ctx),
-        Commands::Run(a) => cmd::run(a, ctx),
-        Commands::Mine(a) => cmd::mine(a, ctx),
+        Commands::Check(a) => cmd::check(a, &site, ctx),
+        Commands::Gen(a) => cmd::generate(a, &site, ctx),
+        Commands::Run(a) => cmd::run(a, &site, ctx),
+        Commands::Mine(a) => cmd::mine(a, &site, ctx),
         Commands::Catalog => cmd::catalog(ctx),
         Commands::Describe(a) => cmd::describe(a, ctx),
         Commands::Scale(a) => cmd::scale(a, ctx),
-        Commands::Minimize(a) => cmd::minimize(a, ctx),
+        Commands::Minimize(a) => cmd::minimize(a, &site, ctx),
         Commands::Edit(a) => cmd::edit(a, ctx),
         Commands::Strategy(a) => cmd::strategy_cmd(a, ctx),
         Commands::Confidence(a) => cmd::confidence_cmd(a, ctx),
