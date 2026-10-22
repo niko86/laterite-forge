@@ -251,7 +251,7 @@ fn build(
 /// cell across `groups` — so Rule 16 holds for the whole (wide) file. The
 /// description is the dictionary's canonical one (FYI), falling back to the
 /// code itself if absent.
-fn collect_abbr(groups: &[Group], dict: &Dictionary<'static>) -> Group {
+pub(crate) fn collect_abbr(groups: &[Group], dict: &Dictionary<'static>) -> Group {
     let mut used: BTreeSet<(String, String)> = BTreeSet::new();
     for g in groups {
         for (ci, t) in g.types.iter().enumerate() {
@@ -306,7 +306,7 @@ impl catalog::GroupView for Group {
 /// Build the `UNIT` group covering every unit any group uses (Rule 15,
 /// via `catalog::units_used` — UNIT-row values plus PU-column cells).
 /// Description falls back to the unit symbol itself.
-fn collect_unit(groups: &[Group]) -> Group {
+pub(crate) fn collect_unit(groups: &[Group]) -> Group {
     let rows = catalog::units_used(groups)
         .iter()
         .map(|u| Row::owned(vec![u.clone(), u.clone()]))
@@ -323,7 +323,7 @@ fn collect_unit(groups: &[Group]) -> Group {
 /// Build the `TYPE` group covering every type code any group declares
 /// (Rule 17, via `catalog::types_used`). Description falls back to the
 /// code itself.
-fn collect_type(groups: &[Group]) -> Group {
+pub(crate) fn collect_type(groups: &[Group]) -> Group {
     let rows = catalog::types_used(groups)
         .iter()
         .map(|t| Row::owned(vec![t.clone(), t.clone()]))
