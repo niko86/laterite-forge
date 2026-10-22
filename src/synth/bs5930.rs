@@ -69,6 +69,8 @@ struct Terms {
     peat_condition: Vec<Term>,
     #[serde(default, rename = "secondaryOrganic")]
     secondary_organic: Vec<OrganicTerm>,
+    #[serde(default, rename = "tertiaryAmounts")]
+    tertiary_amounts: Vec<Term>,
 }
 
 /// A `secondaryOrganic` entry — Table 20 pairs each amount with the colour
@@ -120,6 +122,9 @@ pub struct Vocab {
     peat_types: Vec<String>,
     /// Table 20 organic amounts, each with its typical colour.
     secondary_organic: Vec<(String, String)>,
+    /// Vendored `tertiaryAmounts` (`with rare` … `with abundant`), rarest
+    /// first.
+    tertiary_amounts: Vec<String>,
 }
 
 impl Vocab {
@@ -127,6 +132,11 @@ impl Vocab {
     #[cfg(test)]
     pub fn consistency_terms(&self) -> &[String] {
         &self.consistency
+    }
+
+    /// The vendored tertiary amount terms, rarest first.
+    pub(crate) fn tertiary_amounts(&self) -> &[String] {
+        &self.tertiary_amounts
     }
 
     /// Parse the vendored skill data. Panics only if the in-repo JSON is
@@ -168,6 +178,7 @@ impl Vocab {
                 .iter()
                 .map(|x| (x.term.clone(), x.typical_colour.clone()))
                 .collect(),
+            tertiary_amounts: t.tertiary_amounts.iter().map(|x| x.text.clone()).collect(),
         }
     }
 }

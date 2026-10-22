@@ -124,6 +124,13 @@ pub struct DescribeRow {
     /// The secondary fractions behind the qualifiers, as `gravel 24% (very)`
     /// — exposes the percentage-first basis (a fine-in-fine shows `(named)`).
     pub fractions: Vec<String>,
+    /// With `--made-ground` only: the matrix description the lane wrapped.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matrix: Option<String>,
+    /// With `--made-ground` only: the man-made constituents, most frequent
+    /// first, as `with frequent brick`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub constituents: Option<Vec<String>>,
 }
 
 /// `forge describe` — a preview batch of constraint-valid descriptions.

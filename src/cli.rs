@@ -282,6 +282,14 @@ pub struct DescribeArgs {
     /// existed, so a consumer's committed output does not move under them.
     #[arg(long)]
     pub organic: bool,
+    /// Describe each draw as MADE GROUND: the drawn description is the matrix,
+    /// prefixed with the tag and given one or two man-made constituents
+    /// (brick, concrete, ash, ...) as a trailing `with ...` clause.
+    ///
+    /// Opt-in. The matrix is the unflagged draw for the same seed; the
+    /// constituents come from a separate stream, so no existing draw moves.
+    #[arg(long = "made-ground")]
+    pub made_ground: bool,
     /// Keep only descriptions with this principal (`CLAY`, `SILT`, `SAND`,
     /// `GRAVEL`, `PEAT`). Repeatable. `PEAT` implies `--organic`.
     ///
