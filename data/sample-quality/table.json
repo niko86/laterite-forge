@@ -1,0 +1,381 @@
+{
+ "tests": [
+  {
+   "group": "AAVT",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "ACVT",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "AELO",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "AFLK",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "AIVT",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "ALOS",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "APSV",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "ARTW",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "ASDI",
+   "min_class": 2,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "ASNS",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "AWAD",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "CBRG",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "CHOC",
+   "min_class": 5,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "CMPG",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "CONG",
+   "min_class": 1,
+   "basis": "BS EN 1997-2"
+  },
+  {
+   "group": "CTRG",
+   "min_class": 1,
+   "basis": "BS EN 1997-2"
+  },
+  {
+   "group": "ECTN",
+   "min_class": 5,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "ESCG",
+   "min_class": 1,
+   "basis": "BS EN 1997-2"
+  },
+  {
+   "group": "FRST",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "GRAG",
+   "min_class": 4,
+   "basis": "BS EN 1997-2"
+  },
+  {
+   "group": "LDEN",
+   "min_class": 1,
+   "basis": "BS EN 1997-2"
+  },
+  {
+   "group": "LDYN",
+   "min_class": 1,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "LFCN",
+   "min_class": 1,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "LLIN",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "LLPL",
+   "min_class": 4,
+   "basis": "BS EN 1997-2"
+  },
+  {
+   "group": "LNMC",
+   "min_class": 3,
+   "basis": "BS EN 1997-2"
+  },
+  {
+   "group": "LPDN",
+   "min_class": 4,
+   "basis": "BS EN 1997-2"
+  },
+  {
+   "group": "LPEN",
+   "min_class": 1,
+   "basis": "BS EN 1997-2"
+  },
+  {
+   "group": "LRES",
+   "min_class": 3,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "LSLT",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "LSTG",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "LSWL",
+   "min_class": 1,
+   "basis": "BS EN 1997-2"
+  },
+  {
+   "group": "LTCH",
+   "min_class": 2,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "LUCT",
+   "min_class": 1,
+   "basis": "BS EN 1997-2"
+  },
+  {
+   "group": "LVAN",
+   "min_class": 1,
+   "basis": "BS EN 1997-2"
+  },
+  {
+   "group": "MCVG",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "PTST",
+   "min_class": 1,
+   "basis": "BS EN 1997-2"
+  },
+  {
+   "group": "RCAG",
+   "min_class": 2,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "RCCV",
+   "min_class": 2,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "RDEN",
+   "min_class": 2,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "RELD",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "RESG",
+   "min_class": 1,
+   "basis": "BS EN 1997-2"
+  },
+  {
+   "group": "RPLT",
+   "min_class": 1,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "RSCH",
+   "min_class": 2,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "RSHR",
+   "min_class": 2,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "RTEN",
+   "min_class": 1,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "RUCS",
+   "min_class": 1,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "RWCO",
+   "min_class": 2,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "SHBG",
+   "min_class": 1,
+   "basis": "BS EN 1997-2"
+  },
+  {
+   "group": "SUCT",
+   "min_class": 1,
+   "basis": "BS EN 1997-2"
+  },
+  {
+   "group": "TNPC",
+   "min_class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "group": "TREG",
+   "min_class": 1,
+   "basis": "BS EN 1997-2"
+  },
+  {
+   "group": "TRIG",
+   "min_class": 1,
+   "basis": "BS EN 1997-2"
+  }
+ ],
+ "samp_types": [
+  {
+   "code": "AMAL",
+   "class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "code": "B",
+   "class": 4,
+   "basis": "BS EN 1997-2 and BS EN ISO 22475-1"
+  },
+  {
+   "code": "BLK",
+   "class": 1,
+   "basis": "BS EN ISO 22475-1"
+  },
+  {
+   "code": "C",
+   "class": 1,
+   "basis": "forge judgement"
+  },
+  {
+   "code": "CBR",
+   "class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "code": "COMP",
+   "class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "code": "CONCB",
+   "class": null,
+   "basis": "forge judgement"
+  },
+  {
+   "code": "CONCC",
+   "class": null,
+   "basis": "forge judgement"
+  },
+  {
+   "code": "D",
+   "class": 4,
+   "basis": "BS EN 1997-2 and BS EN ISO 22475-1"
+  },
+  {
+   "code": "ES",
+   "class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "code": "EW",
+   "class": null,
+   "basis": "forge judgement"
+  },
+  {
+   "code": "G",
+   "class": null,
+   "basis": "forge judgement"
+  },
+  {
+   "code": "L",
+   "class": 3,
+   "basis": "BS EN ISO 22475-1"
+  },
+  {
+   "code": "LB",
+   "class": 4,
+   "basis": "forge judgement"
+  },
+  {
+   "code": "M",
+   "class": 1,
+   "basis": "BS EN ISO 22475-1"
+  },
+  {
+   "code": "MOS",
+   "class": 2,
+   "basis": "forge judgement"
+  },
+  {
+   "code": "P",
+   "class": 1,
+   "basis": "BS EN ISO 22475-1"
+  },
+  {
+   "code": "SPTLS",
+   "class": 5,
+   "basis": "forge judgement"
+  },
+  {
+   "code": "TW",
+   "class": 1,
+   "basis": "BS EN ISO 22475-1"
+  },
+  {
+   "code": "U",
+   "class": 1,
+   "basis": "forge judgement"
+  },
+  {
+   "code": "UT",
+   "class": 1,
+   "basis": "BS EN ISO 22475-1"
+  },
+  {
+   "code": "W",
+   "class": null,
+   "basis": "forge judgement"
+  }
+ ]
+}

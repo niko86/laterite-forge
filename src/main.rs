@@ -48,6 +48,7 @@ mod ops;
 mod pipeline;
 mod project;
 mod report;
+mod sample_quality;
 mod scale;
 mod site;
 mod strategy;
