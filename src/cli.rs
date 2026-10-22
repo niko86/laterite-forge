@@ -216,10 +216,9 @@ pub struct MineArgs {
     #[arg(long, default_value = "loca-samp")]
     pub scaffold: String,
     /// Directory of .ags files whose Rust signatures define the "covered"
-    /// rule-break shapes (default: the vendored python-ags4 corpus at
-    /// vendor/pyags4-tests in the laterite-forge checkout this binary was
-    /// built from). Absent/empty
-    /// → empty covered-set (every synthesized combination reads as a gap).
+    /// rule-break shapes (default: vendor/pyags4-tests in the
+    /// --oracle-project checkout). Absent/empty → empty covered-set (every
+    /// synthesized combination reads as a gap), said on stderr.
     #[arg(long)]
     pub corpus: Option<PathBuf>,
     /// Smallest combination size to synthesize.

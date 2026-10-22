@@ -417,12 +417,11 @@ pub fn mine(args: &MineArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
         eprintln!("error: --seeds must be >= 1");
         return Ok(5);
     }
-    // Default corpus: the vendored python-ags4 fixtures at this repo's
-    // `vendor/pyags4-tests` (laterite keeps the same corpus beside corpus-qa,
-    // niko86/laterite#1110). Absent → an empty covered-set, surfaced in the report.
-    let corpus = args.corpus.clone().unwrap_or_else(|| {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("vendor/pyags4-tests")
-    });
+    // Default corpus: the vendored python-ags4 fixtures in the oracle
+    // checkout (laterite keeps the same corpus beside corpus-qa,
+    // niko86/laterite#1110). It is LGPL data, so the binary does not carry it
+    // (#15). Absent → an empty covered-set, said on stderr after the run.
+    let corpus = args.corpus.clone().unwrap_or_else(|| site.corpus());
 
     let out = forge_dir(args.out_dir.as_deref());
     guard_out_dir(&out)?;
@@ -486,6 +485,14 @@ pub fn mine(args: &MineArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
         max_oracle: args.max_oracle,
     };
     let report = run_mine(&cfg, oracle.as_ref(), &dir, chrono::Utc::now().to_rfc3339())?;
+    if report.corpus_files == 0 {
+        note(format!(
+            "mine: no .ags files in corpus {}, so nothing was subtracted and every \
+             signature reads as a gap. Pass --corpus DIR, or point --oracle-project at a \
+             laterite-forge checkout.",
+            cfg.corpus.display()
+        ));
+    }
     let report_path = dir.join("report.json");
     std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
     set_latest_run(&out, &run_id)?;
