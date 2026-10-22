@@ -39,6 +39,34 @@ fn json(out: &Output) -> serde_json::Value {
     })
 }
 
+/// A copy of this checkout's oracle project (the uv project and the
+/// wrapper), somewhere the compile-time default does not point.
+fn oracle_project_copy() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir(dir.path().join("tools")).unwrap();
+    for f in ["pyproject.toml", "uv.lock", "tools/py_ags4_check_json.py"] {
+        std::fs::copy(repo().join(f), dir.path().join(f)).expect(f);
+    }
+    dir
+}
+
+/// Skip (or, under `FORGE_REQUIRE_ORACLE`, fail) when the run had no oracle.
+fn skipped_without_oracle(test: &str, doc: &serde_json::Value, out: &Output) -> bool {
+    if doc["oracle"] != false {
+        return false;
+    }
+    assert!(
+        std::env::var_os("FORGE_REQUIRE_ORACLE").is_none(),
+        "FORGE_REQUIRE_ORACLE is set but the checkout gave no oracle: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    eprintln!(
+        "SKIP {test}: {}",
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
+    true
+}
+
 /// A directory with no uv project in it: Rust-only, and stderr names the
 /// directory and the flag that fixes it.
 #[test]
@@ -91,11 +119,7 @@ fn the_environment_variable_names_the_project() {
 /// `FORGE_REQUIRE_ORACLE=1` (CI sets it) the skip is a failure.
 #[test]
 fn a_checkout_elsewhere_is_used_as_the_oracle() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    std::fs::create_dir(dir.path().join("tools")).unwrap();
-    for f in ["pyproject.toml", "uv.lock", "tools/py_ags4_check_json.py"] {
-        std::fs::copy(repo().join(f), dir.path().join(f)).expect(f);
-    }
+    let dir = oracle_project_copy();
     let out = forge(
         &[
             "check",
@@ -107,16 +131,7 @@ fn a_checkout_elsewhere_is_used_as_the_oracle() {
         &[],
     );
     let doc = json(&out);
-    if doc["oracle"] == false {
-        assert!(
-            std::env::var_os("FORGE_REQUIRE_ORACLE").is_none(),
-            "FORGE_REQUIRE_ORACLE is set but the checkout gave no oracle: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        eprintln!(
-            "SKIP a_checkout_elsewhere_is_used_as_the_oracle: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
+    if skipped_without_oracle("a_checkout_elsewhere_is_used_as_the_oracle", &doc, &out) {
         return;
     }
     // The exit code is the file's verdict (example1 has rust-only FYIs), not
@@ -130,6 +145,51 @@ fn a_checkout_elsewhere_is_used_as_the_oracle() {
         dir.path().join(".venv").is_dir(),
         "uv did not run in the --oracle-project copy"
     );
+    assert!(
+        !String::from_utf8_lossy(&out.stderr).contains("warning:"),
+        "the pinned python-ags4 warned: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// A project whose python-ags4 reports another version (#16): the oracle is
+/// still used, and stderr says once which version it found and which one
+/// the verdicts are written for. The copied wrapper's self-check is edited
+/// to report the other version, which stands in for a checkout synced at a
+/// different pin without installing one.
+#[test]
+fn another_python_ags4_is_used_with_a_warning() {
+    let dir = oracle_project_copy();
+    let wrapper = dir.path().join("tools/py_ags4_check_json.py");
+    let text = std::fs::read_to_string(&wrapper).unwrap();
+    let real = r#"getattr(python_ags4, "__version__", "?")"#;
+    assert!(
+        text.contains(real),
+        "the wrapper's self-check has changed shape"
+    );
+    std::fs::write(&wrapper, text.replace(real, r#""9.9.9""#)).unwrap();
+    let out = forge(
+        &[
+            "check",
+            &example(),
+            "--oracle-project",
+            dir.path().to_str().unwrap(),
+            "--json",
+        ],
+        &[],
+    );
+    let doc = json(&out);
+    if skipped_without_oracle("another_python_ags4_is_used_with_a_warning", &doc, &out) {
+        return;
+    }
+    assert_eq!(doc["oracle"], true);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        stderr.matches("python-ags4 9.9.9").count(),
+        1,
+        "expected one drift line: {stderr}"
+    );
+    assert!(stderr.contains("written for 1.2.0"), "{stderr}");
 }
 
 /// A path that does not exist is rejected before the oracle is probed: the

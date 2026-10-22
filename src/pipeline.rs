@@ -98,7 +98,12 @@ impl OracleSite {
             Duration::from_secs(timeout_secs),
         );
         match oracle.selfcheck() {
-            Ok(sc) => Ok((oracle, sc.python_ags4.unwrap_or_else(|| "unknown".into()))),
+            Ok(sc) => {
+                if let Some(warning) = drift(sc.python_ags4.as_deref(), &self.project) {
+                    note(warning);
+                }
+                Ok((oracle, sc.python_ags4.unwrap_or_else(|| "unknown".into())))
+            }
             Err(e) => Err(reason(&e, &self.project)),
         }
     }
@@ -111,6 +116,25 @@ impl OracleSite {
             .map_err(|e| note(format!("{fallback} — {e}")))
             .ok()
     }
+}
+
+/// A warning when python-ags4 is not the version the parity reconcile arms
+/// were written for. The oracle is still used: the arms may still hold, and
+/// the parity crate leaves the call to the caller, asking only that drift is
+/// not silent.
+fn drift(reported: Option<&str>, project: &Path) -> Option<String> {
+    let expected = laterite_ags4_parity::EXPECTED_PYAGS4;
+    let p = project.display();
+    let found = match reported {
+        Some(v) if v == expected => return None,
+        // The wrapper reports "?" when python-ags4 has no `__version__`.
+        Some(v) if v != "?" => format!("python-ags4 {v} in {p}"),
+        _ => format!("could not read the python-ags4 version in {p}"),
+    };
+    Some(format!(
+        "warning: {found}, but the parity verdicts are written for {expected} and may be \
+         wrong. Pin python-ags4=={expected} in {p} and run `uv sync` there."
+    ))
 }
 
 /// Why the self-check failed, in terms of what the user can do about it.
@@ -176,6 +200,46 @@ mod tests {
             "{why}"
         );
         assert!(why.contains("Install uv"), "{why}");
+    }
+
+    /// The pinned version is the one the reconcile arms were written for, so
+    /// it says nothing.
+    #[test]
+    fn the_pinned_python_ags4_is_not_drift() {
+        assert_eq!(
+            drift(
+                Some(laterite_ags4_parity::EXPECTED_PYAGS4),
+                Path::new("/srv/forge")
+            ),
+            None
+        );
+    }
+
+    /// Another version still runs, but the user is told the verdicts rest
+    /// on arms written for a different one, and how to get the pinned one.
+    #[test]
+    fn another_python_ags4_names_both_versions() {
+        let msg = drift(Some("1.3.0"), Path::new("/srv/forge")).expect("drift");
+        assert!(msg.contains("python-ags4 1.3.0 in /srv/forge"), "{msg}");
+        assert!(msg.contains("written for 1.2.0"), "{msg}");
+        assert!(
+            msg.contains("Pin python-ags4==1.2.0 in /srv/forge and run `uv sync`"),
+            "{msg}"
+        );
+    }
+
+    /// A self-check that reports no version, or the wrapper's "?" for a
+    /// python-ags4 without `__version__`, cannot be trusted to match.
+    #[test]
+    fn an_unreadable_python_ags4_version_is_drift() {
+        for reported in [None, Some("?")] {
+            let msg = drift(reported, Path::new("/srv/forge")).expect("drift");
+            assert!(
+                msg.contains("could not read the python-ags4 version in /srv/forge"),
+                "{msg}"
+            );
+            assert!(msg.contains("written for 1.2.0"), "{msg}");
+        }
     }
 
     /// The default oracle site is this repo's own root: the wrapper and the
