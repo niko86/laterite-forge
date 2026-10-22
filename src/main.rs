@@ -49,6 +49,7 @@ mod pipeline;
 mod project;
 mod report;
 mod scale;
+mod site;
 mod strategy;
 mod synth;
 
