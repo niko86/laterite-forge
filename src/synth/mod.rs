@@ -20,6 +20,7 @@ pub mod depth;
 pub mod emit;
 pub mod generic;
 pub mod geotech;
+pub mod made_ground;
 pub mod model;
 
 /// The relational scaffold a strategy asked for. `Minimal` is PROJ/TRAN
