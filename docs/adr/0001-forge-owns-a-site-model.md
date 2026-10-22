@@ -105,6 +105,20 @@ consumer can replace.
   using cited BS EN ISO 14688-2 boundaries. That keeps the description in step
   with the LLPL and LNMC rows in the same file. Undrained strength follows its
   own correlation. For coarse soils the term comes from SPT N.
+- A fine unit's properties are drawn as liquid limit, plasticity index and
+  liquidity index; plastic limit and moisture content are derived from them
+  (PL = LL − PI, w = PL + LI·PI). Contradictions such as PL > LL cannot occur,
+  and the consistency index (1 − LI) comes from a cited range rather than
+  from chance. A coarse unit draws SPT N and moisture content.
+- Each property is a smooth field across the site mapped onto its cited
+  range, plus an optional cited depth gradient. About one stratum in fifty
+  takes an outlier on a drawn quantity, beyond its range by 25–75% of the
+  range's width. Outliers come from their own keyed stream and never break
+  the couplings, because the derived quantities are derived after them.
+- In schema v1 a preset names catalogue parameters, not catalogue relations:
+  each job has one relation so far. Choosing a relation by name starts with
+  the first real alternative, the undrained-strength correlations (#1).
+  (Amended 2026-10-22, #9.)
 
 ## Presets
 
