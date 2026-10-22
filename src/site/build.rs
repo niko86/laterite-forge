@@ -6,11 +6,12 @@
 //! hole depends only on its own index, and a stratum only on its hole and
 //! unit.
 
+use laterite_ags4_parity::Rng;
 use laterite_ags4_validator::{DictVersion, Dictionary};
 
 use super::draw::{Key, uniform};
 use super::ground::Field;
-use super::preset::{Preset, Unit};
+use super::preset::{DescriptionSpec, Extent, Lens, Preset, Sampling};
 use crate::synth::bs5930::{self, UnitDescription};
 use crate::synth::generic;
 use crate::synth::model::{Group, ProjectModel, Row, collect_abbr, collect_type, collect_unit};
@@ -85,24 +86,67 @@ pub fn default_hole_count(seed: u64) -> usize {
 /// checks: description constraints the BS 5930 vocabulary cannot meet.
 pub fn problems(preset: &Preset) -> Vec<String> {
     let vocab = bs5930::vocab();
-    preset
-        .units
-        .iter()
-        .enumerate()
-        .flat_map(|(i, u)| {
-            unit_description(u)
-                .problems(vocab)
-                .into_iter()
-                .map(move |p| format!("units[{i}] ({}).description: {p}", u.id))
-        })
-        .collect()
+    let units = preset.units.iter().enumerate().flat_map(|(i, u)| {
+        unit_description(&u.description)
+            .problems(vocab)
+            .into_iter()
+            .map(move |p| format!("units[{i}] ({}).description: {p}", u.id))
+    });
+    let lenses = preset.lenses.iter().enumerate().flat_map(|(i, l)| {
+        unit_description(&l.description)
+            .problems(vocab)
+            .into_iter()
+            .map(move |p| format!("lenses[{i}] ({}).description: {p}", l.id))
+    });
+    units.chain(lenses).collect()
 }
 
-fn unit_description(u: &Unit) -> UnitDescription {
+fn unit_description(d: &DescriptionSpec) -> UnitDescription {
     UnitDescription {
-        principals: u.description.principals.clone(),
-        secondaries: u.description.secondaries.clone(),
-        colours: u.description.colours.clone(),
+        principals: d.principals.clone(),
+        secondaries: d.secondaries.clone(),
+        colours: d.colours.clone(),
+    }
+}
+
+/// The thinnest stratum written: one unit in the last decimal place.
+const MIN_THICKNESS: f64 = 0.01;
+
+/// Where a lens sits on this site, drawn once per site from the lens's own
+/// keyed stream, so adding a lens moves no other draw.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Footprint {
+    x: f64,
+    y: f64,
+    radius: f64,
+    t_max: f64,
+    /// Mid-depth as a fraction of the host's thickness at a hole.
+    depth: f64,
+}
+
+impl Footprint {
+    fn new(lens: &Lens, extent: Extent, seed: u64) -> Self {
+        let mut rng = Key::unit("lens", &lens.id).rng(seed);
+        Footprint {
+            x: uniform(&mut rng, 0.0, extent.x),
+            y: uniform(&mut rng, 0.0, extent.y),
+            radius: uniform(&mut rng, lens.radius_m.min, lens.radius_m.max),
+            t_max: uniform(&mut rng, lens.thickness_m.min, lens.thickness_m.max),
+            depth: uniform(&mut rng, lens.depth_in_host.min, lens.depth_in_host.max),
+        }
+    }
+
+    /// The lens's thickness at (`x`, `y`): the lenticular taper
+    /// `t_max * (1 - (r/R)^2)` inside the radius, rounded to the written
+    /// precision. Zero where there is no lens, including where the taper is
+    /// thinner than that precision.
+    fn thickness_at(&self, x: f64, y: f64) -> f64 {
+        let r = (x - self.x).hypot(y - self.y);
+        if r >= self.radius {
+            return 0.0;
+        }
+        let t = round2(self.t_max * (1.0 - (r / self.radius).powi(2)));
+        if t < MIN_THICKNESS { 0.0 } else { t }
     }
 }
 
@@ -116,6 +160,12 @@ pub fn build(preset: &Preset, seed: u64, holes: usize) -> Site {
         .iter()
         .map(|u| Field::new(&mut Key::unit("thickness", &u.id).rng(seed), extent))
         .collect();
+    let lenses = preset
+        .lenses
+        .iter()
+        .map(|l| (l, Footprint::new(l, extent, seed)))
+        .collect();
+    let layers = Layers { surfaces, lenses };
     let total_weight: u64 = preset.hole_types.iter().map(|t| u64::from(t.weight)).sum();
 
     let holes = (0..holes)
@@ -146,19 +196,27 @@ pub fn build(preset: &Preset, seed: u64, holes: usize) -> Site {
                 y,
                 ground_level: round2(ground.in_range(&preset.site.ground_level_m, x, y)),
                 final_depth,
-                strata: strata(preset, &surfaces, seed, k, x, y, final_depth),
+                strata: strata(preset, &layers, seed, k, x, y, final_depth),
             }
         })
         .collect();
     Site { holes }
 }
 
+/// The site-wide fields and footprints the strata of every hole read.
+struct Layers<'a> {
+    /// One thickness surface per unit, in preset order.
+    surfaces: Vec<Field>,
+    lenses: Vec<(&'a Lens, Footprint)>,
+}
+
 /// The strata of hole `k`: one per unit present, top-down, from 0 to
-/// `final_depth`. A unit whose thickness here is zero or less is absent; the
-/// last unit runs to final depth; nothing continues below final depth.
+/// `final_depth`, with a unit's lenses splitting it where they reach the hole.
+/// A unit whose thickness here is zero or less is absent; the last unit runs
+/// to final depth; nothing continues below final depth.
 fn strata(
     preset: &Preset,
-    surfaces: &[Field],
+    layers: &Layers,
     seed: u64,
     k: usize,
     x: f64,
@@ -168,7 +226,7 @@ fn strata(
     let vocab = bs5930::vocab();
     let mut out = Vec::new();
     let mut top = 0.0;
-    for (unit, surface) in preset.units.iter().zip(surfaces) {
+    for (unit, surface) in preset.units.iter().zip(&layers.surfaces) {
         if top >= final_depth {
             break;
         }
@@ -188,18 +246,124 @@ fn strata(
             continue;
         }
         let mut rng = Key::stratum("description", k, &unit.id).rng(seed);
-        let description = bs5930::describe_unit(vocab, &mut rng, &unit_description(unit), None)
-            .expect("problems() was checked before build");
-        out.push(Stratum {
-            unit: unit.id.clone(),
-            top,
-            base,
-            description: description.text,
-            samples: samples(unit, seed, k, top, base),
-        });
+        let description =
+            bs5930::describe_unit(vocab, &mut rng, &unit_description(&unit.description), None)
+                .expect("problems() was checked before build")
+                .text;
+        let inside = lens_spans(&layers.lenses, &unit.id, x, y, top, base);
+        if inside.is_empty() {
+            // The common case, with the keys it always had.
+            out.push(Stratum {
+                unit: unit.id.clone(),
+                top,
+                base,
+                description,
+                samples: samples(
+                    &unit.sampling,
+                    Key::stratum("sampling", k, &unit.id).rng(seed),
+                    top,
+                    base,
+                ),
+            });
+        } else {
+            // The host splits around its lenses. Host parts keep the host's
+            // description (it is the same unit) but sample on their own
+            // streams, keyed by part, so two parts do not copy each other's
+            // offsets.
+            let mut cursor = top;
+            let mut part = 0;
+            let mut host_part = |out: &mut Vec<Stratum>, from: f64, to: f64| {
+                // Spans lie on the 2 DP grid, so a gap is 0 or at least 0.01.
+                if to - from < MIN_THICKNESS / 2.0 {
+                    return;
+                }
+                let key = Key {
+                    test: part,
+                    ..Key::stratum("sampling-part", k, &unit.id)
+                };
+                part += 1;
+                out.push(Stratum {
+                    unit: unit.id.clone(),
+                    top: from,
+                    base: to,
+                    description: description.clone(),
+                    samples: samples(&unit.sampling, key.rng(seed), from, to),
+                });
+            };
+            for span in &inside {
+                host_part(&mut out, cursor, span.top);
+                let lens = span.lens;
+                let mut rng = Key::stratum("description", k, &lens.id).rng(seed);
+                let text = bs5930::describe_unit(
+                    vocab,
+                    &mut rng,
+                    &unit_description(&lens.description),
+                    None,
+                )
+                .expect("problems() was checked before build")
+                .text;
+                out.push(Stratum {
+                    unit: lens.id.clone(),
+                    top: span.top,
+                    base: span.base,
+                    description: text,
+                    samples: samples(
+                        &lens.sampling,
+                        Key::stratum("sampling", k, &lens.id).rng(seed),
+                        span.top,
+                        span.base,
+                    ),
+                });
+                cursor = span.base;
+            }
+            host_part(&mut out, cursor, base);
+        }
         top = base;
     }
     out
+}
+
+/// A lens's extent in one hole, on the 2 DP grid and inside its host.
+struct Span<'a> {
+    lens: &'a Lens,
+    top: f64,
+    base: f64,
+}
+
+/// The lenses of host `host` that this hole meets, top-down. A lens sits at
+/// its depth fraction of the host stratum, clipped to lie inside it. A lens
+/// whose span would overlap one already placed (lenses are taken in preset
+/// order) is absent here.
+fn lens_spans<'a>(
+    lenses: &[(&'a Lens, Footprint)],
+    host: &str,
+    x: f64,
+    y: f64,
+    top: f64,
+    base: f64,
+) -> Vec<Span<'a>> {
+    let mut spans: Vec<Span<'a>> = Vec::new();
+    for (lens, f) in lenses.iter().filter(|(l, _)| l.host == host) {
+        let thickness = f.thickness_at(x, y).min(round2(base - top));
+        if thickness < MIN_THICKNESS {
+            continue;
+        }
+        let mid = top + f.depth * (base - top);
+        let lens_top = round2((mid - thickness / 2.0).max(top).min(base - thickness)).max(top);
+        let lens_base = round2(lens_top + thickness).min(base);
+        if spans.iter().any(|s| {
+            lens_top < s.base - MIN_THICKNESS / 2.0 && lens_base > s.top + MIN_THICKNESS / 2.0
+        }) {
+            continue;
+        }
+        spans.push(Span {
+            lens,
+            top: lens_top,
+            base: lens_base,
+        });
+    }
+    spans.sort_by(|a, b| a.top.total_cmp(&b.top));
+    spans
 }
 
 /// The samples of one stratum: the first top falls within one interval of the
@@ -208,10 +372,8 @@ fn strata(
 /// base is dropped, and so is everything below it. Depths are rounded to the 2
 /// decimal places they are written with, and `top` and `base` are already
 /// such values, so a rounded sample can never leave its stratum.
-fn samples(unit: &Unit, seed: u64, k: usize, top: f64, base: f64) -> Vec<Sample> {
-    let sampling = &unit.sampling;
+fn samples(sampling: &Sampling, mut rng: Rng, top: f64, base: f64) -> Vec<Sample> {
     let range = &sampling.interval_m;
-    let mut rng = Key::stratum("sampling", k, &unit.id).rng(seed);
     let mut out = Vec::new();
     let mut at = round2(top + uniform(&mut rng, 0.0, range.max));
     loop {
@@ -503,6 +665,417 @@ sampling = { types = ["U", "D"], interval_m = { min = 1.5, max = 3.0, basis = "t
             "{found:?}"
         );
         assert!(found[0].contains("mauve"), "{found:?}");
+    }
+
+    /// Two lenses on the fixture: a sand band in the (thin) Weathered London
+    /// Clay and a sand body in the (deep) London Clay. `{R}` is the radius range.
+    const LENSES: &str = r#"
+[[lenses]]
+id = "SB"
+name = "Sand band"
+host = "WLC"
+radius_m = { {R}, basis = "test fixture" }
+thickness_m = { min = 0.3, max = 1.2, basis = "test fixture" }
+depth_in_host = { min = 0.2, max = 0.8, basis = "test fixture" }
+description = { principals = ["SAND"], secondaries = ["silt"], colours = ["brown"] }
+sampling = { types = ["D", "B"], interval_m = { min = 0.3, max = 0.6, basis = "test fixture" } }
+
+[[lenses]]
+id = "CL"
+name = "Clayey sand body"
+host = "LC"
+radius_m = { {R}, basis = "test fixture" }
+thickness_m = { min = 1.0, max = 3.0, basis = "test fixture" }
+depth_in_host = { min = 0.3, max = 0.7, basis = "test fixture" }
+description = { principals = ["SAND"], secondaries = ["clay"], colours = ["grey"] }
+sampling = { types = ["D"], interval_m = { min = 0.5, max = 1.0, basis = "test fixture" } }
+"#;
+
+    /// `FIXTURE` plus `LENSES` with the given plan radius range.
+    fn lens_preset_with(radius: &str) -> Preset {
+        let text = format!("{FIXTURE}{}", LENSES.replace("{R}", radius));
+        Preset::from_toml(&text).expect("lens fixture loads")
+    }
+
+    /// Radii that reach most of the 400 x 300 m site.
+    fn lens_preset() -> Preset {
+        lens_preset_with("min = 100.0, max = 200.0")
+    }
+
+    /// Radii that leave most of the site untouched.
+    fn small_lens_preset() -> Preset {
+        lens_preset_with("min = 30.0, max = 60.0")
+    }
+
+    fn footprints(p: &Preset, seed: u64) -> Vec<(&Lens, Footprint)> {
+        p.lenses
+            .iter()
+            .map(|l| (l, Footprint::new(l, p.site.extent_m, seed)))
+            .collect()
+    }
+
+    fn reaches(f: &Footprint, h: &Hole) -> bool {
+        (h.x - f.x).hypot(h.y - f.y) < f.radius
+    }
+
+    #[test]
+    fn the_lens_fixture_has_no_problems() {
+        assert_eq!(problems(&lens_preset()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_lens_description_the_vocabulary_cannot_meet_is_a_problem() {
+        let text = format!("{FIXTURE}{}", LENSES.replace("{R}", "min = 1.0, max = 2.0")).replace(
+            "colours = [\"grey\"] }\nsampling = { types = [\"D\"]",
+            "colours = [\"mauve\"] }\nsampling = { types = [\"D\"]",
+        );
+        let found = problems(&Preset::from_toml(&text).unwrap());
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].starts_with("lenses[1] (CL).description: "),
+            "{found:?}"
+        );
+    }
+
+    /// Where a lens reaches, its host splits into host-above / lens /
+    /// host-below (or a clipped variant); elsewhere the host is one stratum.
+    /// Either way the column is contiguous with unique GEOL keys, host parts
+    /// share their description, and samples stay inside their stratum.
+    #[test]
+    fn a_hole_through_a_lens_records_host_lens_host() {
+        let p = lens_preset();
+        let (mut split, mut whole, mut lens_rows) = (0, 0, 0);
+        for seed in 0..40 {
+            let fps = footprints(&p, seed);
+            for h in build(&p, seed, 10).holes {
+                assert_eq!(h.strata[0].top, 0.0, "{h:?}");
+                assert_eq!(h.strata.last().unwrap().base, h.final_depth, "{h:?}");
+                for pair in h.strata.windows(2) {
+                    assert_eq!(pair[0].base, pair[1].top, "{h:?}");
+                }
+                assert!(h.strata.iter().all(|s| s.base > s.top), "{h:?}");
+                let mut keys: Vec<(String, String)> =
+                    h.strata.iter().map(|s| (m2(s.top), m2(s.base))).collect();
+                keys.sort_unstable();
+                keys.dedup();
+                assert_eq!(keys.len(), h.strata.len(), "{h:?}");
+                for s in &h.strata {
+                    for m in &s.samples {
+                        assert!(m.top >= s.top && m.base <= s.base, "{h:?} {m:?}");
+                    }
+                }
+                for (lens, f) in &fps {
+                    let parts: Vec<usize> = (0..h.strata.len())
+                        .filter(|&i| h.strata[i].unit == lens.host)
+                        .collect();
+                    let lens_at: Vec<usize> = (0..h.strata.len())
+                        .filter(|&i| h.strata[i].unit == lens.id)
+                        .collect();
+                    if !reaches(f, &h) {
+                        assert!(lens_at.is_empty(), "{h:?}");
+                        assert!(parts.len() <= 1, "{h:?}");
+                        whole += usize::from(parts.len() == 1);
+                        continue;
+                    }
+                    if lens_at.is_empty() {
+                        // Too thin at this distance, or the host is absent.
+                        assert!(parts.len() <= 1, "{h:?}");
+                        continue;
+                    }
+                    assert_eq!(lens_at.len(), 1, "{h:?}");
+                    lens_rows += 1;
+                    let i = lens_at[0];
+                    // Host parts sit directly above and below the lens, in
+                    // that order, and nowhere else.
+                    for &j in &parts {
+                        assert!(j + 1 == i || j == i + 1, "{h:?}");
+                    }
+                    if parts.len() == 2 {
+                        split += 1;
+                        assert_eq!(
+                            h.strata[parts[0]].description,
+                            h.strata[parts[1]].description
+                        );
+                    }
+                }
+            }
+        }
+        assert!(
+            split > 20 && whole > 20 && lens_rows > 50,
+            "{split} {whole} {lens_rows}"
+        );
+    }
+
+    /// The lens thickness at a hole is the taper at that distance, to
+    /// rounding, unless the host cut it short; it is never more than the taper.
+    #[test]
+    #[allow(clippy::many_single_char_names)]
+    fn lens_thickness_follows_the_taper() {
+        let p = lens_preset();
+        let mut checked = 0;
+        for seed in 0..40 {
+            for (lens, f) in footprints(&p, seed) {
+                for h in build(&p, seed, 12).holes {
+                    let r = (h.x - f.x).hypot(h.y - f.y);
+                    let expected = if r < f.radius {
+                        f.t_max * (1.0 - (r / f.radius).powi(2))
+                    } else {
+                        0.0
+                    };
+                    let found = h.strata.iter().position(|s| s.unit == lens.id);
+                    let Some(i) = found else {
+                        // Absent: outside, thinner than the precision, or no host.
+                        let host_here = h.strata.iter().any(|s| s.unit == lens.host);
+                        assert!(expected < 0.0151 || !host_here, "{expected} {h:?}");
+                        continue;
+                    };
+                    let s = &h.strata[i];
+                    let t = s.base - s.top;
+                    let interior = i > 0
+                        && i + 1 < h.strata.len()
+                        && h.strata[i - 1].unit == lens.host
+                        && h.strata[i + 1].unit == lens.host;
+                    if interior {
+                        assert!((t - expected).abs() <= 0.0101, "{t} vs {expected}");
+                        checked += 1;
+                    } else {
+                        assert!(t <= expected + 0.0101, "{t} vs {expected}");
+                    }
+                }
+            }
+        }
+        assert!(checked > 100, "{checked}");
+    }
+
+    /// The lens is thickest at its centre: a hole within a few metres of the
+    /// centre carries nearly the full `t_max`, and thickness never grows with
+    /// distance among interior lens strata of the deep host.
+    #[test]
+    #[allow(clippy::many_single_char_names)]
+    fn the_lens_is_thickest_near_its_centre() {
+        let p = lens_preset();
+        let mut near = 0;
+        for seed in 0..120 {
+            let (lens, f) = footprints(&p, seed)[1];
+            assert_eq!(lens.id, "CL");
+            let mut seen: Vec<(f64, f64)> = Vec::new();
+            for h in build(&p, seed, 60).holes {
+                let Some(s) = h.strata.iter().find(|s| s.unit == "CL") else {
+                    continue;
+                };
+                let d = (h.x - f.x).hypot(h.y - f.y);
+                let t = s.base - s.top;
+                if d < 0.12 * f.radius {
+                    near += 1;
+                    assert!(t >= f.t_max * (1.0 - 0.0144) - 0.0101, "{t} vs {}", f.t_max);
+                }
+                seen.push((d, t));
+            }
+            for a in &seen {
+                for b in &seen {
+                    if a.0 < b.0 {
+                        assert!(a.1 >= b.1 - 0.0201, "{a:?} {b:?}");
+                    }
+                }
+            }
+        }
+        assert!(near > 0, "no hole fell near a lens centre");
+    }
+
+    /// Holes outside every lens are byte-identical, in LOCA, GEOL and SAMP,
+    /// with and without the lenses.
+    #[test]
+    fn holes_outside_every_lens_are_unchanged() {
+        let (plain, with) = (fixture(), small_lens_preset());
+        let (mut same, mut changed) = (0, 0);
+        for seed in 0..30 {
+            let fps = footprints(&with, seed);
+            let (a, b) = (build(&plain, seed, 12), build(&with, seed, 12));
+            let (fa, fb) = (
+                lower(&a, &plain, seed, Grid::Local),
+                lower(&b, &with, seed, Grid::Local),
+            );
+            for (ha, hb) in a.holes.iter().zip(&b.holes) {
+                let untouched = fps.iter().all(|(_, f)| !reaches(f, hb));
+                if untouched {
+                    same += 1;
+                    assert_eq!(ha, hb);
+                    for code in ["LOCA", "GEOL", "SAMP"] {
+                        let pick = |m: &ProjectModel| -> Vec<Row> {
+                            rows(m, code)
+                                .iter()
+                                .filter(|r| r.values[0] == ha.id)
+                                .cloned()
+                                .collect()
+                        };
+                        assert_eq!(pick(&fa), pick(&fb), "{code} {}", ha.id);
+                    }
+                } else {
+                    changed += usize::from(ha != hb);
+                }
+            }
+        }
+        assert!(same > 100 && changed > 0, "{same} {changed}");
+    }
+
+    /// The two parts of a split host take their samples from their own
+    /// streams: their offsets from the part top are not copies of each other.
+    #[test]
+    fn split_host_parts_do_not_share_sample_offsets() {
+        let p = lens_preset();
+        let (mut pairs, mut equal) = (0, 0);
+        for seed in 0..40 {
+            for h in build(&p, seed, 10).holes {
+                let wlc: Vec<&Stratum> = h.strata.iter().filter(|s| s.unit == "WLC").collect();
+                if let [above, below] = wlc[..]
+                    && let (Some(a), Some(b)) = (above.samples.first(), below.samples.first())
+                {
+                    pairs += 1;
+                    equal += usize::from((a.top - above.top - (b.top - below.top)).abs() < 1e-9);
+                }
+            }
+        }
+        assert!(pairs > 20, "{pairs}");
+        assert!(equal * 3 < pairs, "{equal} of {pairs} identical");
+    }
+
+    /// A lens thinner than the written precision is absent, leaving the host
+    /// whole and the hole exactly as without the lens.
+    #[test]
+    fn a_lens_thinner_than_the_precision_is_absent() {
+        let thin = format!(
+            "{FIXTURE}{}",
+            LENSES.replace("{R}", "min = 100.0, max = 200.0")
+        )
+        .replace("min = 0.3, max = 1.2", "min = 0.001, max = 0.004")
+        .replace("min = 1.0, max = 3.0", "min = 0.001, max = 0.004");
+        let thin = Preset::from_toml(&thin).unwrap();
+        let plain = fixture();
+        for seed in 0..10 {
+            assert_eq!(build(&thin, seed, 8), build(&plain, seed, 8));
+        }
+    }
+
+    /// A lens as thick as its host leaves no host part, and one at the host's
+    /// top leaves no part above it; neither writes a zero-thickness row.
+    #[test]
+    fn host_parts_thinner_than_the_precision_are_dropped() {
+        let filled = format!(
+            "{FIXTURE}{}",
+            LENSES.replace("{R}", "min = 100.0, max = 200.0")
+        )
+        .replace("min = 0.3, max = 1.2", "min = 50.0, max = 60.0");
+        let filled = Preset::from_toml(&filled).unwrap();
+        let top = Preset::from_toml(
+            &format!(
+                "{FIXTURE}{}",
+                LENSES.replace("{R}", "min = 100.0, max = 200.0")
+            )
+            .replace("min = 0.2, max = 0.8", "min = 0.0, max = 0.0"),
+        )
+        .unwrap();
+        let (mut covered, mut at_top) = (0, 0);
+        for seed in 0..30 {
+            for h in build(&filled, seed, 8).holes {
+                assert!(h.strata.iter().all(|s| s.base > s.top), "{h:?}");
+                for pair in h.strata.windows(2) {
+                    assert_eq!(pair[0].base, pair[1].top, "{h:?}");
+                }
+                if let Some(i) = h.strata.iter().position(|s| s.unit == "SB") {
+                    // Fills the host from top to base: nothing of WLC is left.
+                    if h.strata.iter().all(|s| s.unit != "WLC") {
+                        covered += 1;
+                        assert!(i > 0 || h.strata[0].top == 0.0);
+                    }
+                }
+            }
+            for h in build(&top, seed, 8).holes {
+                assert!(h.strata.iter().all(|s| s.base > s.top), "{h:?}");
+                if let Some(i) = h.strata.iter().position(|s| s.unit == "SB") {
+                    // Nothing of WLC sits above the lens.
+                    if i == 0 || h.strata[i - 1].unit != "WLC" {
+                        at_top += 1;
+                    }
+                }
+            }
+        }
+        assert!(covered > 5 && at_top > 5, "{covered} {at_top}");
+    }
+
+    /// Two lenses in one host never overlap, whatever their placement.
+    #[test]
+    fn two_lenses_in_one_host_stay_contiguous_and_clean() {
+        let text = format!(
+            "{FIXTURE}{}",
+            LENSES.replace("{R}", "min = 150.0, max = 250.0")
+        )
+        .replace("host = \"LC\"", "host = \"WLC\"");
+        let p = Preset::from_toml(&text).unwrap();
+        for seed in 0..40 {
+            for h in build(&p, seed, 10).holes {
+                assert_eq!(h.strata[0].top, 0.0, "{h:?}");
+                assert_eq!(h.strata.last().unwrap().base, h.final_depth, "{h:?}");
+                for pair in h.strata.windows(2) {
+                    assert_eq!(pair[0].base, pair[1].top, "{h:?}");
+                }
+                assert!(h.strata.iter().all(|s| s.base > s.top), "{h:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_lens_site_is_rust_clean_across_seeds() {
+        let p = lens_preset();
+        for seed in 0..15 {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("site.ags");
+            std::fs::write(&path, emit_to_string(&file(&p, seed, 6, Grid::Local))).unwrap();
+            let (r, _) = rust_check(&path);
+            assert_eq!(r, RustResult::Clean, "seed {seed}");
+        }
+    }
+
+    /// Hole k is the same whatever the hole count, with lenses too.
+    #[test]
+    fn a_lens_site_is_prefix_stable() {
+        let p = lens_preset();
+        for seed in [0, 7] {
+            let small = file(&p, seed, 10, Grid::Local);
+            let large = file(&p, seed, 100, Grid::Local);
+            for code in ["LOCA", "GEOL", "SAMP"] {
+                let n = rows(&small, code).len();
+                assert_eq!(rows(&small, code), &rows(&large, code)[..n], "{code}");
+            }
+        }
+    }
+
+    /// A preset without lenses gives the bytes it gave before lenses
+    /// existed. The hashes were taken from the pre-lens code.
+    #[test]
+    fn a_preset_without_lenses_is_byte_identical_to_before() {
+        use sha2::{Digest, Sha256};
+        let p = fixture();
+        for (seed, sha, len) in [
+            (
+                0u64,
+                "93cf8772f2b2e5dea760cc4b9bd9863e32c5a4eec01757c447a8efb63e6ccb14",
+                7530usize,
+            ),
+            (
+                1,
+                "1184f005b3dc146790900cac1bf1feda21e96bd537ad75d1eafdb6042bfcb0b7",
+                7033,
+            ),
+            (
+                2,
+                "8d500364149f362c227680860bc142e3d28f70da3c4a59742ce667bc0ebaaa0d",
+                7956,
+            ),
+        ] {
+            let out = emit_to_string(&file(&p, seed, 6, Grid::Local));
+            let got = crate::synth::hex(&Sha256::digest(out.as_bytes()));
+            assert_eq!((got.as_str(), out.len()), (sha, len), "seed {seed}");
+        }
     }
 
     /// Clean by construction: a generator bug fails here, not as a finding.
