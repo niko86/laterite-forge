@@ -641,9 +641,11 @@ const UNIT_PRINCIPALS: [(&str, &str, PrincipalClass); 4] = [
 const UNIT_SECONDARIES: [&str; 4] = ["sand", "gravel", "silt", "clay"];
 
 /// Why `phrase` is not a colour the engine could compose, or `None` when it is
-/// one: `lightness? chroma? hue` (`colourWordOrder`), with the same exclusions
-/// [`colour`] observes (no chroma before an achromatic hue or its own family,
-/// no lightness on black/white).
+/// one: `lightness? chroma? hue` (`colourWordOrder`), with the exclusions
+/// [`colour`] observes (no chroma before white, black or cream or before its
+/// own family, no lightness on black/white). Unlike [`colour`], a palette may
+/// put a chroma before grey ("bluish grey"): BS 5930's "no chroma form exists
+/// for grey" rules out a "-ish" form of grey, not a chroma in front of it.
 #[allow(dead_code)]
 fn colour_problem(vocab: &Vocab, phrase: &str) -> Option<String> {
     let bad = |why: &str| Some(format!("colour {phrase:?} {why}"));
@@ -664,8 +666,8 @@ fn colour_problem(vocab: &Vocab, phrase: &str) -> Option<String> {
     if let Some(w) = words.first()
         && vocab.chroma.iter().any(|c| c == w)
     {
-        if ACHROMATIC_HUES.contains(&hue) {
-            return bad("puts a chroma before an achromatic hue");
+        if hue != "grey" && ACHROMATIC_HUES.contains(&hue) {
+            return bad("puts a chroma before white, black or cream");
         }
         if chroma_base(w) == hue {
             return bad("repeats its own hue as a chroma");
@@ -1436,7 +1438,8 @@ mod tests {
             "brown dark",
             "reddish light brown",
             "greenish green",
-            "reddish grey",
+            "reddish white",
+            "bluish black",
             "light black",
             "dark white",
             "purple",
@@ -1451,6 +1454,31 @@ mod tests {
                 "{bad:?}: {p:?}"
             );
         }
+    }
+
+    /// A unit palette may put a chroma before grey ("bluish grey" London
+    /// Clay): BS 5930's "no chroma form exists for grey" says there is no
+    /// "-ish" form of grey itself, not that grey takes no chroma. The random
+    /// default draw keeps its own rule, so no pinned output moves.
+    #[test]
+    fn a_palette_may_put_a_chroma_before_grey() {
+        let v = vocab();
+        for ok in [
+            "bluish grey",
+            "greenish grey",
+            "dark bluish grey",
+            "greyish brown",
+        ] {
+            assert_eq!(
+                unit(&["CLAY"], &[], &[ok]).problems(&v),
+                Vec::<String>::new(),
+                "{ok}"
+            );
+        }
+        assert_eq!(
+            unit(&["CLAY"], &[], &["greyish grey"]).problems(&v).len(),
+            1
+        );
     }
 
     #[test]
