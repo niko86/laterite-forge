@@ -41,6 +41,7 @@ cargo deny check
 - `synth_output_bytes_are_pinned` (`synth/mod.rs`) pins the SHA-256 and length of each scaffold's output for seeds 0–2. laterite's benchmark tooling draws fixtures from this engine. Re-roll it only on purpose, and regenerate the bench fixtures in the same change.
 - `the_unflagged_draw_is_pinned_to_pre_lane_bytes` (`synth/bs5930.rs`) pins the default `describe` draw. Downstream consumers commit output from it, so moving it is a change they must be told about (`docs/dec-forge-audience-boundary.md`). New behaviour therefore goes behind a flag (e.g. `--organic`), not into the default draw.
 - `scaffolds_reach_a_pinned_set_of_ags_types` (`synth/mod.rs`) pins which AGS TYPEs the scaffolds can produce.
+- `shipped_preset_output_bytes_are_pinned` and `shipped_presets_reach_a_pinned_set_of_ags_types` (`site/build.rs`) pin each shipped preset (`data/presets/`). Changing a preset's output means bumping its `version`, re-pinning, and telling consumers (ADR 0001).
 
 ## Docs
 

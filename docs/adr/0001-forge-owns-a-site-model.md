@@ -36,7 +36,13 @@ consumer can replace.
   preset with any row missing one, whether forge ships it or a consumer passes
   it in. CI runs the loader over the shipped presets.
 - Ranges come from licensed open data (BGS under OGL, BRO under CC0) or cited
-  papers. "Standards tables are never transcribed" rules out copying a
+  published sources. A textbook or report counts: the basis names it as found
+  (title, edition, chapter, printed page, table or figure) and adds the
+  original paper wherever the book names one. A value that describes the
+  synthetic site rather than the ground (a local datum, an investigation
+  choice) or a modelling choice (a negative thickness minimum for patchy
+  cover) carries the basis `forge judgement`, so a reader can tell choices
+  from data. (Amended 2026-10-22, #24.) "Standards tables are never transcribed" rules out copying a
   standard's text and using a standard's typical-value tables as range sources.
   Boundaries that turn a value into a description term, such as SPT N bands or
   consistency-index bands, may be used as cited facts.

@@ -15,8 +15,11 @@ use toml::Value;
 /// The only schema this forge reads.
 const SCHEMA: i64 = 1;
 
-/// Presets shipped inside the binary as `(name, toml)`. None yet.
-const SHIPPED: &[(&str, &str)] = &[];
+/// Presets shipped inside the binary as `(name, toml)`.
+pub(crate) const SHIPPED: &[(&str, &str)] = &[(
+    "london-basin",
+    include_str!("../../data/presets/london-basin.toml"),
+)];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Preset {

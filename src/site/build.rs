@@ -1378,3 +1378,88 @@ sampling = { types = ["D"], interval_m = { min = 0.5, max = 1.0, basis = "test f
         }
     }
 }
+
+#[cfg(test)]
+mod shipped_pins {
+    use super::*;
+    use crate::pipeline::rust_check;
+    use crate::site::preset::{SHIPPED, resolve};
+    use crate::synth::emit::emit_to_string;
+    use laterite_ags4_parity::RustResult;
+
+    /// The file `gen --site <name> --seed <seed>` writes before any injection.
+    fn shipped(name: &str, seed: u64) -> String {
+        let preset = resolve(name).expect("shipped preset loads");
+        assert_eq!(problems(&preset), Vec::<String>::new(), "{name}");
+        let site = build(&preset, seed, default_hole_count(seed));
+        emit_to_string(&lower(&site, &preset, seed, Grid::Local))
+    }
+
+    /// Each shipped preset's default file, pinned like the scaffolds
+    /// (`synth_output_bytes_are_pinned`). Consumers commit output from these,
+    /// so moving a pin is a preset version bump they must be told about
+    /// (ADR 0001): bump `version`, re-pin, and say so in the PR.
+    #[test]
+    fn shipped_preset_output_bytes_are_pinned() {
+        use sha2::{Digest, Sha256};
+        for (name, seed, sha, len) in [
+            (
+                "london-basin",
+                0u64,
+                "17b31bb2551e87980a87d2795c3598ac612f0ad508e3a89ee542fe49e4697f98",
+                6728usize,
+            ),
+            (
+                "london-basin",
+                1,
+                "373caf98f8362af22d5e8b2edcdf49bb8b5af48d7a637cb6d3ff4ab50b2a36f2",
+                5416,
+            ),
+            (
+                "london-basin",
+                2,
+                "0c702cec22b1b23c72c08f448a2af01c61e694595e3dd951c57feaed3bb5e72d",
+                8718,
+            ),
+        ] {
+            let text = shipped(name, seed);
+            let got = crate::synth::hex(&Sha256::digest(text.as_bytes()));
+            assert_eq!((got.as_str(), text.len()), (sha, len), "{name} seed {seed}");
+        }
+        let pinned: std::collections::BTreeSet<&str> = ["london-basin"].into();
+        let shipped_names: std::collections::BTreeSet<&str> =
+            SHIPPED.iter().map(|(n, _)| *n).collect();
+        assert_eq!(
+            shipped_names, pinned,
+            "every shipped preset needs a byte pin"
+        );
+    }
+
+    /// The AGS TYPEs each shipped preset's files declare, across seeds.
+    #[test]
+    fn shipped_presets_reach_a_pinned_set_of_ags_types() {
+        let mut types = std::collections::BTreeSet::new();
+        for seed in 0..10 {
+            let text = shipped("london-basin", seed);
+            for line in text.lines().filter_map(|l| l.strip_prefix("\"TYPE\",")) {
+                types.extend(line.split(',').map(|f| f.trim_matches('"').to_string()));
+            }
+        }
+        let expected: std::collections::BTreeSet<String> =
+            ["2DP", "DT", "ID", "PA", "X"].map(String::from).into();
+        assert_eq!(types, expected);
+    }
+
+    /// Clean by construction across seeds.
+    #[test]
+    fn shipped_presets_are_rust_clean() {
+        for (name, _) in SHIPPED {
+            for seed in 0..10 {
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("site.ags");
+                std::fs::write(&path, shipped(name, seed)).unwrap();
+                assert_eq!(rust_check(&path).0, RustResult::Clean, "{name} seed {seed}");
+            }
+        }
+    }
+}
