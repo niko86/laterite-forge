@@ -42,10 +42,8 @@ pub struct Preset {
 pub struct Site {
     pub extent_m: Extent,
     pub ground_level_m: Range,
-    /// The water table's depth below ground level, metres. `None` when the
-    /// preset gives no groundwater (every stratum then uses its own degree of
-    /// saturation).
-    pub groundwater_depth_m: Option<Range>,
+    /// The water table's depth below ground level, metres.
+    pub groundwater_depth_m: Range,
 }
 
 /// Size of the local grid, whose origin is (0, 0).
@@ -72,8 +70,8 @@ pub struct Unit {
     pub thickness_m: Option<Range>,
     pub description: DescriptionSpec,
     pub sampling: Sampling,
-    /// Index properties; absent on presets that do not model them.
-    pub properties: Option<Properties>,
+    /// Index properties (required).
+    pub properties: Properties,
 }
 
 /// A unit with a limited, lenticular footprint inside one host unit. In plan
@@ -96,8 +94,8 @@ pub struct Lens {
     pub depth_in_host: Range,
     pub description: DescriptionSpec,
     pub sampling: Sampling,
-    /// Index properties; absent on presets that do not model them.
-    pub properties: Option<Properties>,
+    /// Index properties (required).
+    pub properties: Properties,
 }
 
 /// Constraints for the unit's description. The site layer checks the terms
@@ -556,19 +554,21 @@ fn read_properties(
     })
 }
 
-/// The unit or lens's `properties`, if it has any. They depend on the
+/// The unit or lens's `properties`, which are required. They depend on the
 /// principals, so a description that failed to load leaves them unchecked.
-fn optional_properties(
+fn required_properties(
     n: &mut Node,
     description: Option<&DescriptionSpec>,
     errs: &mut Vec<String>,
 ) -> Option<Properties> {
-    match description {
-        Some(d) if n.table.contains_key("properties") => read_properties(n, &d.principals, errs),
-        _ => {
-            n.get("properties");
-            None
-        }
+    // An empty principal list is already reported; it would only cascade.
+    if let Some(d) = description
+        && !d.principals.is_empty()
+    {
+        read_properties(n, &d.principals, errs)
+    } else {
+        n.get("properties");
+        None
     }
 }
 
@@ -626,27 +626,21 @@ fn read_site(n: &mut Node, errs: &mut Vec<String>) -> Option<Site> {
     let mut s = req_table(n, "site", errs)?;
     let extent = read_extent(&mut s, errs);
     let ground = read_range(&mut s, "ground_level_m", errs);
-    let groundwater = if s.table.contains_key("groundwater_depth_m") {
-        let g = read_range(&mut s, "groundwater_depth_m", errs);
-        if let Some(r) = &g {
-            check_domain(
-                r,
-                &s.at("groundwater_depth_m"),
-                &props::GROUNDWATER_DEPTH_M,
-                errs,
-            );
-        }
-        g
-    } else {
-        s.get("groundwater_depth_m");
-        None
-    };
+    let groundwater = read_range(&mut s, "groundwater_depth_m", errs);
+    if let Some(r) = &groundwater {
+        check_domain(
+            r,
+            &s.at("groundwater_depth_m"),
+            &props::GROUNDWATER_DEPTH_M,
+            errs,
+        );
+    }
     s.finish(errs);
     let (x, y) = extent?;
     Some(Site {
         extent_m: Extent { x, y },
         ground_level_m: ground?,
-        groundwater_depth_m: groundwater,
+        groundwater_depth_m: groundwater?,
     })
 }
 
@@ -799,10 +793,10 @@ fn read_units(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Unit>> {
 
         let description = read_description(&mut u, errs);
         let sampling = read_sampling(&mut u, &samp, errs);
-        let properties = optional_properties(&mut u, description.as_ref(), errs);
+        let properties = required_properties(&mut u, description.as_ref(), errs);
         u.finish(errs);
-        if let (Some(id), Some(name), Some(description), Some(sampling)) =
-            (id, name, description, sampling)
+        if let (Some(id), Some(name), Some(description), Some(sampling), Some(properties)) =
+            (id, name, description, sampling, properties)
             && (i == last || thickness.is_some())
         {
             out.push(Unit {
@@ -910,7 +904,7 @@ fn read_lenses(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Lens>> {
         }
         let description = read_description(&mut l, errs);
         let sampling = read_sampling(&mut l, &samp, errs);
-        let properties = optional_properties(&mut l, description.as_ref(), errs);
+        let properties = required_properties(&mut l, description.as_ref(), errs);
         l.finish(errs);
         if let (
             Some(id),
@@ -921,6 +915,7 @@ fn read_lenses(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Lens>> {
             Some(depth_in_host),
             Some(description),
             Some(sampling),
+            Some(properties),
         ) = (
             id,
             name,
@@ -930,6 +925,7 @@ fn read_lenses(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Lens>> {
             depth,
             description,
             sampling,
+            properties,
         ) {
             out.push(Lens {
                 id,
@@ -1001,8 +997,10 @@ fn read_sampling(u: &mut Node, samp: &[&str], errs: &mut Vec<String>) -> Option<
 mod tests {
     use super::*;
 
-    /// Obviously fake: no real citation belongs in a test fixture.
-    const VALID: &str = r#"
+    /// Obviously fake: no real citation belongs in a test fixture. Without
+    /// properties or groundwater, which the loader requires; [`valid`] adds
+    /// them.
+    const BASE: &str = r#"
 schema = 1
 name = "test-basin"
 version = 2
@@ -1011,6 +1009,7 @@ summary = "A fixture."
 [site]
 extent_m = { x = 400.0, y = 300 }
 ground_level_m = { min = 8.0, max = 22.0, basis = "test fixture" }
+groundwater_depth_m = { min = 1.0, max = 4.0, basis = "test fixture" }
 
 [[hole_types]]
 code = "CP"
@@ -1035,10 +1034,16 @@ sampling = { types = ["U"], interval_m = { min = 1.5, max = 3.0, basis = "test f
         Preset::from_toml(text).expect_err("should be refused").0
     }
 
+    /// The complete fixture: [`BASE`] with a properties block on each unit.
+    fn valid() -> String {
+        with_props(RTD_PROPS, LC_PROPS)
+    }
+
     /// The fixture with one exact snippet replaced, so each test changes one rule.
     fn with(from: &str, to: &str) -> String {
-        assert!(VALID.contains(from), "fixture lacks {from:?}");
-        VALID.replacen(from, to, 1)
+        let valid = valid();
+        assert!(valid.contains(from), "fixture lacks {from:?}");
+        valid.replacen(from, to, 1)
     }
 
     fn assert_refused(text: &str, expected: &str) {
@@ -1047,7 +1052,7 @@ sampling = { types = ["U"], interval_m = { min = 1.5, max = 3.0, basis = "test f
 
     #[test]
     fn a_valid_preset_loads_into_typed_values() {
-        let p = Preset::from_toml(VALID).expect("valid");
+        let p = Preset::from_toml(&valid()).expect("valid");
         assert_eq!(p.name, "test-basin");
         assert_eq!(p.version, 2);
         assert_eq!(p.summary, "A fixture.");
@@ -1086,10 +1091,15 @@ thickness_m = { min = 0.3, max = 1.5, basis = "test fixture" }
 depth_in_host = { min = 0.2, max = 0.8, basis = "test fixture" }
 description = { principals = ["SAND"], secondaries = ["silt"], colours = ["brown"] }
 sampling = { types = ["D"], interval_m = { min = 0.5, max = 1.0, basis = "test fixture" } }
+
+[lenses.properties]
+spt_n = { min = 5, max = 20, basis = "test fixture" }
+moisture_content_percent = { min = 10, max = 20, basis = "test fixture" }
+particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
 "#;
 
     fn with_lens() -> String {
-        format!("{VALID}{LENS}")
+        format!("{}{LENS}", valid())
     }
 
     /// The lens fixture with one exact snippet replaced.
@@ -1101,7 +1111,7 @@ sampling = { types = ["D"], interval_m = { min = 0.5, max = 1.0, basis = "test f
 
     #[test]
     fn a_preset_without_lenses_has_none() {
-        assert!(Preset::from_toml(VALID).unwrap().lenses.is_empty());
+        assert!(Preset::from_toml(&valid()).unwrap().lenses.is_empty());
     }
 
     #[test]
@@ -1247,7 +1257,7 @@ sampling = { types = ["D"], interval_m = { min = 0.5, max = 1.0, basis = "test f
 
     #[test]
     fn thickness_on_the_last_unit_is_refused() {
-        let text = VALID.replace(
+        let text = valid().replace(
             "description = { principals = [\"CLAY\"]",
             "thickness_m = { min = 1.0, max = 2.0, basis = \"test fixture\" }\ndescription = { principals = [\"CLAY\"]",
         );
@@ -1383,7 +1393,7 @@ sampling = { types = ["D"], interval_m = { min = 0.5, max = 1.0, basis = "test f
     fn resolve_reads_a_file_path() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mine.toml");
-        std::fs::write(&path, VALID).unwrap();
+        std::fs::write(&path, valid()).unwrap();
         let p = resolve(path.to_str().unwrap()).expect("loads");
         assert_eq!(p.name, "test-basin");
     }
@@ -1437,7 +1447,7 @@ outlier_rate = { min = 0.0, max = 0.05, basis = "test fixture" }
 
     /// The fixture with a properties block on each unit.
     fn with_props(rtd: &str, lc: &str) -> String {
-        let text = VALID.replacen(
+        let text = BASE.replacen(
             "\n[[units]]\nid = \"LC\"",
             &format!("{rtd}\n[[units]]\nid = \"LC\""),
             1,
@@ -1458,15 +1468,15 @@ outlier_rate = { min = 0.0, max = 0.05, basis = "test fixture" }
 
     #[test]
     fn a_valid_properties_block_loads() {
-        let p = Preset::from_toml(&with_props(RTD_PROPS, LC_PROPS)).expect("valid");
-        let coarse = p.units[0].properties.as_ref().unwrap();
+        let p = Preset::from_toml(&valid()).expect("valid");
+        let coarse = &p.units[0].properties;
         assert!(coarse.fine.is_none());
         let c = coarse.coarse.as_ref().unwrap();
         assert_eq!((c.spt_n.range.min, c.spt_n.range.max), (8.0, 40.0));
         assert_eq!(c.spt_n.per_m.as_ref().unwrap().max, 1.5);
         assert_eq!(coarse.degree_of_saturation.as_ref().unwrap().range.min, 0.6);
         assert_eq!(coarse.outlier_rate, None);
-        let fine = p.units[1].properties.as_ref().unwrap();
+        let fine = &p.units[1].properties;
         assert!(fine.coarse.is_none());
         let f = fine.fine.as_ref().unwrap();
         assert_eq!(f.liquidity_index.range.min, -0.1);
@@ -1476,42 +1486,61 @@ outlier_rate = { min = 0.0, max = 0.05, basis = "test fixture" }
     }
 
     #[test]
-    fn properties_stay_optional() {
-        let p = Preset::from_toml(VALID).unwrap();
-        assert!(p.units.iter().all(|u| u.properties.is_none()));
-        assert_eq!(p.site.groundwater_depth_m, None);
+    fn properties_are_required_on_every_unit() {
+        let text = BASE.replacen(
+            "\n[[units]]\nid = \"LC\"",
+            &format!("{RTD_PROPS}\n[[units]]\nid = \"LC\""),
+            1,
+        );
+        assert_refused(&text, "units[1] (LC).properties: missing");
+        assert_refused(
+            &with_props("", LC_PROPS),
+            "units[0] (RTD).properties: missing",
+        );
+        let both_missing = errors_of(BASE);
+        assert!(both_missing.contains(&"units[0] (RTD).properties: missing".to_string()));
+        assert!(both_missing.contains(&"units[1] (LC).properties: missing".to_string()));
     }
 
     #[test]
-    fn a_site_may_carry_a_groundwater_depth() {
-        let text = with(
-            "ground_level_m = { min = 8.0, max = 22.0, basis = \"test fixture\" }",
-            "ground_level_m = { min = 8.0, max = 22.0, basis = \"test fixture\" }\ngroundwater_depth_m = { min = 1.0, max = 4.0, basis = \"test fixture\" }",
+    fn properties_are_required_on_a_lens() {
+        let text = with_lens().replacen("[lenses.properties]", "[lenses.unrelated]", 1);
+        let errs = errors_of(&text);
+        assert!(
+            errs.contains(&"lenses[0] (SB).properties: missing".to_string()),
+            "{errs:?}"
         );
-        let g = Preset::from_toml(&text)
+    }
+
+    #[test]
+    fn groundwater_depth_is_required_on_the_site() {
+        let text = with(
+            "groundwater_depth_m = { min = 1.0, max = 4.0, basis = \"test fixture\" }\n",
+            "",
+        );
+        assert_refused(&text, "site.groundwater_depth_m: missing");
+    }
+
+    #[test]
+    fn the_site_carries_a_groundwater_depth() {
+        let g = Preset::from_toml(&valid())
             .unwrap()
             .site
-            .groundwater_depth_m
-            .unwrap();
+            .groundwater_depth_m;
         assert_eq!((g.min, g.max), (1.0, 4.0));
     }
 
     #[test]
-    fn a_lens_may_carry_properties() {
-        let text = format!(
-            "{}{}",
-            with_lens(),
-            "\n[lenses.properties]\nspt_n = { min = 5, max = 20, basis = \"test fixture\" }\nmoisture_content_percent = { min = 10, max = 20, basis = \"test fixture\" }\nparticle_density_ratio = { min = 2.6, max = 2.7, basis = \"test fixture\" }\n"
-        );
-        let p = Preset::from_toml(&text).expect("valid");
-        assert!(p.lenses[0].properties.as_ref().unwrap().coarse.is_some());
+    fn a_lens_carries_properties() {
+        let p = Preset::from_toml(&with_lens()).expect("valid");
+        assert!(p.lenses[0].properties.coarse.is_some());
     }
 
     #[test]
     fn the_groundwater_depth_may_not_be_negative() {
         let text = with(
-            "ground_level_m = { min = 8.0, max = 22.0, basis = \"test fixture\" }",
-            "ground_level_m = { min = 8.0, max = 22.0, basis = \"test fixture\" }\ngroundwater_depth_m = { min = -1.0, max = 4.0, basis = \"test fixture\" }",
+            "groundwater_depth_m = { min = 1.0,",
+            "groundwater_depth_m = { min = -1.0,",
         );
         assert_refused(
             &text,
@@ -1577,14 +1606,6 @@ outlier_rate = { min = 0.0, max = 0.05, basis = "test fixture" }
             "principals = [\"CLAY\"]",
             "principals = [\"CLAY\", \"SAND\"]",
         );
-        let text = format!(
-            "{}{LC_PROPS}",
-            text.replacen(
-                "\n[[units]]\nid = \"LC\"",
-                &format!("{RTD_PROPS}\n[[units]]\nid = \"LC\""),
-                1
-            )
-        );
         assert_eq!(
             errors_of(&text),
             vec![
@@ -1597,7 +1618,6 @@ outlier_rate = { min = 0.0, max = 0.05, basis = "test fixture" }
     #[test]
     fn properties_on_a_unit_with_no_fine_or_coarse_principal_are_refused() {
         let text = with("principals = [\"CLAY\"]", "principals = [\"PEAT\"]");
-        let text = format!("{text}{LC_PROPS}");
         assert_refused(
             &text,
             "units[1] (LC).properties: no principal is fine (CLAY, SILT) or coarse (SAND, GRAVEL), so no property set applies",
