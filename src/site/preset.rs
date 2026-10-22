@@ -27,6 +27,8 @@ pub struct Preset {
     pub hole_types: Vec<HoleType>,
     /// Top-down order.
     pub units: Vec<Unit>,
+    /// Empty when the preset has none.
+    pub lenses: Vec<Lens>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -57,6 +59,28 @@ pub struct Unit {
     pub name: String,
     /// `None` only on the last unit, which runs to final depth.
     pub thickness_m: Option<Range>,
+    pub description: DescriptionSpec,
+    pub sampling: Sampling,
+}
+
+/// A unit with a limited, lenticular footprint inside one host unit. In plan
+/// it is a disc of radius R; its thickness is `t_max` at the centre and tapers
+/// to nothing at the edge. Each site draws the centre, R, `t_max` and depth
+/// fraction once from the ranges here.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Lens {
+    /// Unique across units and lenses.
+    pub id: String,
+    pub name: String,
+    /// The id of a unit (never a lens).
+    pub host: String,
+    /// Plan radius R, metres; min > 0.
+    pub radius_m: Range,
+    /// Thickness at the centre, metres; min > 0.
+    pub thickness_m: Range,
+    /// Mid-depth of the lens as a fraction of the host's thickness at the
+    /// hole, within `[0, 1]`.
+    pub depth_in_host: Range,
     pub description: DescriptionSpec,
     pub sampling: Sampling,
 }
@@ -347,6 +371,7 @@ fn read_preset(root: &Table, errs: &mut Vec<String>) -> Option<Preset> {
     let site = read_site(&mut n, errs);
     let hole_types = read_hole_types(&mut n, errs);
     let units = read_units(&mut n, errs);
+    let lenses = read_lenses(&mut n, errs);
     n.finish(errs);
 
     Some(Preset {
@@ -356,6 +381,7 @@ fn read_preset(root: &Table, errs: &mut Vec<String>) -> Option<Preset> {
         site: site?,
         hole_types: hole_types?,
         units: units?,
+        lenses: lenses?,
     })
 }
 
@@ -537,6 +563,133 @@ fn read_units(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Unit>> {
     Some(out)
 }
 
+/// The optional `[[lenses]]`: empty when absent. Ids share one namespace with
+/// the units'.
+fn read_lenses(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Lens>> {
+    if !n.table.contains_key("lenses") {
+        n.get("lenses");
+        return Some(Vec::new());
+    }
+    let items = read_array(n, "lenses", errs)?;
+    // Ids as written, whether or not the entry itself loaded.
+    let unit_ids: Vec<&str> = match n.table.get("units") {
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(|u| u.as_table()?.get("id")?.as_str())
+            .collect(),
+        _ => Vec::new(),
+    };
+    let lens_ids: Vec<Option<&str>> = match n.table.get("lenses") {
+        Some(Value::Array(a)) => a
+            .iter()
+            .map(|l| l.as_table().and_then(|t| t.get("id")?.as_str()))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let dict = Dictionary::bundled(DictVersion::V4_2);
+    let samp = dict.abbr_codes("SAMP_TYPE");
+    let mut out = Vec::new();
+    for (mut l, i) in items {
+        let id = req_str(&mut l, "id", errs);
+        if let Some(id) = &id {
+            if id.is_empty()
+                || !id
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+            {
+                errs.push(format!("{}: \"{id}\" is not [A-Z0-9_]+", l.at("id")));
+            }
+            let first_unit = unit_ids.iter().position(|u| u == id);
+            let first_lens = lens_ids.iter().position(|x| *x == Some(id.as_str()));
+            if let Some(u) = first_unit {
+                errs.push(format!(
+                    "{}: \"{id}\" is already used by units[{u}]",
+                    l.at("id")
+                ));
+            } else if let Some(f) = first_lens
+                && f < i
+            {
+                errs.push(format!(
+                    "{}: \"{id}\" is already used by lenses[{f}]",
+                    l.at("id")
+                ));
+            }
+            l.path = format!("{} ({id})", l.path);
+        }
+        let name = req_str(&mut l, "name", errs);
+        let host = req_str(&mut l, "host", errs);
+        if let Some(h) = &host
+            && !unit_ids.contains(&h.as_str())
+        {
+            if lens_ids.contains(&Some(h.as_str())) {
+                errs.push(format!("{}: \"{h}\" is a lens, not a unit", l.at("host")));
+            } else {
+                errs.push(format!("{}: \"{h}\" is not a unit", l.at("host")));
+            }
+        }
+        let radius = read_range(&mut l, "radius_m", errs);
+        let thickness = read_range(&mut l, "thickness_m", errs);
+        for (r, key) in [(&radius, "radius_m"), (&thickness, "thickness_m")] {
+            if let Some(r) = r
+                && r.min <= 0.0
+            {
+                errs.push(format!("{}: min {} must be > 0", l.at(key), r.min));
+            }
+        }
+        let depth = read_range(&mut l, "depth_in_host", errs);
+        if let Some(d) = &depth {
+            if d.min < 0.0 {
+                errs.push(format!(
+                    "{}: min {} must be >= 0",
+                    l.at("depth_in_host"),
+                    d.min
+                ));
+            }
+            if d.max > 1.0 {
+                errs.push(format!(
+                    "{}: max {} must be <= 1",
+                    l.at("depth_in_host"),
+                    d.max
+                ));
+            }
+        }
+        let description = read_description(&mut l, errs);
+        let sampling = read_sampling(&mut l, &samp, errs);
+        l.finish(errs);
+        if let (
+            Some(id),
+            Some(name),
+            Some(host),
+            Some(radius_m),
+            Some(thickness_m),
+            Some(depth_in_host),
+            Some(description),
+            Some(sampling),
+        ) = (
+            id,
+            name,
+            host,
+            radius,
+            thickness,
+            depth,
+            description,
+            sampling,
+        ) {
+            out.push(Lens {
+                id,
+                name,
+                host,
+                radius_m,
+                thickness_m,
+                depth_in_host,
+                description,
+                sampling,
+            });
+        }
+    }
+    Some(out)
+}
+
 fn read_description(u: &mut Node, errs: &mut Vec<String>) -> Option<DescriptionSpec> {
     let mut d = req_table(u, "description", errs)?;
     let principals = str_list(&mut d, "principals", errs);
@@ -664,6 +817,121 @@ sampling = { types = ["U"], interval_m = { min = 1.5, max = 3.0, basis = "test f
         assert_eq!(p.units[1].id, "LC");
         assert_eq!(p.units[1].thickness_m, None);
         assert!(p.units[1].description.secondaries.is_empty());
+    }
+
+    const LENS: &str = r#"
+[[lenses]]
+id = "SB"
+name = "Sand band"
+host = "LC"
+radius_m = { min = 30.0, max = 80.0, basis = "test fixture" }
+thickness_m = { min = 0.3, max = 1.5, basis = "test fixture" }
+depth_in_host = { min = 0.2, max = 0.8, basis = "test fixture" }
+description = { principals = ["SAND"], secondaries = ["silt"], colours = ["brown"] }
+sampling = { types = ["D"], interval_m = { min = 0.5, max = 1.0, basis = "test fixture" } }
+"#;
+
+    fn with_lens() -> String {
+        format!("{VALID}{LENS}")
+    }
+
+    /// The lens fixture with one exact snippet replaced.
+    fn lens_with(from: &str, to: &str) -> String {
+        let text = with_lens();
+        assert!(LENS.contains(from), "lens fixture lacks {from:?}");
+        text.replacen(from, to, 1)
+    }
+
+    #[test]
+    fn a_preset_without_lenses_has_none() {
+        assert!(Preset::from_toml(VALID).unwrap().lenses.is_empty());
+    }
+
+    #[test]
+    fn a_valid_lens_loads_into_typed_values() {
+        let p = Preset::from_toml(&with_lens()).expect("valid");
+        assert_eq!(p.lenses.len(), 1);
+        let l = &p.lenses[0];
+        assert_eq!(
+            (l.id.as_str(), l.name.as_str(), l.host.as_str()),
+            ("SB", "Sand band", "LC")
+        );
+        assert_eq!((l.radius_m.min, l.radius_m.max), (30.0, 80.0));
+        assert_eq!((l.thickness_m.min, l.thickness_m.max), (0.3, 1.5));
+        assert_eq!((l.depth_in_host.min, l.depth_in_host.max), (0.2, 0.8));
+        assert_eq!(l.description.principals, ["SAND"]);
+        assert_eq!(l.sampling.types, ["D"]);
+    }
+
+    #[test]
+    fn a_lens_with_an_unknown_host_is_refused() {
+        assert_refused(
+            &lens_with("host = \"LC\"", "host = \"XX\""),
+            "lenses[0] (SB).host: \"XX\" is not a unit",
+        );
+    }
+
+    #[test]
+    fn a_lens_cannot_host_a_lens() {
+        let text = format!(
+            "{}{}",
+            with_lens(),
+            LENS.replace("\"SB\"", "\"SB2\"")
+                .replace("host = \"LC\"", "host = \"SB\"")
+        );
+        assert_refused(&text, "lenses[1] (SB2).host: \"SB\" is a lens, not a unit");
+    }
+
+    #[test]
+    fn a_lens_id_must_be_unique_across_units_and_lenses() {
+        assert_refused(
+            &lens_with("id = \"SB\"", "id = \"RTD\""),
+            "lenses[0].id: \"RTD\" is already used by units[0]",
+        );
+        let text = format!("{}{LENS}", with_lens());
+        assert_refused(&text, "lenses[1].id: \"SB\" is already used by lenses[0]");
+    }
+
+    #[test]
+    fn lens_ranges_outside_their_domain_are_refused() {
+        assert_refused(
+            &lens_with("radius_m = { min = 30.0", "radius_m = { min = 0.0"),
+            "lenses[0] (SB).radius_m: min 0 must be > 0",
+        );
+        assert_refused(
+            &lens_with("thickness_m = { min = 0.3", "thickness_m = { min = 0.0"),
+            "lenses[0] (SB).thickness_m: min 0 must be > 0",
+        );
+        assert_refused(
+            &lens_with(
+                "depth_in_host = { min = 0.2",
+                "depth_in_host = { min = -0.1",
+            ),
+            "lenses[0] (SB).depth_in_host: min -0.1 must be >= 0",
+        );
+        assert_refused(
+            &lens_with("min = 0.2, max = 0.8", "min = 0.2, max = 1.2"),
+            "lenses[0] (SB).depth_in_host: max 1.2 must be <= 1",
+        );
+    }
+
+    #[test]
+    fn a_lens_without_a_basis_or_with_an_unknown_key_is_refused() {
+        assert_refused(
+            &lens_with(
+                ", basis = \"test fixture\" }\nthickness_m",
+                " }\nthickness_m",
+            ),
+            "lenses[0] (SB).radius_m: no basis",
+        );
+        assert_refused(
+            &lens_with("host = \"LC\"", "host = \"LC\"\nhosts = 1"),
+            "lenses[0] (SB): unknown key \"hosts\"",
+        );
+        assert_refused(
+            &lens_with("host = \"LC\"\n", ""),
+            "lenses[0] (SB).host: missing",
+        );
     }
 
     #[test]
