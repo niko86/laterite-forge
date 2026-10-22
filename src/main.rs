@@ -36,6 +36,7 @@ use laterite_cliutil::OutputMode;
 use laterite_cliutil::report::Ctx;
 
 mod artifacts;
+mod catalogue;
 mod cli;
 mod cmd;
 mod confidence;
