@@ -18,7 +18,7 @@ use crate::evolve::evolve;
 use crate::mine::{MineCfg, run_mine};
 use crate::minimize::{insight_stub, minimize as ddmin};
 use crate::ops::{Injection, synth_combined_lab, synth_injected_lab};
-use crate::pipeline::{build_oracle, dual_validate};
+use crate::pipeline::{OracleSite, dual_validate};
 use crate::report::{
     Candidate, CatalogEntry, CatalogReport, DescribeReport, DescribeRow, ForgeReport,
     UninjectableRule,
@@ -62,14 +62,25 @@ fn combo_meta(injs: &[Injection]) -> (String, Option<String>) {
 /// One call into `laterite_ags4_parity::check`, which `laterite-ags4-corpus-qa
 /// check` makes too (niko86/laterite#1109): the comparison has one home, so the two commands
 /// cannot answer differently while both exist.
-pub fn check(args: &CheckArgs, ctx: Ctx) -> Result<i32> {
-    let (wrapper, project) = crate::pipeline::oracle_site();
+///
+/// Forge probes the oracle before handing over, because `run`'s own probe can
+/// only say "unavailable", not why or what to do about it (#5). When forge's
+/// probe fails, `run` is told to skip python rather than probe again; when it
+/// succeeds, `run` probes once more (the parity crate takes no prebuilt
+/// oracle). A missing path is `run`'s error to report, so nothing is probed
+/// ahead of it.
+pub fn check(args: &CheckArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
+    let probe = !args.no_oracle && args.paths.iter().all(|p| p.exists());
+    let no_oracle = !probe
+        || site
+            .build_oracle(args.timeout, "check: Rust-only verdict (optional QA)")
+            .is_none();
     Ok(laterite_ags4_parity::check::run(
         &args.paths,
-        &wrapper,
-        &project,
+        &site.wrapper,
+        &site.project,
         args.timeout,
-        args.no_oracle,
+        no_oracle,
         &ctx,
     )?)
 }
@@ -78,7 +89,7 @@ pub fn check(args: &CheckArgs, ctx: Ctx) -> Result<i32> {
 /// candidates, dual-validate. Exit 1 iff any candidate is a real
 /// divergence. (Named `generate`: `gen` is a reserved keyword in the
 /// 2024 edition; the clap subcommand is still `gen` for users.)
-pub fn generate(args: &GenArgs, ctx: Ctx) -> Result<i32> {
+pub fn generate(args: &GenArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
     let Some(scaffold) = Scaffold::parse(&args.scaffold) else {
         eprintln!(
             "error: unknown --scaffold '{}' (use: minimal | loca-samp | wide)",
@@ -178,13 +189,11 @@ pub fn generate(args: &GenArgs, ctx: Ctx) -> Result<i32> {
     std::fs::create_dir_all(&dir)?;
 
     let oracle = if args.validate && !args.no_oracle {
-        build_oracle(args.timeout).map(|(o, _)| o)
+        site.build_oracle(args.timeout, "gen: Rust-only verdicts (optional QA)")
+            .map(|(o, _)| o)
     } else {
         None
     };
-    if args.validate && !args.no_oracle && oracle.is_none() {
-        note("gen: python-ags4 unavailable — Rust-only verdicts (optional QA)");
-    }
 
     let mut candidates = Vec::new();
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
@@ -250,7 +259,7 @@ pub fn generate(args: &GenArgs, ctx: Ctx) -> Result<i32> {
 /// `forge run` — the evolutionary loop. Builds a `Strategy` from the flags
 /// (or loads one wholesale with `--strategy`), runs `evolve`, emits the
 /// report. Exit: 1 findings · 2 stalled (frontier emitted) · 0 clean.
-pub fn run(args: &RunArgs, ctx: Ctx) -> Result<i32> {
+pub fn run(args: &RunArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
     if crate::synth::Scaffold::parse(&args.scaffold).is_none() {
         eprintln!(
             "error: unknown --scaffold '{}' (use: minimal | loca-samp | wide)",
@@ -321,16 +330,13 @@ pub fn run(args: &RunArgs, ctx: Ctx) -> Result<i32> {
     let (oracle, oracle_ver) = if let Some((o, v)) = if args.no_oracle {
         None
     } else {
-        build_oracle(args.timeout)
+        site.build_oracle(
+            args.timeout,
+            "run: Rust-only loop (deterministic; no parity verdicts). optional QA.",
+        )
     } {
         (Some(o), v)
     } else {
-        if !args.no_oracle {
-            note(
-                "run: python-ags4 unavailable — Rust-only loop \
-                 (deterministic; no parity verdicts). optional QA.",
-            );
-        }
         (None, "none".to_string())
     };
 
@@ -392,7 +398,7 @@ pub fn run(args: &RunArgs, ctx: Ctx) -> Result<i32> {
 /// synthesizes every rule-combination across the placement-seed sweep,
 /// subtracts what the corpus already covers, and spends the oracle on the
 /// novel divergence-prone signatures. Exit 1 iff a real divergence.
-pub fn mine(args: &MineArgs, ctx: Ctx) -> Result<i32> {
+pub fn mine(args: &MineArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
     let Some(scaffold) = Scaffold::parse(&args.scaffold) else {
         eprintln!(
             "error: unknown --scaffold '{}' (use: minimal | loca-samp | wide)",
@@ -458,13 +464,12 @@ pub fn mine(args: &MineArgs, ctx: Ctx) -> Result<i32> {
     let oracle = if args.no_oracle {
         None
     } else {
-        build_oracle(args.timeout).map(|(o, _)| o)
+        site.build_oracle(
+            args.timeout,
+            "mine: Rust-only (gaps + divergence flags, no parity verdict)",
+        )
+        .map(|(o, _)| o)
     };
-    if !args.no_oracle && oracle.is_none() {
-        note(
-            "mine: python-ags4 unavailable — Rust-only (gaps + divergence flags, no parity verdict)",
-        );
-    }
 
     let run_id = new_run_id();
     let dir = run_dir(&out, &run_id);
@@ -824,7 +829,7 @@ fn resolve_scale_inject(
 
 /// `forge minimize <file>` — standalone ddmin (e.g. shrink a
 /// corpus-qa ACTION file to a clean wiki probe).
-pub fn minimize(args: &MinimizeArgs, ctx: Ctx) -> Result<i32> {
+pub fn minimize(args: &MinimizeArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
     if !args.file.exists() {
         eprintln!("error: file not found: {}", args.file.display());
         return Ok(3);
@@ -832,7 +837,11 @@ pub fn minimize(args: &MinimizeArgs, ctx: Ctx) -> Result<i32> {
     let oracle = if args.no_oracle {
         None
     } else {
-        build_oracle(args.timeout).map(|(o, _)| o)
+        site.build_oracle(
+            args.timeout,
+            "minimize: Rust-only signature (no parity verdict)",
+        )
+        .map(|(o, _)| o)
     };
     let text = std::fs::read_to_string(&args.file)?;
     let (minimal, sig) = ddmin(&text, oracle.as_ref());

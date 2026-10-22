@@ -20,9 +20,9 @@ mutate/validate/report muscle and embeds **no LLM**.
 ## Commands
 
 ```
-laterite-ags4-forge check <path>... [--no-oracle] [--timeout S]
+laterite-ags4-forge check <path>... [--no-oracle] [--timeout S] [--oracle-project DIR]
 laterite-ags4-forge gen [--scaffold minimal|loca-samp] [--inject TOK]... \
-               [--validate] [--no-oracle] [--out-dir D]
+               [--validate] [--no-oracle] [--oracle-project DIR] [--out-dir D]
 ```
 
 - **check** — dual-validate existing files; print each side's rule set,
@@ -46,6 +46,16 @@ laterite-ags4-forge gen [--scaffold minimal|loca-samp] [--inject TOK]... \
   each `--inject` (`none|rule10a|rule10c|rule8|rule5|rule19|rule13`),
   write the `.ags` candidates under `<out>/runs/<id>/`, and
   (`--validate`) dual-validate each.
+
+## Finding python-ags4
+
+The oracle runs as `uv run python tools/py_ags4_check_json.py` inside a uv
+project whose `pyproject.toml` pins python-ags4. By default that is the
+checkout the binary was built from, which is right for `cargo run`. A
+downloaded release was built elsewhere, so point it at a laterite-forge
+checkout with `--oracle-project DIR` (or `$AGS4_FORGE_ORACLE_PROJECT`) and run
+`uv sync` there. When no oracle is found, forge falls back to Rust-only
+verdicts (`"oracle": false`), and stderr says why and how to supply one.
 
 ## Conventions (shared CLI contract)
 
