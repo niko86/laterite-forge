@@ -171,8 +171,12 @@ pub fn calibrate_site(
     // the per-hole bytes include the id width most of the final file has.
     let lo = 10usize.pow(n0.ilog10());
     let span = SITE_SAMPLES.1 - SITE_SAMPLES.0;
+    // A target below the default samples refits around the rough count
+    // instead, rather than extrapolating back from larger files.
     let (k, overhead) = if lo >= SITE_SAMPLES.1 {
         fit(lo, lo + span)?
+    } else if n0 < SITE_SAMPLES.0 {
+        fit((n0 / 2).max(1), (n0 * 3 / 2).max(2))?
     } else {
         (k0, oh0)
     };
