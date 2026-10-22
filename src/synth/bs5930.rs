@@ -599,6 +599,244 @@ pub fn describe_with(vocab: &Vocab, rng: &mut Rng, lanes: Lanes) -> SoilDescript
     }
 }
 
+/// What a site-model unit allows a description to say, so every stratum of the
+/// unit reads as the same soil. Owned strings, so preset data maps straight on.
+///
+/// Validate with [`UnitDescription::problems`]; [`describe_unit`] refuses a
+/// constraint that has any.
+// Not called from any command yet; niko86/laterite-forge#21 wires the site
+// model in.
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnitDescription {
+    /// Allowed principal soils: `SAND`, `GRAVEL`, `SILT` or `CLAY`.
+    pub principals: Vec<String>,
+    /// Allowed secondary fractions (`sand`, `gravel`, `silt`, `clay`); empty
+    /// means the description carries none.
+    pub secondaries: Vec<String>,
+    /// Whole colour phrases, each used verbatim (`"dark grey"`).
+    pub colours: Vec<String>,
+}
+
+/// The four principals a unit may name, with the lowercase fraction each is
+/// made of and the lane it draws in.
+const UNIT_PRINCIPALS: [(&str, &str, PrincipalClass); 4] = [
+    ("SAND", "sand", PrincipalClass::Coarse),
+    ("GRAVEL", "gravel", PrincipalClass::Coarse),
+    ("SILT", "silt", PrincipalClass::Fine),
+    ("CLAY", "clay", PrincipalClass::Fine),
+];
+
+const UNIT_SECONDARIES: [&str; 4] = ["sand", "gravel", "silt", "clay"];
+
+/// Why `phrase` is not a colour the engine could compose, or `None` when it is
+/// one: `lightness? chroma? hue` (`colourWordOrder`), with the same exclusions
+/// [`colour`] observes (no chroma before an achromatic hue or its own family,
+/// no lightness on black/white).
+#[allow(dead_code)]
+fn colour_problem(vocab: &Vocab, phrase: &str) -> Option<String> {
+    let bad = |why: &str| Some(format!("colour {phrase:?} {why}"));
+    let mut words: Vec<&str> = phrase.split(' ').collect();
+    let hue = words.pop().unwrap_or_default();
+    if !vocab.hue.iter().any(|h| h == hue) {
+        return bad("does not end in a hue");
+    }
+    if words
+        .first()
+        .is_some_and(|w| vocab.lightness.iter().any(|l| l == w))
+    {
+        if matches!(hue, "black" | "white") {
+            return bad("puts a lightness on black or white");
+        }
+        words.remove(0);
+    }
+    if let Some(w) = words.first()
+        && vocab.chroma.iter().any(|c| c == w)
+    {
+        if ACHROMATIC_HUES.contains(&hue) {
+            return bad("puts a chroma before an achromatic hue");
+        }
+        if chroma_base(w) == hue {
+            return bad("repeats its own hue as a chroma");
+        }
+        words.remove(0);
+    }
+    if words.is_empty() {
+        None
+    } else {
+        bad("is not in lightness, chroma, hue order")
+    }
+}
+
+#[allow(dead_code)]
+impl UnitDescription {
+    /// Every problem in this constraint against `vocab`, empty when it is usable.
+    pub fn problems(&self, vocab: &Vocab) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.principals.is_empty() {
+            out.push("no principals".to_string());
+        }
+        for p in &self.principals {
+            if !UNIT_PRINCIPALS.iter().any(|(name, _, _)| name == p) {
+                out.push(format!("unknown principal {p:?}"));
+            }
+        }
+        for sec in &self.secondaries {
+            if !UNIT_SECONDARIES.contains(&sec.as_str()) {
+                out.push(format!("unknown secondary {sec:?}"));
+            } else if !self.principals.is_empty()
+                && self.principals.iter().all(|p| {
+                    UNIT_PRINCIPALS
+                        .iter()
+                        .any(|(name, own, _)| name == p && own == sec)
+                })
+            {
+                // Only a fraction no listed principal can carry is refused: the
+                // draw skips the drawn principal's own fraction.
+                out.push(format!(
+                    "secondary {sec:?} is the own fraction of every listed principal"
+                ));
+            }
+        }
+        if self.colours.is_empty() {
+            out.push("empty palette".to_string());
+        }
+        out.extend(self.colours.iter().filter_map(|c| colour_problem(vocab, c)));
+        out
+    }
+}
+
+/// The `'static` spelling of a validated fraction name.
+fn fraction_static(soil: &str) -> &'static str {
+    UNIT_SECONDARIES
+        .into_iter()
+        .find(|s| *s == soil)
+        .expect("validated fraction")
+}
+
+/// Draw one description inside `unit`'s constraints.
+///
+/// `lead` is the leading term, supplied by the caller: `None` leaves the
+/// description without one (`SoilDescription::lead` is then empty), `Some(term)`
+/// must be a consistency term for a fine principal or a relative-density term
+/// for a coarse one. Errors only on a constraint [`UnitDescription::problems`]
+/// would report, or a lead in the wrong lane.
+///
+/// A separate path from [`describe_with`]: it shares that path's band and
+/// adjective helpers but draws nothing the pinned paths draw.
+// `rng.range(1, hi) as u32`: the range is bounded by the budgets below (at most
+// 72), well inside u32.
+#[allow(dead_code, clippy::cast_possible_truncation)]
+pub fn describe_unit(
+    vocab: &Vocab,
+    rng: &mut Rng,
+    unit: &UnitDescription,
+    lead: Option<&str>,
+) -> Result<SoilDescription, String> {
+    let problems = unit.problems(vocab);
+    if !problems.is_empty() {
+        return Err(problems.join("; "));
+    }
+    let name = rng.choose(&unit.principals);
+    let (principal, own, class) = *UNIT_PRINCIPALS
+        .iter()
+        .find(|(n, _, _)| n == name)
+        .expect("validated principal");
+    if let Some(term) = lead {
+        let (lane, kind) = if class == PrincipalClass::Fine {
+            (&vocab.consistency, "consistency")
+        } else {
+            (&vocab.density, "relative-density")
+        };
+        if !lane.iter().any(|t| t == term) {
+            return Err(format!(
+                "lead {term:?} is not a {kind} term, which a {principal} needs"
+            ));
+        }
+    }
+    let allowed = |soil: &str| unit.secondaries.iter().any(|s| s == soil);
+
+    let mut secondaries: Vec<Secondary> = Vec::new();
+    if class == PrincipalClass::Coarse {
+        // Same shape as `describe_coarse`: the other coarse fraction, then one
+        // fine fraction, inside a 45% budget.
+        let other = if own == "sand" { "gravel" } else { "sand" };
+        let mut budget = 45u32;
+        if allowed(other) && chance(rng, 60) {
+            let pct = rng.range(1, i64::from(budget.min(40))) as u32;
+            budget -= pct.min(budget);
+            secondaries.push(Secondary {
+                soil: fraction_static(other),
+                pct,
+                qualifier: band_coarse_principal(pct),
+            });
+        }
+        let fines: Vec<&'static str> = ["silt", "clay"]
+            .into_iter()
+            .filter(|f| allowed(f))
+            .collect();
+        if budget >= 1 && !fines.is_empty() && chance(rng, 55) {
+            let pct = rng.range(1, i64::from(budget.min(40))) as u32;
+            secondaries.push(Secondary {
+                soil: rng.choose(&fines).to_owned(),
+                pct,
+                qualifier: band_coarse_principal(pct),
+            });
+        }
+    } else {
+        // Same shape as `describe_fine`: sand and gravel share an 80% budget
+        // and read in increasing proportion, then a qualitative fine fraction.
+        let mut budget = 80i64;
+        let order: [&'static str; 2] = if rng.below(2) == 0 {
+            ["sand", "gravel"]
+        } else {
+            ["gravel", "sand"]
+        };
+        for soil in order.into_iter().filter(|s| allowed(s)) {
+            if budget >= 1 && chance(rng, 55) {
+                let pct = rng.range(1, budget.min(72)) as u32;
+                budget -= i64::from(pct);
+                secondaries.push(Secondary {
+                    soil,
+                    pct,
+                    qualifier: band_fine_principal(pct),
+                });
+            }
+        }
+        secondaries.sort_by_key(|s| s.pct);
+        let other_fine = if own == "silt" { "clay" } else { "silt" };
+        if allowed(other_fine) && chance(rng, 35) {
+            secondaries.push(Secondary {
+                soil: fraction_static(other_fine),
+                pct: 0,
+                qualifier: "",
+            });
+        }
+    }
+
+    let colour = rng.choose(&unit.colours).clone();
+    let mut words: Vec<String> = Vec::new();
+    if let Some(term) = lead {
+        words.push(term.to_string());
+    }
+    words.push(colour);
+    words.extend(secondaries.iter().map(Secondary::adjective));
+    words.push(principal.to_string());
+    let mut text = words.join(" ");
+    if let Some(first) = text.get_mut(..1) {
+        first.make_ascii_uppercase();
+    }
+    text.push('.');
+
+    Ok(SoilDescription {
+        text,
+        lead: lead.unwrap_or_default().to_string(),
+        principal,
+        principal_class: class,
+        secondaries,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -947,5 +1185,288 @@ mod tests {
             distinct.len() > 30,
             "50 seeds should give many distinct texts"
         );
+    }
+
+    fn unit(principals: &[&str], secondaries: &[&str], colours: &[&str]) -> UnitDescription {
+        let own = |xs: &[&str]| xs.iter().map(|x| (*x).to_string()).collect::<Vec<_>>();
+        UnitDescription {
+            principals: own(principals),
+            secondaries: own(secondaries),
+            colours: own(colours),
+        }
+    }
+
+    #[test]
+    fn a_unit_draw_stays_inside_its_constraint() {
+        let v = vocab();
+        let u = unit(&["CLAY"], &["silt"], &["grey", "dark grey"]);
+        let mut with_silt = 0;
+        for seed in 0..300u64 {
+            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, Some("Firm")).unwrap();
+            assert_eq!(d.principal, "CLAY", "seed {seed}");
+            assert_eq!(d.principal_class, PrincipalClass::Fine);
+            assert!(
+                d.secondaries.iter().all(|s| s.soil == "silt"),
+                "seed {seed}: {d:?}"
+            );
+            with_silt += d.secondaries.len();
+            assert!(
+                d.text == "Firm grey CLAY."
+                    || d.text == "Firm dark grey CLAY."
+                    || d.text == "Firm grey silty CLAY."
+                    || d.text == "Firm dark grey silty CLAY.",
+                "seed {seed}: {}",
+                d.text
+            );
+        }
+        assert!(with_silt > 0, "the silt secondary was never drawn");
+    }
+
+    #[test]
+    fn an_empty_secondary_list_draws_none() {
+        let v = vocab();
+        let u = unit(&["SAND", "GRAVEL", "SILT", "CLAY"], &[], &["brown"]);
+        for seed in 0..200u64 {
+            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, None).unwrap();
+            assert!(d.secondaries.is_empty(), "seed {seed}: {d:?}");
+        }
+    }
+
+    #[test]
+    fn every_listed_principal_is_reachable_and_the_lane_follows() {
+        let v = vocab();
+        let u = unit(&["SAND", "GRAVEL", "SILT", "CLAY"], &[], &["brown"]);
+        let mut seen = std::collections::BTreeSet::new();
+        for seed in 0..200u64 {
+            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, None).unwrap();
+            let want = if matches!(d.principal, "SAND" | "GRAVEL") {
+                PrincipalClass::Coarse
+            } else {
+                PrincipalClass::Fine
+            };
+            assert_eq!(d.principal_class, want);
+            seen.insert(d.principal);
+        }
+        assert_eq!(
+            seen.into_iter().collect::<Vec<_>>(),
+            ["CLAY", "GRAVEL", "SAND", "SILT"]
+        );
+    }
+
+    #[test]
+    fn secondaries_follow_the_engines_bands_and_order() {
+        let v = vocab();
+        let u = unit(&["SAND"], &["gravel", "silt"], &["brown"]);
+        let mut both = 0;
+        for seed in 0..400u64 {
+            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, Some("Dense")).unwrap();
+            let sum: u32 = d.secondaries.iter().map(|s| s.pct).sum();
+            assert!(sum <= 45, "seed {seed}: {d:?}");
+            for s in &d.secondaries {
+                assert!(matches!(s.soil, "gravel" | "silt"), "{d:?}");
+                assert_eq!(s.qualifier, band_coarse_principal(s.pct));
+            }
+            if d.secondaries.len() == 2 {
+                both += 1;
+                assert_eq!(d.secondaries[0].soil, "gravel", "coarse before fine");
+                assert!(
+                    d.text.contains("gravelly ") && d.text.ends_with("silty SAND."),
+                    "{}",
+                    d.text
+                );
+            }
+        }
+        assert!(both > 0);
+    }
+
+    #[test]
+    fn a_fine_principal_bands_coarse_secondaries_on_table_17() {
+        let v = vocab();
+        let u = unit(&["SILT"], &["sand", "gravel", "clay"], &["grey"]);
+        for seed in 0..400u64 {
+            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, None).unwrap();
+            let sum: u32 = d.secondaries.iter().map(|s| s.pct).sum();
+            assert!(sum <= 80, "seed {seed}: {d:?}");
+            let pcts: Vec<u32> = d
+                .secondaries
+                .iter()
+                .filter(|s| !s.is_fine())
+                .map(|s| s.pct)
+                .collect();
+            assert!(pcts.windows(2).all(|w| w[0] <= w[1]), "{d:?}");
+            for s in d.secondaries.iter().filter(|s| !s.is_fine()) {
+                assert_eq!(s.qualifier, band_fine_principal(s.pct));
+            }
+            assert!(
+                d.secondaries
+                    .iter()
+                    .filter(|s| s.is_fine())
+                    .all(|s| s.soil == "clay" && s.pct == 0),
+                "{d:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_lead_is_the_callers_not_the_rngs() {
+        let v = vocab();
+        let fine = unit(&["CLAY"], &[], &["grey"]);
+        let coarse = unit(&["SAND"], &[], &["grey"]);
+        let d = describe_unit(&v, &mut Rng::seeded(1), &fine, None).unwrap();
+        assert_eq!(d.lead, "");
+        assert_eq!(d.text, "Grey CLAY.");
+        let d = describe_unit(&v, &mut Rng::seeded(1), &fine, Some("Firm")).unwrap();
+        assert_eq!(d.lead, "Firm");
+        assert_eq!(d.text, "Firm grey CLAY.");
+        let d = describe_unit(&v, &mut Rng::seeded(1), &coarse, Some("Very dense")).unwrap();
+        assert_eq!(d.lead, "Very dense");
+        assert_eq!(d.text, "Very dense grey SAND.");
+    }
+
+    #[test]
+    fn a_lead_in_the_wrong_lane_is_an_error() {
+        let v = vocab();
+        let coarse = unit(&["SAND"], &[], &["grey"]);
+        let fine = unit(&["CLAY"], &[], &["grey"]);
+        assert!(describe_unit(&v, &mut Rng::seeded(1), &coarse, Some("Firm")).is_err());
+        assert!(describe_unit(&v, &mut Rng::seeded(1), &fine, Some("Dense")).is_err());
+        assert!(describe_unit(&v, &mut Rng::seeded(1), &fine, Some("Nonsense")).is_err());
+    }
+
+    #[test]
+    fn a_mixed_unit_rejects_a_lead_that_misses_the_drawn_lane() {
+        let v = vocab();
+        let u = unit(&["SAND", "CLAY"], &[], &["grey"]);
+        let (mut ok, mut err) = (0, 0);
+        for seed in 0..50u64 {
+            match describe_unit(&v, &mut Rng::seeded(seed), &u, Some("Firm")) {
+                Ok(d) => {
+                    ok += 1;
+                    assert_eq!(d.principal, "CLAY");
+                }
+                Err(_) => err += 1,
+            }
+        }
+        assert!(ok > 0 && err > 0);
+    }
+
+    #[test]
+    fn a_valid_constraint_has_no_problems() {
+        let v = vocab();
+        let u = unit(
+            &["SAND", "CLAY"],
+            &["gravel", "silt"],
+            &[
+                "grey",
+                "dark grey",
+                "orangeish brown",
+                "light reddish brown",
+                "black",
+            ],
+        );
+        assert_eq!(u.problems(&v), Vec::<String>::new());
+    }
+
+    #[test]
+    fn problems_names_each_bad_case() {
+        let v = vocab();
+        let one = |u: UnitDescription| u.problems(&v);
+        let p = one(unit(&["LOAM"], &[], &["grey"]));
+        assert_eq!(p.len(), 1);
+        assert!(
+            p[0].contains("unknown principal") && p[0].contains("LOAM"),
+            "{p:?}"
+        );
+        let p = one(unit(&["PEAT"], &[], &["grey"]));
+        assert!(
+            p[0].contains("unknown principal") && p[0].contains("PEAT"),
+            "{p:?}"
+        );
+        let p = one(unit(&[], &[], &["grey"]));
+        assert!(p[0].contains("no principals"), "{p:?}");
+        let p = one(unit(&["CLAY"], &["loam"], &["grey"]));
+        assert!(
+            p[0].contains("unknown secondary") && p[0].contains("loam"),
+            "{p:?}"
+        );
+        let p = one(unit(&["CLAY"], &["clay"], &["grey"]));
+        assert!(
+            p[0].contains("own fraction") && p[0].contains("clay"),
+            "{p:?}"
+        );
+        let p = one(unit(&["SAND"], &["sand"], &["grey"]));
+        assert!(p[0].contains("own fraction"), "{p:?}");
+        let p = one(unit(&["CLAY"], &[], &[]));
+        assert!(p[0].contains("empty palette"), "{p:?}");
+    }
+
+    /// A secondary that some listed principal can carry is usable: in a
+    /// CLAY-or-SILT unit, a CLAY stratum can be silty, and the draw never
+    /// gives a SILT stratum its own fraction.
+    #[test]
+    fn a_mixed_unit_may_list_a_fraction_one_principal_can_carry() {
+        let v = vocab();
+        let u = unit(&["CLAY", "SILT"], &["silt", "clay"], &["grey"]);
+        assert_eq!(u.problems(&v), Vec::<String>::new());
+        for seed in 0..200u64 {
+            let d = describe_unit(&v, &mut Rng::seeded(seed), &u, None).unwrap();
+            let own = d.principal.to_ascii_lowercase();
+            assert!(
+                d.secondaries.iter().all(|s| s.soil != own),
+                "seed {seed}: {d:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn problems_rejects_colours_that_break_the_composition() {
+        let v = vocab();
+        for bad in [
+            "brown dark",
+            "reddish light brown",
+            "greenish green",
+            "reddish grey",
+            "light black",
+            "dark white",
+            "purple",
+            "orangish brown",
+            "dark dark grey",
+            "",
+        ] {
+            let p = unit(&["CLAY"], &[], &[bad]).problems(&v);
+            assert_eq!(p.len(), 1, "{bad:?}: {p:?}");
+            assert!(
+                p[0].contains("colour") && p[0].contains(bad),
+                "{bad:?}: {p:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn problems_reports_every_problem_at_once() {
+        let v = vocab();
+        let p = unit(&["LOAM"], &["loam"], &[]).problems(&v);
+        assert_eq!(p.len(), 3, "{p:?}");
+    }
+
+    #[test]
+    fn an_invalid_constraint_is_refused_by_the_draw() {
+        let v = vocab();
+        let u = unit(&["CLAY"], &["clay"], &["grey"]);
+        let e = describe_unit(&v, &mut Rng::seeded(1), &u, None).unwrap_err();
+        assert!(e.contains("own fraction"), "{e}");
+    }
+
+    #[test]
+    fn a_unit_draw_is_deterministic_per_seed() {
+        let v = vocab();
+        let u = unit(&["SAND", "CLAY"], &["silt", "gravel"], &["grey", "brown"]);
+        let a = describe_unit(&v, &mut Rng::seeded(9), &u, None)
+            .unwrap()
+            .text;
+        let b = describe_unit(&v, &mut Rng::seeded(9), &u, None)
+            .unwrap()
+            .text;
+        assert_eq!(a, b);
     }
 }
