@@ -1,7 +1,8 @@
 ---
 type: decision
 title: "Forge is a description service with a calibration side-job — a bounded second audience"
-status: accepted
+status: superseded
+superseded_by: docs/adr/0001-forge-owns-a-site-model.md
 tags: [design, decision]
 decided: "2026-08-25"
 supersedes: []
