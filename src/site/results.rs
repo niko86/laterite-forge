@@ -1,9 +1,11 @@
 //! Index-property results: the values of LNMC, LLPL and LDEN rows (ADR 0001,
 //! "Values and descriptions").
 //!
-//! A result is the property model's value at the specimen's depth times
-//! (1 + COV x e), with e a standard normal truncated at +-3, and with rare
-//! outliers beyond the property's range. Every draw is keyed per (hole, unit,
+//! A result is the property model's value at the specimen's depth times a
+//! lognormal factor with mean 1 and the quantity's COV (see
+//! [`lognormal_factor`]), and with rare outliers beyond the property's range.
+//! Lognormal, not normal, so a result is never zero or negative however large
+//! the COV, and skews right as SPT N and strength data do. Every draw is keyed per (hole, unit,
 //! sample, quantity) under tags of its own, so a result consumes no stream the
 //! geometry, sampling, description or property draws use, and the same result
 //! is recomputed exactly wherever it is needed.
@@ -77,6 +79,15 @@ pub(super) fn truncated_normal(rng: &mut laterite_ags4_parity::Rng) -> f64 {
     }
 }
 
+/// The scatter factor for a standard normal draw `e`: lognormal with mean 1
+/// and coefficient of variation `cov`, exp(s e - s^2 / 2) with s^2 =
+/// ln(1 + cov^2). Truncating `e` at +-[`TRUNCATION`] trims the upper tail,
+/// moving the mean under 0.5 % and the COV under 3 % at a COV of 0.42.
+pub(super) fn lognormal_factor(cov: f64, e: f64) -> f64 {
+    let s = cov.mul_add(cov, 1.0).ln().sqrt();
+    (s * e - s * s / 2.0).exp()
+}
+
 /// One specimen: where it is and what the property model says there.
 pub(super) struct Specimen<'a> {
     pub hole_index: usize,
@@ -130,8 +141,8 @@ pub(super) struct Scattered {
     pub outlier: bool,
 }
 
-/// The result of `group`'s `name` quantity for `spec`: `model` x (1 + `cov` x
-/// e), or an outlier beyond `band`.
+/// The result of `group`'s `name` quantity for `spec`: `model` x
+/// [`lognormal_factor`], or an outlier beyond `band`.
 ///
 /// The scatter and the outlier come from two streams, keyed
 /// `result:<group>:<name>` and `result:<group>:<name>:outlier` on (hole, unit,
@@ -165,7 +176,7 @@ pub(super) fn scatter(
             outlier: true,
         },
         _ => Scattered {
-            value: model * (1.0 + cov * e),
+            value: model * lognormal_factor(cov, e),
             outlier: false,
         },
     }
@@ -702,8 +713,8 @@ mod tests {
             let n = ok.len() as f64;
             let mean = ok.iter().sum::<f64>() / n;
             let var = ok.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (n - 1.0);
-            // A standard normal truncated at +-3 has sd 0.9866.
-            let want = cov * 0.9866;
+            // Lognormal scatter truncated at +-3 keeps the COV within 3 %.
+            let want = cov;
             assert!((mean - 1.0).abs() < 0.01, "{name}: mean {mean}");
             assert!(
                 (var.sqrt() - want).abs() < 0.08 * want,
@@ -721,6 +732,42 @@ mod tests {
     #[test]
     fn the_density_cov_is_the_midpoint_of_one_to_ten_percent() {
         assert!((DENSITY_COV - f64::midpoint(0.01, 0.10)).abs() < 1e-12);
+    }
+
+    /// Lognormal scatter never reaches zero, even three deviations down at a
+    /// COV of 100 %, and is right-skewed: the median result sits under the
+    /// mean (the model value).
+    #[test]
+    fn lognormal_scatter_stays_positive_and_skews_right() {
+        for cov in [0.055, 0.42, 1.0] {
+            assert!(lognormal_factor(cov, -TRUNCATION) > 0.0, "{cov}");
+            assert!(lognormal_factor(cov, 0.0) < 1.0, "{cov}");
+            // One deviation up from the median reaches further than one down.
+            let median = lognormal_factor(cov, 0.0);
+            assert!(
+                lognormal_factor(cov, 1.0) - median > median - lognormal_factor(cov, -1.0),
+                "{cov}"
+            );
+        }
+        assert!((lognormal_factor(0.0, 2.0) - 1.0).abs() < 1e-12);
+    }
+
+    /// The factor's mean is 1 and its COV the given one, before truncation.
+    #[test]
+    fn the_lognormal_factor_keeps_the_mean_and_cov() {
+        let mut rng = Key::site("t").rng(9);
+        for cov in [0.088, 0.42] {
+            let fs: Vec<f64> = (0..200_000)
+                .map(|_| lognormal_factor(cov, truncated_normal(&mut rng)))
+                .collect();
+            let n = fs.len() as f64;
+            let mean = fs.iter().sum::<f64>() / n;
+            let sd = (fs.iter().map(|f| (f - mean).powi(2)).sum::<f64>() / n).sqrt();
+            // Truncation at +-3 trims the upper tail: under 0.5 % off the
+            // mean and 3 % off the COV at 0.42.
+            assert!((mean - 1.0).abs() < 0.005, "{cov}: mean {mean}");
+            assert!((sd / cov - 1.0).abs() < 0.035, "{cov}: sd {sd}");
+        }
     }
 
     #[test]
@@ -996,8 +1043,8 @@ rate = {{ min = 1.0, max = 1.0, basis = "test fixture" }}
             let n = ok.len() as f64;
             let mean = ok.iter().sum::<f64>() / n;
             let var = ok.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (n - 1.0);
-            // A standard normal truncated at +-3 has sd 0.9866.
-            let want = cov * 0.9866;
+            // Lognormal scatter truncated at +-3 keeps the COV within 3 %.
+            let want = cov;
             assert!((mean - 1.0).abs() < 0.015, "{name}: mean {mean}");
             assert!(
                 (var.sqrt() - want).abs() < 0.08 * want,
@@ -1017,8 +1064,9 @@ rate = {{ min = 1.0, max = 1.0, basis = "test fixture" }}
         assert!((STRENGTH_COV - f64::midpoint(0.20, 0.40)).abs() < 1e-12);
     }
 
-    /// In a fine unit N x f1 / cu is 1 before scatter, so its median over many
-    /// tests is about 1 (rounding to whole blows is unbiased).
+    /// In a fine unit N x f1 / cu is 1 before scatter, so over many tests its
+    /// median is a lognormal's, 1 / sqrt(1 + COV^2), with the mean at 1
+    /// (rounding to whole blows is unbiased).
     #[test]
     fn a_fine_units_n_times_f1_over_the_model_cu_has_median_one() {
         let p = strong(TRIT_ALL);
@@ -1043,7 +1091,8 @@ rate = {{ min = 1.0, max = 1.0, basis = "test fixture" }}
         assert!(ratios.len() > 800, "{} fine tests is too few", ratios.len());
         ratios.sort_by(f64::total_cmp);
         let median = ratios[ratios.len() / 2];
-        assert!((median - 1.0).abs() < 0.03, "median {median}");
+        let want = 1.0 / STRENGTH_COV.mul_add(STRENGTH_COV, 1.0).sqrt();
+        assert!((median - want).abs() < 0.03, "median {median} vs {want}");
     }
 
     #[test]
