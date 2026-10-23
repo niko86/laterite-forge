@@ -121,6 +121,10 @@ pub const PARTICLE_DENSITY_RATIO: Domain = Domain::above_to(1.0, 4.0);
 /// Degree of saturation Sr: a fraction, positive (the phase relations divide
 /// by it) and at most 1 (full saturation).
 pub const DEGREE_OF_SATURATION: Domain = Domain::above_to(0.0, 1.0);
+/// Undrained shear strength cu, kPa: positive.
+pub const UNDRAINED_STRENGTH_KPA: Domain = Domain::above(0.0);
+/// The SPT factor f1 in N = cu / f1, kPa per blow: positive.
+pub const SPT_F1_KPA: Domain = Domain::above(0.0);
 /// A probability.
 pub const OUTLIER_RATE: Domain = Domain::between(0.0, 1.0);
 /// Depth of the water table below ground level, metres: not above ground.
@@ -146,6 +150,7 @@ const Q_PLASTICITY_INDEX: u64 = 1;
 const Q_LIQUIDITY_INDEX: u64 = 2;
 const Q_SPT_N: u64 = 3;
 const Q_MOISTURE_CONTENT: u64 = 4;
+const Q_CU_TOP: u64 = 5;
 
 /// One drawn quantity of one unit: its range and gradient mapped onto smooth
 /// fields over the site.
@@ -259,6 +264,14 @@ struct CoarseDrawn {
     moisture_content: Drawn,
 }
 
+/// Undrained strength under `cu.linear_with_depth`: cu at the unit's top
+/// (with stratum-level outliers) and a gradient, both smooth over the site.
+#[derive(Debug, Clone, PartialEq)]
+struct StrengthDrawn {
+    cu_top: Drawn,
+    per_m: (Range, Field),
+}
+
 /// The property model of one unit or lens.
 #[derive(Debug, Clone, PartialEq)]
 struct UnitModel {
@@ -267,6 +280,9 @@ struct UnitModel {
     coarse: Option<CoarseDrawn>,
     particle_density: Drawn,
     saturation: Option<Drawn>,
+    strength: Option<StrengthDrawn>,
+    /// f1 of `spt.stroud_butler`, smooth over the site.
+    f1: Option<(Range, Field)>,
     /// The outlier rate over the site, when the preset gives one.
     rate: Option<(Range, Field)>,
 }
@@ -318,6 +334,27 @@ impl UnitModel {
                 .degree_of_saturation
                 .as_ref()
                 .map(|q| drawn(q, "degree_of_saturation", DEGREE_OF_SATURATION, None)),
+            strength: p.strength.as_ref().map(|s| StrengthDrawn {
+                cu_top: drawn(
+                    &Quantity {
+                        range: s.cu_top_kpa.clone(),
+                        per_m: None,
+                    },
+                    "cu_top_kpa",
+                    UNDRAINED_STRENGTH_KPA,
+                    Some(Q_CU_TOP),
+                ),
+                per_m: (
+                    s.per_m.clone(),
+                    Field::new(&mut Key::unit("property:cu_per_m", id).rng(seed), extent),
+                ),
+            }),
+            f1: p.spt.as_ref().map(|s| {
+                (
+                    s.f1.clone(),
+                    Field::new(&mut Key::unit("property:spt_f1", id).rng(seed), extent),
+                )
+            }),
             rate: p.outlier_rate.as_ref().map(|r| {
                 let field = Field::new(
                     &mut Key::unit("property:outlier_rate", id).rng(seed),
@@ -343,6 +380,7 @@ pub(super) enum IndexQuantity {
     PlasticLimit,
     MoistureContent,
     BulkDensity,
+    SptN,
 }
 
 /// The interval a quantity spans in a unit, and the domain it is clamped to.
@@ -385,6 +423,23 @@ pub struct Evaluated {
     pub degree_of_saturation: f64,
     pub bulk_density_kg_m3: f64,
     pub unit_weight_kn_m3: f64,
+    /// Undrained strength, where the unit has a `strength` relation.
+    pub strength: Option<StrengthValues>,
+    /// f1 of N = cu / f1, kPa per blow, where the unit has an `spt` relation.
+    pub spt_f1: Option<f64>,
+}
+
+/// Undrained strength at a depth, kPa: cu = `cu_top` + `per_m` x z, z metres
+/// below the unit's top in this hole.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(clippy::struct_field_names)] // the unit is part of each name
+pub struct StrengthValues {
+    pub cu_top_kpa: f64,
+    pub per_m_kpa: f64,
+    pub cu_kpa: f64,
+    /// The interval cu spans at this depth before outliers: the cited ranges
+    /// of `cu_top` and `per_m` carried to z.
+    pub range_kpa: (f64, f64),
 }
 
 /// The fine-soil set: PL, PI and LI are drawn, the rest derived from them.
@@ -487,6 +542,7 @@ impl PropertyModel {
                 )
             }
             IndexQuantity::MoistureContent => (w_range()?, MOISTURE_CONTENT_PERCENT),
+            IndexQuantity::SptN => (hull(ends(&m.coarse.as_ref()?.spt_n).to_vec())?, SPT_N),
             IndexQuantity::BulkDensity => {
                 let (w_lo, w_hi) = w_range()?;
                 let srs = m
@@ -616,6 +672,22 @@ impl PropertyModel {
             (None, None) => unreachable!("the loader requires a property set"),
         };
 
+        let strength = model.strength.as_ref().map(|s| {
+            let cu_top = s.cu_top.value(&spot, rate);
+            let per_m = s.per_m.1.in_range(&s.per_m.0, x, y);
+            let (rc, rg) = (&s.cu_top.quantity.range, &s.per_m.0);
+            StrengthValues {
+                cu_top_kpa: cu_top,
+                per_m_kpa: per_m,
+                cu_kpa: UNDRAINED_STRENGTH_KPA.clamp(cu_top + per_m * spot.z),
+                range_kpa: (rc.min + rg.min * spot.z, rc.max + rg.max * spot.z),
+            }
+        });
+        let spt_f1 = model
+            .f1
+            .as_ref()
+            .map(|(range, field)| SPT_F1_KPA.clamp(field.in_range(range, x, y)));
+
         let below_table = depth > self.groundwater_depth_at(x, y);
         let sr = if below_table {
             1.0
@@ -649,6 +721,8 @@ impl PropertyModel {
             degree_of_saturation: sr,
             bulk_density_kg_m3: density,
             unit_weight_kn_m3: weight,
+            strength,
+            spt_f1,
         })
     }
 }
@@ -1066,5 +1140,122 @@ particle_density_ratio = { min = 2.5, max = 2.5, basis = "test fixture" }
             let beyond = if v < 25.0 { 20.0 - v } else { v - 30.0 };
             assert!((2.5 - 1e-9..=7.5 + 1e-9).contains(&beyond), "hole {h}: {v}");
         }
+    }
+
+    /// The fine unit (2-20 m) with `cu.linear_with_depth` and
+    /// `spt.stroud_butler`, over a varied site. `extra` lands in its properties.
+    fn strong(extra: &str) -> Preset {
+        let lc = format!(
+            "strength = {{ relation = \"cu.linear_with_depth\", \
+             cu_top_kpa = {{ min = 60, max = 120, basis = \"test fixture\" }}, \
+             per_m = {{ min = 4, max = 8, basis = \"test fixture\" }} }}\n\
+             spt = {{ relation = \"spt.stroud_butler\", \
+             f1 = {{ min = 4, max = 6, basis = \"test fixture\" }} }}\n{extra}"
+        );
+        load(
+            "groundwater_depth_m = { min = 1.0, max = 6.0, basis = \"test fixture\" }",
+            NOTHING,
+            &lc,
+        )
+    }
+
+    fn strength_at(site: &Site, hole: usize, depth: f64) -> StrengthValues {
+        site.properties_at(hole, depth)
+            .unwrap()
+            .strength
+            .expect("the fine unit has strength")
+    }
+
+    /// cu = `cu_top` + `per_m` x z, z metres below the stratum's top (the fine
+    /// unit starts at 2 m), with `cu_top` and `per_m` in their ranges.
+    #[test]
+    fn cu_is_the_top_value_plus_the_gradient_times_the_depth_below_the_top() {
+        let p = strong(&rate(0.0));
+        for seed in 0..6 {
+            let site = build(&p, seed, 20);
+            for hole in 0..20 {
+                for depth in [2.0, 5.0, 9.5, 19.0] {
+                    let s = strength_at(&site, hole, depth);
+                    let want = s.cu_top_kpa + s.per_m_kpa * (depth - 2.0);
+                    assert!(close(s.cu_kpa, want), "{depth}: {s:?} vs {want}");
+                    assert!((60.0..=120.0).contains(&s.cu_top_kpa), "{s:?}");
+                    assert!((4.0..=8.0).contains(&s.per_m_kpa), "{s:?}");
+                }
+                let (a, b) = (strength_at(&site, hole, 5.0), strength_at(&site, hole, 9.0));
+                assert!(close(b.cu_top_kpa, a.cu_top_kpa) && close(b.per_m_kpa, a.per_m_kpa));
+                assert!(close(b.cu_kpa - a.cu_kpa, 4.0 * a.per_m_kpa));
+            }
+        }
+    }
+
+    /// Neighbouring holes agree: with outliers off, `cu_top` and the gradient
+    /// differ by no more than their ranges' widths times their fields' slope
+    /// bounds times the distance.
+    #[test]
+    fn neighbouring_holes_have_similar_strength() {
+        let p = strong(&rate(0.0));
+        for seed in 0..10 {
+            let top = Field::new(
+                &mut Key::unit("property:cu_top_kpa", "LC").rng(seed),
+                p.site.extent_m,
+            );
+            let per_m = Field::new(
+                &mut Key::unit("property:cu_per_m", "LC").rng(seed),
+                p.site.extent_m,
+            );
+            let site = build(&p, seed, 30);
+            for (i, pair) in site.holes.windows(2).enumerate() {
+                let d = (pair[0].x - pair[1].x).hypot(pair[0].y - pair[1].y);
+                let (a, b) = (strength_at(&site, i, 8.0), strength_at(&site, i + 1, 8.0));
+                let top_bound = 60.0 * top.max_slope() * d + 1e-9;
+                let per_m_bound = 4.0 * per_m.max_slope() * d + 1e-9;
+                assert!(
+                    (a.cu_top_kpa - b.cu_top_kpa).abs() <= top_bound,
+                    "seed {seed}: cu_top over {d} m"
+                );
+                assert!(
+                    (a.per_m_kpa - b.per_m_kpa).abs() <= per_m_bound,
+                    "seed {seed}: per_m over {d} m"
+                );
+                // Both holes sit 6 m below the unit's top at 8 m.
+                assert!(
+                    (a.cu_kpa - b.cu_kpa).abs() <= top_bound + 6.0 * per_m_bound,
+                    "seed {seed}: cu over {d} m"
+                );
+            }
+        }
+    }
+
+    /// About one stratum in fifty takes an outlier on `cu_top`, beyond its range.
+    #[test]
+    fn cu_top_takes_the_default_outlier_rate() {
+        let site = build(&strong(""), 11, 3000);
+        let n = (0..3000)
+            .filter(|&h| !(60.0..=120.0).contains(&strength_at(&site, h, 2.0).cu_top_kpa))
+            .count();
+        let share = n as f64 / 3000.0;
+        assert!((share - OUTLIER_RATE_DEFAULT).abs() < 0.01, "{share}");
+    }
+
+    #[test]
+    fn f1_is_smooth_in_its_range_and_only_units_with_spt_have_it() {
+        let p = strong("");
+        let site = build(&p, 3, 40);
+        for h in 0..40 {
+            let f1 = site.properties_at(h, 8.0).unwrap().spt_f1.unwrap();
+            assert!((4.0..=6.0).contains(&f1), "{f1}");
+            // The same at any depth: f1 has no trend.
+            assert_eq!(site.properties_at(h, 15.0).unwrap().spt_f1, Some(f1));
+            let coarse = site.properties_at(h, 1.0).unwrap();
+            assert!(coarse.strength.is_none() && coarse.spt_f1.is_none());
+        }
+    }
+
+    /// A preset with no strength gives the same values it always did.
+    #[test]
+    fn a_unit_without_strength_has_none() {
+        let site = build(&varied(NOTHING), 2, 5);
+        let e = site.properties_at(0, 10.0).unwrap();
+        assert!(e.strength.is_none() && e.spt_f1.is_none());
     }
 }

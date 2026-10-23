@@ -13,6 +13,7 @@ use toml::Table;
 use toml::Value;
 
 use super::properties::{self as props, Domain};
+use super::results;
 use super::suite;
 
 /// The only schema this forge reads.
@@ -185,6 +186,50 @@ pub struct Properties {
     /// rate may vary smoothly across the site. Default
     /// [`props::OUTLIER_RATE_DEFAULT`].
     pub outlier_rate: Option<Range>,
+    /// Undrained shear strength, by named relation. Required by the suite's
+    /// TRIT strength headings and by `spt`.
+    pub strength: Option<Strength>,
+    /// SPT N from undrained strength, by named relation. Needs `strength`.
+    pub spt: Option<SptFromStrength>,
+}
+
+/// The relations a preset may name for undrained strength. A preset picks one
+/// by `relation = "<name>"`.
+pub const STRENGTH_RELATIONS: &[&str] = &["cu.linear_with_depth"];
+/// The relations a preset may name for SPT N from strength.
+pub const SPT_RELATIONS: &[&str] = &["spt.stroud_butler"];
+
+/// The undrained-strength relation a unit uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StrengthRelation {
+    /// cu(z) = `cu_top` + `per_m` x z, z metres below the unit's top.
+    LinearWithDepth,
+}
+
+/// Undrained strength by named relation, in kPa. The parameters are the
+/// relation's; each is a cited range varying smoothly across the site.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Strength {
+    pub relation: StrengthRelation,
+    /// cu at the unit's top.
+    pub cu_top_kpa: Range,
+    /// Change in cu per metre of depth.
+    pub per_m: Range,
+}
+
+/// The SPT-from-strength relation a unit uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SptRelation {
+    /// N = cu / f1 (Stroud and Butler).
+    StroudButler,
+}
+
+/// SPT N from undrained strength by named relation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SptFromStrength {
+    pub relation: SptRelation,
+    /// f1, kPa per blow, varying smoothly across the site.
+    pub f1: Range,
 }
 
 /// Drawn for CLAY and SILT units. Liquid limit, moisture content and the
@@ -568,6 +613,15 @@ fn read_properties(
         p.get("outlier_rate");
         None
     };
+    let strength = read_strength(&mut p, errs);
+    let spt_relation = read_spt(&mut p, errs);
+    // A strength table with problems has reported them already.
+    if spt_relation.is_some() && !p.table.contains_key("strength") {
+        errs.push(format!(
+            "{}: spt.stroud_butler divides strength by f1, so the unit needs strength",
+            p.at("spt")
+        ));
+    }
     p.finish(errs);
     Some(Properties {
         fine: if fine {
@@ -590,6 +644,65 @@ fn read_properties(
         particle_density_ratio: gs?,
         degree_of_saturation: sr,
         outlier_rate: rate,
+        strength,
+        spt: spt_relation,
+    })
+}
+
+/// The optional `relation` of `t`, which must be one of `known`; the error
+/// names the field and lists the known names.
+fn read_relation(t: &mut Node, known: &[&str], errs: &mut Vec<String>) -> Option<usize> {
+    let name = req_str(t, "relation", errs)?;
+    let found = known.iter().position(|k| *k == name);
+    if found.is_none() {
+        errs.push(format!(
+            "{}: \"{name}\" is not a known relation ({})",
+            t.at("relation"),
+            known.join(", ")
+        ));
+    }
+    found
+}
+
+/// The optional `strength` table: `relation` plus that relation's parameters.
+fn read_strength(p: &mut Node, errs: &mut Vec<String>) -> Option<Strength> {
+    if !p.table.contains_key("strength") {
+        p.get("strength");
+        return None;
+    }
+    let mut t = req_table(p, "strength", errs)?;
+    let relation = read_relation(&mut t, STRENGTH_RELATIONS, errs);
+    let cu_top = read_range(&mut t, "cu_top_kpa", errs);
+    if let Some(r) = &cu_top {
+        check_domain(r, &t.at("cu_top_kpa"), &props::UNDRAINED_STRENGTH_KPA, errs);
+    }
+    let per_m = read_range(&mut t, "per_m", errs);
+    t.finish(errs);
+    relation?;
+    Some(Strength {
+        relation: StrengthRelation::LinearWithDepth,
+        cu_top_kpa: cu_top?,
+        per_m: per_m?,
+    })
+}
+
+/// The optional `spt` table: `relation` plus that relation's parameters.
+fn read_spt(p: &mut Node, errs: &mut Vec<String>) -> Option<SptFromStrength> {
+    if !p.table.contains_key("spt") {
+        p.get("spt");
+        return None;
+    }
+    let mut t = req_table(p, "spt", errs)?;
+    let relation = read_relation(&mut t, SPT_RELATIONS, errs);
+    let f1 = read_range(&mut t, "f1", errs);
+    if let Some(r) = &f1 {
+        check_domain(r, &t.at("f1"), &props::SPT_F1_KPA, errs);
+    }
+    t.finish(errs);
+    relation?;
+    Some(SptFromStrength {
+        relation: SptRelation::StroudButler,
+        f1: f1?,
     })
 }
 
@@ -651,7 +764,7 @@ fn read_preset(root: &Table, errs: &mut Vec<String>) -> Option<Preset> {
     let suite = read_suite(&mut n, errs);
     n.finish(errs);
 
-    Some(Preset {
+    let preset = Preset {
         name: name?,
         version: version?,
         summary: summary?,
@@ -660,7 +773,62 @@ fn read_preset(root: &Table, errs: &mut Vec<String>) -> Option<Preset> {
         units: units?,
         lenses: lenses?,
         suite: suite?,
-    })
+    };
+    // Entries that failed to load are missing from the suite, which would
+    // shift the indices the checks name.
+    if errs.is_empty() {
+        check_suite_values(&preset, errs);
+    }
+    Some(preset)
+}
+
+/// The suite headings whose values a unit can only supply if its properties
+/// say how: a TRIT strength heading needs `strength`, and `ISPT_NVAL` needs
+/// `strength` and `spt` (a fine unit) or `spt_n` (a coarse one). Each
+/// refusal names the suite entry and the unit.
+fn check_suite_values(preset: &Preset, errs: &mut Vec<String>) {
+    let properties = |id: &str| {
+        preset
+            .units
+            .iter()
+            .map(|u| (&u.id, &u.properties))
+            .chain(preset.lenses.iter().map(|l| (&l.id, &l.properties)))
+            .find(|(x, _)| x.as_str() == id)
+            .map(|(_, p)| p)
+    };
+    let trig = preset
+        .suite
+        .iter()
+        .position(|e| e.group == "TRIG")
+        .map(|t| (t, &preset.suite[t].units));
+    for (i, entry) in preset.suite.iter().enumerate() {
+        for (j, h) in entry.headings.iter().enumerate() {
+            let at = format!("suite[{i}].headings[{j}]");
+            if entry.group == "TRIT" && results::TRIT_STRENGTH_HEADINGS.contains(&h.as_str()) {
+                // TRIT is scheduled with TRIG, so it tests TRIG's units.
+                let Some((t, units)) = trig else { continue };
+                for u in units {
+                    if properties(u).is_some_and(|p| p.strength.is_none()) {
+                        errs.push(format!(
+                            "{at}: {h} needs undrained strength, but unit \"{u}\" (in suite[{t}], TRIG) has no strength"
+                        ));
+                    }
+                }
+            } else if h == "ISPT_NVAL" {
+                for u in &entry.units {
+                    let Some(p) = properties(u) else { continue };
+                    if p.spt.is_none() && p.coarse.is_none() {
+                        let need = if p.fine.is_some() {
+                            "strength and spt (a fine unit)"
+                        } else {
+                            "spt_n (a coarse unit)"
+                        };
+                        errs.push(format!("{at}: {h} needs {need}, but unit \"{u}\" lacks it"));
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn read_site(n: &mut Node, errs: &mut Vec<String>) -> Option<Site> {
@@ -2070,5 +2238,141 @@ rate = { min = 1, max = 1, basis = "test fixture" }
             "rate = { min = 0.3",
         ));
         assert!(e.contains("suite[0].units: missing"), "{e}");
+    }
+
+    const STRENGTH: &str = "strength = { relation = \"cu.linear_with_depth\", cu_top_kpa = { min = 60, max = 120, basis = \"test fixture\" }, per_m = { min = 4, max = 8, basis = \"test fixture\" } }\n";
+    const SPT: &str = "spt = { relation = \"spt.stroud_butler\", f1 = { min = 4, max = 6, basis = \"test fixture\" } }\n";
+
+    /// The valid preset with `extra` lines added to the fine unit's properties.
+    fn lc_with(extra: &str) -> String {
+        with_props(RTD_PROPS, &format!("{LC_PROPS}{extra}"))
+    }
+
+    #[test]
+    fn a_unit_may_carry_strength_and_spt_by_named_relation() {
+        let p = Preset::from_toml(&lc_with(&format!("{STRENGTH}{SPT}"))).expect("valid");
+        let props = &p.units[1].properties;
+        let s = props.strength.as_ref().unwrap();
+        assert_eq!(s.relation, StrengthRelation::LinearWithDepth);
+        assert_eq!((s.cu_top_kpa.min, s.cu_top_kpa.max), (60.0, 120.0));
+        assert_eq!((s.per_m.min, s.per_m.max), (4.0, 8.0));
+        let t = props.spt.as_ref().unwrap();
+        assert_eq!(t.relation, SptRelation::StroudButler);
+        assert_eq!((t.f1.min, t.f1.max), (4.0, 6.0));
+        let none = Preset::from_toml(&valid()).unwrap();
+        assert!(
+            none.units[1].properties.strength.is_none() && none.units[1].properties.spt.is_none()
+        );
+    }
+
+    #[test]
+    fn an_unknown_relation_is_refused_naming_the_field_and_the_known_names() {
+        let e = errors_of(&lc_with(
+            &STRENGTH.replace("cu.linear_with_depth", "cu.ocr"),
+        ));
+        assert_eq!(
+            e,
+            [
+                "units[1] (LC).properties.strength.relation: \"cu.ocr\" is not a known relation (cu.linear_with_depth)"
+            ]
+        );
+        let spt = SPT.replace("spt.stroud_butler", "spt.nope");
+        let e = errors_of(&lc_with(&format!("{STRENGTH}{spt}")));
+        assert_eq!(
+            e,
+            [
+                "units[1] (LC).properties.spt.relation: \"spt.nope\" is not a known relation (spt.stroud_butler)"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_missing_relation_parameter_or_basis_is_refused_naming_the_field() {
+        let per_m = ", per_m = { min = 4, max = 8, basis = \"test fixture\" }";
+        assert_eq!(
+            errors_of(&lc_with(&STRENGTH.replace(per_m, ""))),
+            ["units[1] (LC).properties.strength.per_m: missing"]
+        );
+        let f1 = ", f1 = { min = 4, max = 6, basis = \"test fixture\" }";
+        assert_eq!(
+            errors_of(&lc_with(&format!("{STRENGTH}{}", SPT.replace(f1, "")))),
+            ["units[1] (LC).properties.spt.f1: missing"]
+        );
+        let no_basis = STRENGTH.replace("max = 120, basis = \"test fixture\"", "max = 120");
+        assert_eq!(
+            errors_of(&lc_with(&no_basis)),
+            ["units[1] (LC).properties.strength.cu_top_kpa: no basis"]
+        );
+        let no_relation = STRENGTH.replace("relation = \"cu.linear_with_depth\", ", "");
+        assert_eq!(
+            errors_of(&lc_with(&no_relation)),
+            ["units[1] (LC).properties.strength.relation: missing"]
+        );
+    }
+
+    #[test]
+    fn strength_parameters_outside_their_domain_are_refused() {
+        assert_eq!(
+            errors_of(&lc_with(&STRENGTH.replace("min = 60", "min = 0"))),
+            ["units[1] (LC).properties.strength.cu_top_kpa: min 0 is outside its domain (> 0)"]
+        );
+        let spt = SPT.replace("min = 4,", "min = -1,");
+        assert_eq!(
+            errors_of(&lc_with(&format!("{STRENGTH}{spt}"))),
+            ["units[1] (LC).properties.spt.f1: min -1 is outside its domain (> 0)"]
+        );
+    }
+
+    #[test]
+    fn spt_without_strength_is_refused() {
+        assert_eq!(
+            errors_of(&lc_with(SPT)),
+            [
+                "units[1] (LC).properties.spt: spt.stroud_butler divides strength by f1, so the unit needs strength"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_suite_listing_a_trit_strength_heading_over_a_unit_without_strength_is_refused() {
+        let text = |props: &str, headings: &str| {
+            let suite = SUITE.replacen(
+                "group = \"TRIT\"\nheadings = []",
+                &format!("group = \"TRIT\"\nheadings = [{headings}]"),
+                1,
+            );
+            format!("{}{suite}", lc_with(props))
+        };
+        // TRIG tests LC, which has no strength here.
+        let e = suite_errors(&text("", "\"TRIT_CU\", \"TRIT_DEVF\""));
+        assert!(
+            e.contains("suite[2].headings[0]: TRIT_CU needs undrained strength, but unit \"LC\" (in suite[1], TRIG) has no strength"),
+            "{e}"
+        );
+        assert!(e.contains("suite[2].headings[1]: TRIT_DEVF needs"), "{e}");
+        // Headings that do not need strength are fine, and so is strength.
+        Preset::from_toml(&text("", "\"TRIT_CELL\", \"TRIT_BDEN\", \"TRIT_IMC\"")).expect("valid");
+        Preset::from_toml(&text(STRENGTH, "\"TRIT_CU\", \"TRIT_DEVF\"")).expect("valid");
+    }
+
+    #[test]
+    fn a_suite_listing_ispt_nval_over_a_unit_without_a_source_of_n_is_refused() {
+        let text = |props: &str, unit: &str| {
+            let suite = SUITE.replace(
+                "group = \"ISPT\"\nheadings = []\nunits = [\"RTD\"]",
+                &format!("group = \"ISPT\"\nheadings = [\"ISPT_NVAL\"]\nunits = [\"{unit}\"]"),
+            );
+            format!("{}{suite}", lc_with(props))
+        };
+        for props in ["", STRENGTH] {
+            let e = suite_errors(&text(props, "LC"));
+            assert!(
+                e.contains("suite[3].headings[0]: ISPT_NVAL needs strength and spt (a fine unit), but unit \"LC\" lacks it"),
+                "{e}"
+            );
+        }
+        Preset::from_toml(&text(&format!("{STRENGTH}{SPT}"), "LC")).expect("valid");
+        // A coarse unit has its own N.
+        Preset::from_toml(&text("", "RTD")).expect("valid");
     }
 }

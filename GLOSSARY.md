@@ -51,6 +51,10 @@ An exact relationship between soil quantities, such as bulk density from moistur
 An empirical relationship between soil quantities, taken from a cited published source and applied with scatter.
 _Avoid_: rule of thumb
 
+**Relation**:
+A named way of working out one quantity from others, such as `cu.linear_with_depth`. A preset picks a relation by name and cites the relation's parameters.
+_Avoid_: model, formula
+
 **Outlier**:
 A stratum whose drawn property lies outside its unit's range, as real ground occasionally does.
 _Avoid_: anomaly, bad value
