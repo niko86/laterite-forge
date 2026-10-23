@@ -32,7 +32,7 @@ path = "src/main.rs"
 
 [dependencies]
 laterite-ags4-validator = "0.21.0"
-laterite-ags4-parity = "0.1.0"
+laterite-ags4-parity = "0.2.0"
 laterite-ags4-parse = "0.14.0"
 # The canonical field quoter (`quote_field`) — `edit` must write fields the
 # way everything else in laterite writes them, not by a local copy.
@@ -40,7 +40,7 @@ laterite-ags4-types = "0.14.0"
 # The shared Rule 15/17 catalog-collection rule (`catalog`, niko86/laterite#924),
 # so the dogfood corpus mints UNIT/TYPE by the same semantics the shipped emitter
 # synthesizes them — trim, header-literal exclusion, the PU harvest.
-laterite-ags4-emit = "0.20.5"
+laterite-ags4-emit = "0.21.0"
 laterite-cliutil = { version = "0.1.0", features = ["clap"] }
 clap = { version = "4.6.3", features = ["derive", "wrap_help", "env"] }
 serde = { version = "1.0.229", features = ["derive"] }
