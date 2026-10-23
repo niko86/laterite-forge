@@ -1,0 +1,368 @@
+//! Water strikes: `WSTG` and `WSTD` rows where a hole meets the water table
+//! in coarse ground (ADR 0001, "Ground").
+//!
+//! The water table is the site's smooth field (`groundwater_depth`). A hole
+//! strikes water only when the table falls inside one of its coarse
+//! (permeable) strata; a table inside clay gives no strike, because clay does
+//! not yield water at drilling speed. The site model has no clock, so a strike
+//! has no date.
+//!
+//! - The strike depth is the water table plus a drilling lag, drawn from
+//!   [`LAG_M`] and clamped to the base of the stratum, so the strike is always
+//!   in the coarse stratum and above final depth. The lag is one keyed draw per
+//!   hole, which moves no other byte.
+//! - `WSTD` records the water rising from the strike depth back to the table
+//!   at 5, 10, 15 and 20 minutes ([`MINUTES`]). The depth to water follows a
+//!   decay normalised to reach the table exactly at 20 minutes.
+//!
+//! The lag, the logging minutes and the decay are `forge judgement`: the
+//! ordinary UK 5-minute, 20-minute logging pattern, not a published curve.
+
+use laterite_ags4_validator::{DictVersion, Dictionary};
+
+use super::build::Site;
+use super::draw::{Key, uniform};
+use crate::synth::model::{Group, Row};
+
+/// The drilling lag range, metres: how far below the water table the bit is
+/// when the water is noticed (`forge judgement`).
+const LAG_M: (f64, f64) = (0.0, 0.5);
+
+/// The minutes after the strike at which the rise is logged (`forge
+/// judgement`).
+pub(super) const MINUTES: [u32; 4] = [5, 10, 15, 20];
+
+/// The decay rate of the rise, per minute (`forge judgement`).
+const DECAY_PER_MIN: f64 = 0.15;
+
+/// One strike: the hole it is in, where water was met, and where it settles.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Strike {
+    pub hole: usize,
+    /// Depth water was met, metres, 2 decimal places.
+    pub depth: f64,
+    /// The water table's depth, metres, 2 decimal places.
+    pub table: f64,
+}
+
+impl Strike {
+    /// The depth to water `minutes` after the strike. Equal to the strike
+    /// depth at 0 and the table at 20, rising in between.
+    pub(super) fn reading(&self, minutes: u32) -> f64 {
+        let end = MINUTES[MINUTES.len() - 1];
+        let decay = |m: u32| (-DECAY_PER_MIN * f64::from(m)).exp();
+        let left = (decay(minutes) - decay(end)) / (1.0 - decay(end));
+        round2(self.table + (self.depth - self.table) * left)
+    }
+}
+
+/// The strikes of every hole in file order: at most one per hole.
+pub(super) fn strikes(site: &Site, seed: u64) -> Vec<Strike> {
+    let mut out = Vec::new();
+    for (hi, hole) in site.holes.iter().enumerate() {
+        let table = round2(site.properties.groundwater_depth(hole));
+        let Some(stratum) = hole
+            .strata
+            .iter()
+            .find(|s| table >= s.top && table < s.base)
+            .filter(|s| site.properties.is_coarse(&s.unit))
+        else {
+            continue;
+        };
+        let lag = uniform(&mut Key::hole("strike", hi).rng(seed), LAG_M.0, LAG_M.1);
+        out.push(Strike {
+            hole: hi,
+            depth: round2(table + lag).min(stratum.base),
+            table,
+        });
+    }
+    out
+}
+
+/// The `WSTG` group, or `None` when no hole strikes water.
+pub(super) fn wstg(site: &Site, strikes: &[Strike]) -> Option<Group> {
+    let rows = strikes
+        .iter()
+        .map(|s| Row::owned(vec![site.holes[s.hole].id.clone(), m2(s.depth)]))
+        .collect();
+    build("WSTG", &["LOCA_ID", "WSTG_DPTH"], strikes, rows)
+}
+
+/// The `WSTD` group: four readings per strike.
+pub(super) fn wstd(site: &Site, strikes: &[Strike]) -> Option<Group> {
+    let rows = strikes
+        .iter()
+        .flat_map(|s| {
+            MINUTES.iter().map(move |&m| {
+                Row::owned(vec![
+                    site.holes[s.hole].id.clone(),
+                    m2(s.depth),
+                    m.to_string(),
+                    m2(s.reading(m)),
+                ])
+            })
+        })
+        .collect();
+    build(
+        "WSTD",
+        &["LOCA_ID", "WSTG_DPTH", "WSTD_NMIN", "WSTD_POST"],
+        strikes,
+        rows,
+    )
+}
+
+/// `code` over `headings`, with the units and types from the dictionary.
+fn build(code: &str, headings: &[&str], strikes: &[Strike], rows: Vec<Row>) -> Option<Group> {
+    if strikes.is_empty() {
+        return None;
+    }
+    let dict = Dictionary::bundled(DictVersion::V4_2);
+    let entry = |h: &str| dict.heading(code, h).expect("heading exists");
+    Some(Group {
+        code: code.to_string(),
+        headings: headings.iter().map(ToString::to_string).collect(),
+        units: headings.iter().map(|h| entry(h).unit.to_string()).collect(),
+        types: headings
+            .iter()
+            .map(|h| entry(h).ags_type.to_string())
+            .collect(),
+        rows,
+    })
+}
+
+fn m2(v: f64) -> String {
+    format!("{v:.2}")
+}
+
+fn round2(v: f64) -> f64 {
+    (v * 100.0).round() / 100.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::build::{self, Grid, tests::FIXTURE};
+    use super::super::preset::Preset;
+    use super::*;
+    use crate::pipeline::rust_check;
+    use crate::synth::emit::emit_to_string;
+    use crate::synth::model::ProjectModel;
+    use laterite_ags4_parity::RustResult;
+
+    const WATER: &str = r#"
+[[suite]]
+group = "WSTG"
+headings = []
+
+[[suite]]
+group = "WSTD"
+headings = []
+"#;
+
+    /// [`FIXTURE`] with the water groups: RTD is sand and gravel, WLC and LC
+    /// are clay, and the table sits 1-4 m down, so some holes strike in RTD
+    /// and some meet the table in clay.
+    fn wet() -> Preset {
+        Preset::from_toml(&format!("{FIXTURE}{WATER}")).expect("water fixture loads")
+    }
+
+    /// The same ground with the table below every hole.
+    fn dry_with(water: &str) -> Preset {
+        let text = format!("{FIXTURE}{water}").replace(
+            "groundwater_depth_m = { min = 1.0, max = 4.0,",
+            "groundwater_depth_m = { min = 60.0, max = 60.0,",
+        );
+        Preset::from_toml(&text).expect("dry fixture loads")
+    }
+
+    fn file(preset: &Preset, seed: u64, holes: usize) -> ProjectModel {
+        let site = build::build(preset, seed, holes);
+        build::lower(&site, preset, seed, Grid::Local)
+    }
+
+    fn rows<'a>(m: &'a ProjectModel, code: &str) -> &'a [Row] {
+        m.groups
+            .iter()
+            .find(|g| g.code == code)
+            .map_or(&[], |g| &g.rows)
+    }
+
+    fn text(m: &ProjectModel, code: &str) -> Vec<Vec<String>> {
+        rows(m, code).iter().map(|r| r.values.clone()).collect()
+    }
+
+    fn is_clean(m: &ProjectModel) -> bool {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("site.ags");
+        std::fs::write(&path, emit_to_string(m)).unwrap();
+        rust_check(&path).0 == RustResult::Clean
+    }
+
+    #[test]
+    fn a_strike_is_in_a_coarse_stratum_within_the_lag_of_the_table_and_above_final_depth() {
+        let p = wet();
+        let mut seen = 0;
+        for seed in 0..60 {
+            let site = build::build(&p, seed, 6);
+            for s in strikes(&site, seed) {
+                seen += 1;
+                let hole = &site.holes[s.hole];
+                let table = round2(site.properties.groundwater_depth(hole));
+                assert!((s.table - table).abs() < 1e-9);
+                assert!(s.depth >= table, "strike above the table, seed {seed}");
+                assert!(
+                    s.depth <= table + LAG_M.1 + 1e-9,
+                    "lag over {} m, seed {seed}",
+                    LAG_M.1
+                );
+                let st = hole
+                    .strata
+                    .iter()
+                    .find(|st| table >= st.top && table < st.base)
+                    .expect("the table is in a stratum");
+                assert!(site.properties.is_coarse(&st.unit), "{}", st.unit);
+                assert_eq!(st.unit, "RTD");
+                assert!(s.depth <= st.base, "strike below its stratum, seed {seed}");
+                assert!(s.depth <= hole.final_depth);
+            }
+        }
+        assert!(seen > 30, "{seen} strikes is too few to mean anything");
+    }
+
+    #[test]
+    fn the_lag_varies_across_strikes() {
+        let p = wet();
+        let mut lags = std::collections::BTreeSet::new();
+        for seed in 0..60 {
+            let site = build::build(&p, seed, 6);
+            for s in strikes(&site, seed) {
+                lags.insert(format!("{:.2}", s.depth - s.table));
+            }
+        }
+        assert!(lags.len() > 10, "{} distinct lags", lags.len());
+    }
+
+    #[test]
+    fn no_strike_where_the_table_is_in_a_fine_stratum() {
+        let p = wet();
+        let (mut fine, mut coarse) = (0, 0);
+        for seed in 0..60 {
+            let site = build::build(&p, seed, 6);
+            let found = strikes(&site, seed);
+            for (hi, hole) in site.holes.iter().enumerate() {
+                let table = round2(site.properties.groundwater_depth(hole));
+                let st = hole
+                    .strata
+                    .iter()
+                    .find(|st| table >= st.top && table < st.base);
+                let struck = found.iter().any(|s| s.hole == hi);
+                match st {
+                    Some(st) if site.properties.is_coarse(&st.unit) => {
+                        coarse += 1;
+                        assert!(struck, "no strike in {} at {table}, seed {seed}", st.unit);
+                    }
+                    _ => {
+                        fine += 1;
+                        assert!(!struck, "strike in fine ground, seed {seed}");
+                    }
+                }
+            }
+            assert_eq!(text(&file(&p, seed, 6), "WSTG").len(), found.len());
+        }
+        assert!(fine > 20 && coarse > 20, "fine {fine}, coarse {coarse}");
+    }
+
+    #[test]
+    fn readings_rise_monotonically_to_the_table_at_twenty_minutes() {
+        let p = wet();
+        let mut checked = 0;
+        for seed in 0..40 {
+            let site = build::build(&p, seed, 6);
+            let m = build::lower(&site, &p, seed, Grid::Local);
+            let (g, d) = (text(&m, "WSTG"), text(&m, "WSTD"));
+            assert_eq!(d.len(), 4 * g.len(), "seed {seed}");
+            for (i, strike) in g.iter().enumerate() {
+                let block = &d[4 * i..4 * i + 4];
+                let minutes: Vec<&str> = block.iter().map(|r| r[2].as_str()).collect();
+                assert_eq!(minutes, ["5", "10", "15", "20"]);
+                for r in block {
+                    assert_eq!(r[0], strike[0]);
+                    assert_eq!(r[1], strike[1]);
+                }
+                let depth: f64 = strike[1].parse().unwrap();
+                let posts: Vec<f64> = block.iter().map(|r| r[3].parse().unwrap()).collect();
+                assert!(posts[0] <= depth, "first reading below the strike");
+                assert!(posts.windows(2).all(|w| w[1] <= w[0]), "{posts:?}");
+                let hole = site.holes.iter().find(|h| h.id == strike[0]).unwrap();
+                let table = round2(site.properties.groundwater_depth(hole));
+                assert!((posts[3] - table).abs() < 1e-9, "seed {seed}");
+                checked += 1;
+            }
+        }
+        assert!(checked > 30);
+    }
+
+    #[test]
+    fn a_reading_decays_from_the_strike_depth_to_the_table() {
+        let s = Strike {
+            hole: 0,
+            depth: 2.0,
+            table: 2.0,
+        };
+        assert!(MINUTES.iter().all(|&m| (s.reading(m) - 2.0).abs() < 1e-9));
+        let s = Strike { depth: 2.4, ..s };
+        assert!((s.reading(0) - 2.4).abs() < 1e-9);
+        assert!((s.reading(20) - 2.0).abs() < 1e-9);
+        assert!(s.reading(5) < 2.4 && s.reading(5) > 2.0);
+    }
+
+    #[test]
+    fn a_water_file_is_rust_clean_across_seeds() {
+        let p = wet();
+        let mut with_strikes = 0;
+        for seed in 0..30 {
+            let m = file(&p, seed, 6);
+            assert!(is_clean(&m), "seed {seed}");
+            with_strikes += usize::from(!rows(&m, "WSTG").is_empty());
+        }
+        assert!(with_strikes > 5, "only {with_strikes} files strike water");
+    }
+
+    #[test]
+    fn strikes_move_no_loca_geol_or_samp_byte() {
+        let plain = Preset::from_toml(FIXTURE).unwrap();
+        let p = wet();
+        for seed in 0..10 {
+            let (with, without) = (file(&p, seed, 5), file(&plain, seed, 5));
+            for g in ["TRAN", "LOCA", "GEOL", "SAMP"] {
+                assert_eq!(text(&with, g), text(&without, g), "{g} at seed {seed}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_site_that_strikes_no_water_is_byte_identical_to_one_without_the_groups() {
+        let (with, without) = (dry_with(WATER), dry_with(""));
+        for seed in 0..10 {
+            assert!(strikes(&build::build(&with, seed, 6), seed).is_empty());
+            assert_eq!(
+                emit_to_string(&file(&with, seed, 6)),
+                emit_to_string(&file(&without, seed, 6)),
+                "seed {seed}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_smaller_site_is_a_prefix_of_a_larger_one() {
+        let p = wet();
+        for seed in 0..10 {
+            let (small, large) = (file(&p, seed, 3), file(&p, seed, 8));
+            for g in ["WSTG", "WSTD"] {
+                assert!(
+                    text(&large, g).starts_with(&text(&small, g)),
+                    "{g} at seed {seed}"
+                );
+            }
+        }
+    }
+}
