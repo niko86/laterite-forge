@@ -74,7 +74,9 @@ pub(super) fn strikes(site: &Site, preset: &Preset, seed: u64) -> Vec<Strike> {
             .strata
             .iter()
             .find(|s| table >= s.top && table < s.base)
-            .filter(|s| site.properties.is_coarse(&s.unit))
+            // Made Ground yields no strike, whatever its properties: perched
+            // water is out of scope (niko86/laterite-forge#42, M2).
+            .filter(|s| !preset.is_made_ground(&s.unit) && site.properties.is_coarse(&s.unit))
         else {
             continue;
         };
@@ -429,5 +431,41 @@ headings = []
                 );
             }
         }
+    }
+
+    /// Made Ground with coarse properties, always 2-3 m thick, over the
+    /// fixture's ground, with the table fixed at 1 m so it is always inside it.
+    fn made_ground_wet(spec: &str) -> Preset {
+        let text = format!(
+            "{}{WATER}",
+            build::made_ground_tests::with_made_ground(spec)
+        )
+        .replace(
+            "groundwater_depth_m = { min = 1.0, max = 4.0,",
+            "groundwater_depth_m = { min = 1.0, max = 1.0,",
+        );
+        Preset::from_toml(&text).expect("made-ground water fixture loads")
+    }
+
+    #[test]
+    fn made_ground_never_yields_a_strike_even_with_coarse_properties() {
+        let plain = made_ground_wet("");
+        let made = made_ground_wet("made_ground = true");
+        let mut struck_plain = 0;
+        for seed in 0..30 {
+            let site = build::build(&made, seed, 6);
+            // The skip is explicit: the unit really is coarse, and the table
+            // really is inside it.
+            assert!(site.properties.is_coarse("MG"));
+            for hole in &site.holes {
+                let st = hole.strata.iter().find(|s| 1.0 >= s.top && 1.0 < s.base);
+                assert_eq!(st.map(|s| s.unit.as_str()), Some("MG"), "seed {seed}");
+            }
+            assert!(strikes(&site, &made, seed).is_empty(), "seed {seed}");
+            // The same ground without the flag strikes in every hole.
+            let site = build::build(&plain, seed, 6);
+            struck_plain += strikes(&site, &plain, seed).len();
+        }
+        assert_eq!(struck_plain, 30 * 6);
     }
 }

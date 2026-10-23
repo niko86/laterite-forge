@@ -130,12 +130,47 @@ consumer can replace.
   is registered; the EC7 OCR form waits until a preset has a cited removed
   overburden. (Amended 2026-10-22, #9; amended #51.)
 
+## Made-ground units
+
+(Added 2026-10-23, #42; the decisions are the owner's M1-M6 on that issue.)
+
+- A unit declares itself made ground with `made_ground = true` (the lane's
+  default draw) or a table: `made_ground = { constituents = [{ name, share }],
+  count = { weights, basis } }`. Both parts are optional, and the key is an
+  additive part of schema 1. Lenses cannot be made ground.
+- Its strata are `MADE GROUND: ` + a matrix + constituents. The matrix comes
+  from the same `describe_unit` draw a plain unit makes, inside the unit's
+  description constraints and with the leading term from the property model,
+  so a made-ground unit's matrix is the one it would have as a plain unit. The
+  constituents come from the made-ground lane on a stream of their own.
+- `share` is the fraction of the unit's strata that mention the constituent: a
+  `{ min, max, basis }` range, drawn once per site, or a plain number with a
+  `basis`. `count.weights` are relative weights for 0, 1, 2 and 3 or more
+  constituents. The loader refuses an unknown constituent name, a share outside
+  0-1, a missing `basis`, and count weights that are not four non-negative
+  numbers with a positive sum. A count of 0 gives no `with` clause. The `3+`
+  bucket draws 3, 4 or 5 with equal chance (`forge judgement`).
+- A stratum draws its count, then that many distinct constituents by
+  conditional Poisson sampling, the tilt fitted so each constituent's mention
+  share comes out as the preset gives it. Shares and counts only agree if the
+  shares sum to the mean count, so a preset reconciles them; where they differ
+  the fit is a compromise.
+- Made Ground never yields a water strike, whatever its properties (perched
+  water is out of scope), and the loader refuses a suite that lists LNMC, LLPL,
+  LDEN or TRIG over a made-ground unit: no lab tests in Made Ground. ISPT is
+  allowed. Sampling is the unit's own, as for any unit.
+- The lane's default draw (no preset) is unchanged, and so is any preset
+  without a made-ground unit. `pottery` and `coal` join the vocabulary but not
+  the default draw's candidates.
+
 ## Presets
 
 `london-basin` comes first, starting in natural ground: River Terrace
-Deposits, weathered London Clay, London Clay. Made Ground waits for a
-description lane for man-made ground, because the BS 5930 engine has none and
+Deposits, weathered London Clay, London Clay. Made Ground waited for a
+description lane for man-made ground, because the BS 5930 engine had none and
 a hand-written placeholder would be the only unconstrained text in the file.
+The lane exists and a preset can now declare made-ground units (see
+"Made-ground units"); `london-basin` adopts it in a later version.
 A glacial preset follows.
 
 ## Slices
