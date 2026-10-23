@@ -544,16 +544,17 @@ fn range_in(r: &mut Node, errs: &mut Vec<String>) -> Option<Range> {
 }
 
 /// Reads a unit's `{ min, max, basis, skew? }` under `key`. The skew belongs
-/// to the range, so it needs no basis of its own.
+/// to the range, so it needs no basis of its own. It is at least 1: below 1
+/// the map's slope is unbounded near 0, so neighbouring holes could disagree.
 fn read_thickness(n: &mut Node, key: &'static str, errs: &mut Vec<String>) -> Option<Range> {
     let mut r = req_table(n, key, errs)?;
     let range = range_in(&mut r, errs);
     let skew = if r.table.contains_key("skew") {
         let at = r.at("skew");
         match num(r.get("skew"), &at, errs) {
-            Some(k) if k > 0.0 => Some(k),
+            Some(k) if k >= 1.0 => Some(k),
             Some(k) => {
-                errs.push(format!("{at}: {k} must be > 0"));
+                errs.push(format!("{at}: {k} must be >= 1"));
                 None
             }
             None => None,
@@ -1997,14 +1998,18 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
     }
 
     #[test]
-    fn a_skew_that_is_not_a_positive_number_is_refused() {
+    fn a_skew_below_one_or_not_a_number_is_refused() {
         assert_refused(
             &skew_text("0"),
-            "units[0] (RTD).thickness_m.skew: 0 must be > 0",
+            "units[0] (RTD).thickness_m.skew: 0 must be >= 1",
+        );
+        assert_refused(
+            &skew_text("0.5"),
+            "units[0] (RTD).thickness_m.skew: 0.5 must be >= 1",
         );
         assert_refused(
             &skew_text("-1.5"),
-            "units[0] (RTD).thickness_m.skew: -1.5 must be > 0",
+            "units[0] (RTD).thickness_m.skew: -1.5 must be >= 1",
         );
         assert_refused(
             &skew_text("\"2\""),

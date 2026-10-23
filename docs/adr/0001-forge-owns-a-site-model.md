@@ -80,19 +80,21 @@ consumer can replace.
 
 - Units have smooth surfaces across the site, so neighbouring holes agree. A
   unit whose thickness at a hole is zero or less is absent there.
-- A unit's `thickness_m` may carry an optional `skew`, a positive number. The
+- A unit's `thickness_m` may carry an optional `skew`, a number of at least 1. The
   smooth field value u in [0, 1] is raised to that power before it is placed on
   the range, so a skew above 1 puts most of the site near `min` with a long
   tail toward `max`, as real thicknesses are right-skewed. With a negative `min`
-  this also sets the absent fraction, so one range and skew can match a cited
-  P10/P50/P90 plus an absence rate. The map is monotone and continuous, so
+  this also sets the absent fraction, so a range and skew can approach a
+  cited P10/P50/P90 plus an absence rate (a fit, not an exact match: the field
+  is compressed about 0.5). The map is monotone and continuous, so
   neighbouring holes still agree; its slope is at most `skew` times the
   field's, so the smoothness bound scales by the skew. The skew is part of the
   range and needs no basis of its own beyond the range's. It is allowed on
   unit thickness only: lens thickness is not drawn from a field, and other
   ranges have no use for it. An absent skew is the linear mapping, with the
   same arithmetic and no extra draws, so existing presets are unchanged.
-  The loader refuses a skew that is not a number or is not above 0.
+  The loader refuses a skew that is not a number or is below 1, where the
+  map's slope would be unbounded near 0.
 - A unit gives exactly one stratum per hole. Weathered and unweathered parts are
   separate units. The one exception is a lens: a unit with limited footprint
   inside a single host unit, which splits its host into a stratum above it and
