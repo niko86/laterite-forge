@@ -2,5 +2,6 @@
   "basis": "common UK logging practice",
   "note": "Man-made constituents of made ground, written for forge. Plain vocabulary, not text from a standard.",
   "suffix": "fragments",
-  "constituents": ["brick", "concrete", "ash", "clinker", "glass", "slag", "tarmacadam", "timber", "metal", "plastic"]
+  "constituents": ["brick", "concrete", "ash", "clinker", "glass", "slag", "tarmacadam", "timber", "metal", "plastic"],
+  "extended": ["pottery", "coal"]
 }
