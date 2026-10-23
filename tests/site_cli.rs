@@ -293,7 +293,13 @@ fn strength_and_spt_problems_exit_5_naming_the_field() {
     let dir = tempfile::tempdir().unwrap();
     let trit = "\n[[suite]]\ngroup = \"TRIG\"\nheadings = []\nunits = [\"BASE\"]\nrate = { min = 1, max = 1, basis = \"test fixture\" }\n\n[[suite]]\ngroup = \"TRIT\"\nheadings = [\"TRIT_CU\"]\n";
     let ispt = "\n[[suite]]\ngroup = \"ISPT\"\nheadings = [\"ISPT_NVAL\"]\nunits = [\"BASE\"]\nrate = { min = 1, max = 1, basis = \"test fixture\" }\n";
+    let llpl = "\n[[suite]]\ngroup = \"LLPL\"\nheadings = [\"LLPL_LL\"]\nunits = [\"TOP\"]\nrate = { min = 1, max = 1, basis = \"test fixture\" }\n";
     let cases = [
+        (
+            String::new(),
+            llpl,
+            "suite[0].headings[0]: LLPL_LL needs fine properties (liquid and plastic limits), but unit \"TOP\" has none",
+        ),
         (
             STRENGTH.replace("cu.linear_with_depth", "cu.ocr"),
             "",
