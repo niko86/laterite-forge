@@ -725,11 +725,4 @@ particle_density_ratio = {{ min = 2.6, max = 2.7, basis = "test fixture" }}
             }
         }
     }
-
-    #[test]
-    #[ignore = "prints sample rows"]
-    fn print_sample_rows() {
-        let m = file(&with_lens("water_bearing = true", WIDE), 1, 3);
-        eprintln!("{:?}\n{:?}", text(&m, "WSTG"), text(&m, "WSTD"));
-    }
 }
