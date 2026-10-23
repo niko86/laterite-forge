@@ -183,7 +183,15 @@ fn compose(matrix: &SoilDescription, parts: Vec<Constituent>) -> MadeGround {
             format!("{amount} {}", list(names))
         })
         .collect();
-    let clause = list(&phrases.iter().map(String::as_str).collect::<Vec<_>>());
+    // A group of several names already holds an `and`, so the groups are
+    // then set apart with a comma before their own `and` ("occasional brick,
+    // concrete and ash, and rare pottery").
+    let clause = match phrases.split_last() {
+        Some((last, rest)) if !rest.is_empty() && groups.iter().any(|g| g.1.len() > 1) => {
+            format!("{}, and {last}", rest.join(", "))
+        }
+        _ => list(&phrases.iter().map(String::as_str).collect::<Vec<_>>()),
+    };
 
     // Tertiaries close the soil description proper: before the first full
     // stop, so a grading sentence stays after them.
@@ -655,6 +663,45 @@ mod tests {
             assert!((got - want).abs() < 0.02, "amount {i}: {got} vs {want}");
         }
         assert!(seen[3] < 0.5, "a zero weight is never drawn");
+    }
+
+    /// After a group of several names, the next group follows a comma, so its
+    /// `and` is not read as part of the first group's list.
+    #[test]
+    fn a_group_after_a_multi_name_group_follows_a_comma() {
+        let v = vocab();
+        let matrix = describe_with(v, &mut Rng::seeded(1), Lanes::default());
+        let part = |amount: &str, name: &str| Constituent {
+            amount: amount.to_string(),
+            name: name.to_string(),
+        };
+        let mg = compose(
+            &matrix,
+            vec![
+                part("with occasional", "brick"),
+                part("with occasional", "concrete"),
+                part("with occasional", "ash"),
+                part("with rare", "pottery"),
+            ],
+        );
+        assert!(
+            mg.description
+                .text
+                .contains("with occasional brick, concrete and ash, and rare pottery fragments"),
+            "{}",
+            mg.description.text
+        );
+        let mg = compose(
+            &matrix,
+            vec![part("with frequent", "brick"), part("with rare", "ash")],
+        );
+        assert!(
+            mg.description
+                .text
+                .contains("with frequent brick and rare ash fragments"),
+            "{}",
+            mg.description.text
+        );
     }
 
     #[test]
