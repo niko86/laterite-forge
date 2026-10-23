@@ -1693,8 +1693,9 @@ mod shipped_pins {
     /// so moving a pin is a preset version bump they must be told about
     /// (ADR 0001): bump `version`, re-pin, and say so in the PR. Re-taken for
     /// london-basin v2 (#41), which adds the properties the descriptions'
-    /// leading terms come from, and for v3 (#48), which adds the suite and
-    /// the calibrated ranges. The versioning promise starts at v3.
+    /// leading terms come from, for v3 (#48), which adds the suite and the
+    /// calibrated ranges, and for v4 (#42), which adds Made Ground on top.
+    /// The versioning promise starts at v3, so v4 is the first bump under it.
     #[test]
     fn shipped_preset_output_bytes_are_pinned() {
         use sha2::{Digest, Sha256};
@@ -1702,20 +1703,20 @@ mod shipped_pins {
             (
                 "london-basin",
                 0u64,
-                "e9f1245b8dc62e054c1b1a8ddd6b33c6337386679cc7558b121a5549ef4a2192",
+                "1712a12a8df85b5fb5c122fd8fb6502ec6ac14e2d2c309c953c2c575e3dde291",
                 19315usize,
             ),
             (
                 "london-basin",
                 1,
-                "66cfd63eb420f3c7fd275da2555eef5f569632ffa1c5663b768c2a48d9375940",
-                15173,
+                "3f0b29229b75f2e51bfeeed1bc117e4f6162a7466a8084ecdc00aa44af4d0ebd",
+                14712,
             ),
             (
                 "london-basin",
                 2,
-                "081453b5e46eb3875f772c79b4aa8724b85f58f574b3808585534c0456062f51",
-                26368,
+                "4abd6a32010d34195ba225db071071267e41a0a65f8e4b089a26af8c359d230a",
+                26781,
             ),
         ] {
             let text = shipped(name, seed);
@@ -1733,7 +1734,8 @@ mod shipped_pins {
 
     /// The AGS TYPEs each shipped preset's files declare, across seeds. v3's
     /// suite adds 0DP (`LLPL_LL`, `LLPL_PI`, `TRIT_CU`, `TRIT_DEVF`, `TRIT_CELL`,
-    /// `ISPT_NVAL`) and XN (`LLPL_PL`).
+    /// `ISPT_NVAL`) and XN (`LLPL_PL`). v4's Made Ground adds none: its rows are
+    /// GEOL, SAMP and ISPT, whose TYPEs v3 already declares.
     #[test]
     fn shipped_presets_reach_a_pinned_set_of_ags_types() {
         let mut types = std::collections::BTreeSet::new();
