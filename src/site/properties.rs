@@ -291,6 +291,9 @@ struct UnitModel {
     /// clamp(`top` + `per_m` z, 0, 1), z metres below ground. A plain share
     /// has `per_m` 0.
     refusal_share: Option<(f64, f64)>,
+    /// The share of this unit's TRIG tests that are multi-stage and the
+    /// stage gain, each drawn once per site from the preset's ranges.
+    multi_stage: Option<(f64, f64)>,
     /// The outlier rate over the site, when the preset gives one.
     rate: Option<(Range, Field)>,
 }
@@ -374,6 +377,14 @@ impl UnitModel {
                     ),
                 }
             }),
+            multi_stage: p.triaxial.as_ref().map(|t| {
+                let draw =
+                    |tag: &str, r: &Range| uniform(&mut Key::unit(tag, id).rng(seed), r.min, r.max);
+                (
+                    draw("uum-share", &t.multi_stage_share),
+                    t.stage_gain.as_ref().map_or(0.0, |g| draw("uum-gain", g)),
+                )
+            }),
             rate: p.outlier_rate.as_ref().map(|r| {
                 let field = Field::new(
                     &mut Key::unit("property:outlier_rate", id).rng(seed),
@@ -449,6 +460,10 @@ pub struct Evaluated {
     /// The share of SPTs in this unit stopped by an obstruction at this depth,
     /// this site.
     pub spt_refusal_share: Option<f64>,
+    /// This site's share of the unit's TRIG tests that are multi-stage (UUM),
+    /// and the fractional rise in cu per stage after the first.
+    pub uum_share: Option<f64>,
+    pub uum_stage_gain: f64,
 }
 
 /// Undrained strength at a depth, kPa: cu = `cu_top` + `per_m` x z, z metres
@@ -748,6 +763,8 @@ impl PropertyModel {
             spt_refusal_share: model
                 .refusal_share
                 .map(|(top, per_m)| (top + per_m * depth).clamp(0.0, 1.0)),
+            uum_share: model.multi_stage.map(|(share, _)| share),
+            uum_stage_gain: model.multi_stage.map_or(0.0, |(_, gain)| gain),
         })
     }
 }

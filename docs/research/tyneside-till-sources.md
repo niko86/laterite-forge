@@ -450,3 +450,63 @@ description):
 - The qualifier (slightly, plain, very) is a forge draw, as for london-basin.
 - The format follows Norbury 2010's Made Ground convention (ch. 14,
   pp.208-214) and is forge judgement.
+
+## Multi-stage UU triaxial (v4, #2)
+
+v4 gives each till a `triaxial` table: the share of its TRIG tests that are
+multi-stage unconsolidated-undrained (`TRIG_TYPE` `UUM`, three TRIT rows) and
+the rise in cu per stage (ADR 0001, "Multi-stage UU"). The data are the NE
+crawl's TRIG and TRIT groups, de-duplicated by file content (one file is
+present twice through a symlink). Contains data supplied by UKRI, OGL v3.
+Aggregates only.
+
+### Share
+
+The crawl has 59 TRIG tests in 5 files (BGS NGDC AGS accessions 174059,
+165950, 169655, 174053 and 186779): 32 are UUM and 27 UU, a share of 0.54.
+The UUM tests are in three files (174059 all UUM, 169655 all UUM, 165950 4 of
+7); the other two are all UU, so the share varies between projects far more
+than 59 tests can map. The preset takes 0.49 to 0.59, +-0.05 about the crawl
+(forge judgement). The reason the till is multi-stage is the owner's practice
+note (forge judgement): labs run multi-stage UU where three matched 38 mm
+specimens cannot be cut from a matrix-bound gravelly till. That reason is why
+the share sits on the tills and why london-basin, whose clay is not that
+case and has no source, takes none.
+
+### Stage gain
+
+For each of the 32 UUM sets (all with TRIT_CU at stages 1 to 3), cu at stages
+2 and 3 over stage 1:
+
+| Quantity | Stage 2 / stage 1 | Stage 3 / stage 1 |
+|---|---|---|
+| Mean | 1.19 | 1.40 |
+| Median | 1.11 | 1.21 |
+| P10 / P90 | 1.01 / 1.76 | 1.02 / 1.78 |
+
+The cell pressures of the sets are 1, 2 and 4 times stage 1 in 23 of 32;
+the rest step otherwise (stage 3 at 2.25 to 3.6 times stage 1, and one set
+whose stages 2 and 3 are 20 and 40 times stage 1). With cu(k) = cu(1) x (1 + g x (k - 1)), the least-squares g over both
+stages is 0.20 pooled (mean of the 32 per-set values 0.20, median 0.11, P10 to
+P90 0.01 to 0.47, one set at 1.77). The preset takes 0.10 to 0.30, +-0.10
+about the mean (forge judgement), and the mean was chosen over the median
+because the file's cu is then right on average and the crawl's skew is a few
+large rises.
+
+### Fit
+
+| Quantity | Crawl | File (300 seeds, 7,429 TRIG tests) |
+|---|---|---|
+| UUM share of TRIG tests | 32 of 59 (0.54) | 4,000 (0.538) |
+| Mean cu stage 2 / stage 1 | 1.19 | 1.20 |
+| Mean cu stage 3 / stage 1 | 1.40 | 1.41 |
+
+### Caveats
+
+- The cell pressure in the file is always x1/x2/x4; 9 of the crawl's 32 sets
+  step otherwise.
+- cu is scattered under the strength scatter before the stage rise, so the
+  file's stage ratios are those of the written stage-1 value, not of an
+  underlying strength.
+- Effective-stress TREG/TRET (83 of 91 crawl sets are 3-stage) is not
+  written; that is a separate slice.

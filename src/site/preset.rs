@@ -310,6 +310,22 @@ pub struct Properties {
     /// has `very_coarse`. Refusals from strength (N of 50 or more) need
     /// nothing here.
     pub spt_refusal_share: Option<RefusalShare>,
+    /// `triaxial`: multi-stage unconsolidated-undrained tests (`UUM`).
+    pub triaxial: Option<Triaxial>,
+}
+
+/// Multi-stage UU triaxial tests in a unit (ADR 0001, "Multi-stage UU"). Each
+/// TRIG test in the unit makes its own keyed draw on whether it is `UUM`: three
+/// stages (`TRIT_TESN` 1 to 3) at cell pressures of 1, 2 and 4 times the
+/// single-stage value, on one specimen.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Triaxial {
+    /// The share of the unit's TRIG tests that are multi-stage, drawn once
+    /// per site in the range, a fraction in `[0, 1]`.
+    pub multi_stage_share: Range,
+    /// cu at stage k is stage 1's x (1 + gain x (k - 1)); the gain is drawn
+    /// once per site in the range, in `[0, 1]`. Absent means 0.
+    pub stage_gain: Option<Range>,
 }
 
 /// How the obstruction share of a unit's SPTs is given.
@@ -797,6 +813,7 @@ fn read_properties(
         None
     };
     let strength = read_strength(&mut p, errs);
+    let triaxial = read_triaxial(&mut p, errs);
     let (spt_relation, refusal_share) =
         read_spt(&mut p, coarse || very_coarse, errs).unwrap_or((None, None));
     // A strength table with problems has reported them already.
@@ -831,7 +848,71 @@ fn read_properties(
         strength,
         spt: spt_relation,
         spt_refusal_share: refusal_share,
+        triaxial: triaxial.flatten(),
     })
+}
+
+/// The optional `triaxial` table: `multi_stage_share` and, with it,
+/// `stage_gain`, each `{ min, max, basis }` in `[0, 1]`. Outer `None` is a
+/// reported problem; inner `None` is "not written".
+#[allow(clippy::option_option)]
+fn read_triaxial(p: &mut Node, errs: &mut Vec<String>) -> Option<Option<Triaxial>> {
+    if !p.table.contains_key("triaxial") {
+        p.get("triaxial");
+        return Some(None);
+    }
+    let mut t = req_table(p, "triaxial", errs)?;
+    let has_share = t.table.contains_key("multi_stage_share");
+    let mut ok = true;
+    let bounded = |t: &mut Node, key: &'static str, errs: &mut Vec<String>| {
+        let r = read_range(t, key, errs)?;
+        let at = t.at(key);
+        let mut fine = true;
+        for (which, v) in [("min", r.min), ("max", r.max)] {
+            if !(0.0..=1.0).contains(&v) {
+                errs.push(format!("{at}: {which} {v} is outside 0 to 1"));
+                fine = false;
+            }
+        }
+        fine.then_some(r)
+    };
+    let share = if has_share {
+        let r = bounded(&mut t, "multi_stage_share", errs);
+        ok &= r.is_some();
+        r
+    } else {
+        // `stage_gain` alone is reported below, once.
+        if !t.table.contains_key("stage_gain") {
+            errs.push(format!("{}: missing", t.at("multi_stage_share")));
+        }
+        ok = false;
+        None
+    };
+    let gain = if t.table.contains_key("stage_gain") {
+        if has_share {
+            let r = bounded(&mut t, "stage_gain", errs);
+            ok &= r.is_some();
+            r
+        } else {
+            t.get("stage_gain");
+            errs.push(format!(
+                "{}: stage_gain needs multi_stage_share, since no test is multi-stage without one",
+                t.at("stage_gain")
+            ));
+            None
+        }
+    } else {
+        t.get("stage_gain");
+        None
+    };
+    t.finish(errs);
+    if !ok {
+        return None;
+    }
+    Some(share.map(|multi_stage_share| Triaxial {
+        multi_stage_share,
+        stage_gain: gain,
+    }))
 }
 
 /// The optional `relation` of `t`, which must be one of `known`; the error
@@ -1364,6 +1445,19 @@ fn check_suite_values(preset: &Preset, errs: &mut Vec<String>) {
         .iter()
         .position(|e| e.group == "TRIG")
         .map(|t| (t, &preset.suite[t].units));
+    let tested_by_trig = |id: &str| trig.is_some_and(|(_, units)| units.iter().any(|u| u == id));
+    for (id, p) in preset
+        .units
+        .iter()
+        .map(|u| (&u.id, &u.properties))
+        .chain(preset.lenses.iter().map(|l| (&l.id, &l.properties)))
+    {
+        if p.triaxial.is_some() && !tested_by_trig(id) {
+            errs.push(format!(
+                "{id}.properties.triaxial: multi-stage tests are TRIG tests, but no TRIG entry in the suite tests unit \"{id}\""
+            ));
+        }
+    }
     for (i, entry) in preset.suite.iter().enumerate() {
         if LAB_GROUPS.contains(&entry.group.as_str()) {
             for (j, u) in entry.units.iter().enumerate() {
@@ -2783,7 +2877,7 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
     #[test]
     fn tyneside_till_loads_with_its_tills_and_lens() {
         let p = resolve("tyneside-till").unwrap();
-        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 3));
+        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 4));
         let units: Vec<&str> = p.units.iter().map(|u| u.id.as_str()).collect();
         assert_eq!(units, ["WT", "RT", "GT"]);
         assert!(p.units.last().unwrap().thickness_m.is_none());
@@ -3427,6 +3521,105 @@ rate = { min = 1, max = 1, basis = "test fixture" }
         // Headings that do not need strength are fine, and so is strength.
         Preset::from_toml(&text("", "\"TRIT_CELL\", \"TRIT_BDEN\", \"TRIT_IMC\"")).expect("valid");
         Preset::from_toml(&text(STRENGTH, "\"TRIT_CU\", \"TRIT_DEVF\"")).expect("valid");
+    }
+
+    // Multi-stage UU (#2): `triaxial` on a unit TRIG tests.
+
+    const TRIAXIAL: &str = "triaxial = { multi_stage_share = { min = 0.4, max = 0.6, basis = \"test fixture\" }, stage_gain = { min = 0.1, max = 0.3, basis = \"test fixture\" } }\n";
+
+    /// The fixture with `extra` on LC (which TRIG tests) and the suite.
+    fn triaxial_text(extra: &str) -> String {
+        format!("{}{SUITE}", lc_with(extra))
+    }
+
+    #[test]
+    fn a_unit_may_carry_a_multi_stage_share_and_a_stage_gain() {
+        let p = Preset::from_toml(&triaxial_text(TRIAXIAL)).expect("valid");
+        let t = p.units[1].properties.triaxial.as_ref().unwrap();
+        assert_eq!(
+            (t.multi_stage_share.min, t.multi_stage_share.max),
+            (0.4, 0.6)
+        );
+        assert_eq!(t.multi_stage_share.basis, "test fixture");
+        let g = t.stage_gain.as_ref().unwrap();
+        assert_eq!((g.min, g.max), (0.1, 0.3));
+        // The gain is optional (0 when absent), and a unit without the table
+        // has none.
+        let share_only = "triaxial = { multi_stage_share = { min = 0.4, max = 0.6, basis = \"test fixture\" } }\n";
+        let p = Preset::from_toml(&triaxial_text(share_only)).expect("valid");
+        assert!(
+            p.units[1]
+                .properties
+                .triaxial
+                .as_ref()
+                .unwrap()
+                .stage_gain
+                .is_none()
+        );
+        let p = Preset::from_toml(&triaxial_text("")).expect("valid");
+        assert!(p.units[1].properties.triaxial.is_none());
+    }
+
+    #[test]
+    fn a_stage_gain_without_a_share_is_refused() {
+        let gain_only =
+            "triaxial = { stage_gain = { min = 0.1, max = 0.3, basis = \"test fixture\" } }\n";
+        assert_eq!(
+            errors_of(&triaxial_text(gain_only)),
+            [
+                "units[1] (LC).properties.triaxial.stage_gain: stage_gain needs multi_stage_share, since no test is multi-stage without one"
+            ]
+        );
+        assert_eq!(
+            errors_of(&triaxial_text("triaxial = {}\n")),
+            ["units[1] (LC).properties.triaxial.multi_stage_share: missing"]
+        );
+    }
+
+    #[test]
+    fn a_share_or_gain_outside_zero_to_one_or_without_a_basis_is_refused() {
+        assert_eq!(
+            errors_of(&triaxial_text(&TRIAXIAL.replace("max = 0.6", "max = 1.5"))),
+            ["units[1] (LC).properties.triaxial.multi_stage_share: max 1.5 is outside 0 to 1"]
+        );
+        assert_eq!(
+            errors_of(&triaxial_text(&TRIAXIAL.replace("min = 0.1", "min = -0.1"))),
+            ["units[1] (LC).properties.triaxial.stage_gain: min -0.1 is outside 0 to 1"]
+        );
+        assert_eq!(
+            errors_of(&triaxial_text(&TRIAXIAL.replace(
+                "max = 0.3, basis = \"test fixture\"",
+                "max = 1.2, basis = \"test fixture\""
+            ))),
+            ["units[1] (LC).properties.triaxial.stage_gain: max 1.2 is outside 0 to 1"]
+        );
+        let no_basis = TRIAXIAL.replacen(", basis = \"test fixture\"", "", 1);
+        assert_eq!(
+            errors_of(&triaxial_text(&no_basis)),
+            ["units[1] (LC).properties.triaxial.multi_stage_share: no basis"]
+        );
+        let unknown = TRIAXIAL.replace("stage_gain", "stage_rise");
+        assert_eq!(
+            errors_of(&triaxial_text(&unknown)),
+            ["units[1] (LC).properties.triaxial: unknown key \"stage_rise\""]
+        );
+    }
+
+    #[test]
+    fn a_unit_no_trig_entry_tests_may_not_carry_a_multi_stage_share() {
+        // The suite's TRIG tests LC only.
+        let text = format!(
+            "{}{SUITE}",
+            with_props(&format!("{RTD_PROPS}{TRIAXIAL}"), LC_PROPS)
+        );
+        let e = suite_errors(&text);
+        assert!(
+            e.contains("RTD.properties.triaxial: multi-stage tests are TRIG tests, but no TRIG entry in the suite tests unit \"RTD\""),
+            "{e}"
+        );
+        // And with no suite at all there is no TRIG to be multi-stage in.
+        let e = suite_errors(&lc_with(TRIAXIAL));
+        assert!(e.contains("LC.properties.triaxial"), "{e}");
     }
 
     #[test]

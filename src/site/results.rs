@@ -362,9 +362,45 @@ pub(super) fn trit_cu(site: &Site, hole: &Hole, sample: &Sample) -> Option<i64> 
     Some(whole(scattered_cu(site, &spec, "TRIT")?).max(1))
 }
 
+/// The stages of a multi-stage UU test, as (`TRIT_TESN`, multiple of the
+/// single-stage cell pressure). Forge judgement (owner decision, #2): three
+/// stages at 1, 2 and 4 times the cell pressure.
+pub(super) const UUM_STAGES: [(i64, i64); 3] = [(1, 1), (2, 2), (3, 4)];
+
+/// The stage gain of the TRIG test on `sample` if it is multi-stage (`UUM`),
+/// else `None`. The unit's `triaxial` share is drawn once per site; each test
+/// then makes its own keyed draw on (hole, unit, test), so a share moves only
+/// its own unit's tests.
+pub(super) fn uum_gain(site: &Site, hole: &Hole, sample: &Sample) -> Option<f64> {
+    let spec = specimen(site, hole, sample)?;
+    let share = spec.model.uum_share?;
+    let mut rng = Key {
+        tag: "trig-uum",
+        hole: spec.hole_index as u64,
+        unit: spec.unit,
+        test: spec.sample_index,
+    }
+    .rng(site.properties.seed());
+    (uniform(&mut rng, 0.0, 1.0) < share).then_some(spec.model.uum_stage_gain)
+}
+
+/// The written TRIT undrained strength of stage `stage` (1 to 3) of a
+/// multi-stage test: stage 1's cu x (1 + `gain` x (`stage` - 1)), whole and at
+/// least 1. Stage 1 is the single-stage value.
+pub(super) fn trit_cu_stage(
+    site: &Site,
+    hole: &Hole,
+    sample: &Sample,
+    stage: i64,
+    gain: f64,
+) -> Option<i64> {
+    let cu = trit_cu(site, hole, sample)?;
+    Some(whole(cu as f64 * (1.0 + gain * (stage - 1) as f64)).max(1))
+}
+
 /// The written TRIT cell pressure, kPa, whole: the total vertical stress at
 /// the specimen.
-fn trit_cell(site: &Site, hole: &Hole, sample: &Sample) -> Option<i64> {
+pub(super) fn trit_cell(site: &Site, hole: &Hole, sample: &Sample) -> Option<i64> {
     let spec = specimen(site, hole, sample)?;
     let stress = site.stress_at(spec.hole_index, spec.depth)?;
     Some(whole(stress.total_kpa).max(0))
@@ -1738,5 +1774,205 @@ rate = {{ min = 1.0, max = 1.0, basis = "test fixture" }}
                     .any(|r| r.starts_with("50/"))
             );
         }
+    }
+
+    // Multi-stage UU (#2). WLC and LC both carry strength and are tested by
+    // TRIG and TRIT.
+
+    fn triaxial(share: Option<f64>, gain: Option<f64>) -> String {
+        let Some(share) = share else {
+            return String::new();
+        };
+        let gain = gain.map_or_else(String::new, |g| {
+            format!(", stage_gain = {{ min = {g}, max = {g}, basis = \"test fixture\" }}")
+        });
+        format!(
+            "triaxial = {{ multi_stage_share = {{ min = {share}, max = {share}, basis = \"test fixture\" }}{gain} }}\n"
+        )
+    }
+
+    /// The strong fixture with `wlc` and `lc` added to those units'
+    /// properties and the full TRIT suite.
+    fn uum_preset(wlc: &str, lc: &str) -> Preset {
+        let text = format!("{}{}", strong_fixture(), strength_suite(TRIT_ALL));
+        let mut parts = text.split(STRENGTH_LINES);
+        let mut out = String::from(parts.next().unwrap());
+        for (extra, part) in [wlc, lc, ""].into_iter().zip(parts) {
+            out.push_str(STRENGTH_LINES);
+            out.push_str(extra);
+            out.push_str(part);
+        }
+        Preset::from_toml(&out).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    type TritRow = std::collections::BTreeMap<String, String>;
+
+    fn trit_rows(m: &ProjectModel) -> Vec<TritRow> {
+        let Some(g) = m.groups.iter().find(|g| g.code == "TRIT") else {
+            return Vec::new();
+        };
+        g.rows
+            .iter()
+            .map(|r| {
+                g.headings
+                    .iter()
+                    .cloned()
+                    .zip(r.values.iter().cloned())
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_multi_stage_test_is_uum_with_three_stages_at_1_2_4_times_the_cell() {
+        let t = triaxial(Some(1.0), Some(0.2));
+        let p = uum_preset(&t, &t);
+        let mut sets = 0;
+        for seed in 0..10 {
+            let m = file(&p, seed, 5);
+            let types = cells(&m, "TRIG", "TRIG_TYPE");
+            assert!(types.iter().all(|t| t == "UUM"));
+            let rows = trit_rows(&m);
+            assert_eq!(rows.len(), 3 * types.len());
+            for set in rows.chunks(3) {
+                sets += 1;
+                let tesn: Vec<&str> = set.iter().map(|r| r["TRIT_TESN"].as_str()).collect();
+                assert_eq!(tesn, ["1", "2", "3"]);
+                let cell: Vec<i64> = set.iter().map(|r| int(&r["TRIT_CELL"])).collect();
+                assert_eq!((cell[1], cell[2]), (2 * cell[0], 4 * cell[0]));
+                for r in set {
+                    assert_eq!(r["TRIT_BDEN"], set[0]["TRIT_BDEN"]);
+                    assert_eq!(r["TRIT_IMC"], set[0]["TRIT_IMC"]);
+                    assert_eq!(r["SPEC_DPTH"], set[0]["SPEC_DPTH"]);
+                    assert_eq!(int(&r["TRIT_DEVF"]), 2 * int(&r["TRIT_CU"]));
+                }
+            }
+        }
+        assert!(sets > 50, "{sets} sets is too few");
+    }
+
+    #[test]
+    fn cu_rises_per_stage_by_the_stage_gain() {
+        let t = triaxial(Some(1.0), Some(0.25));
+        let p = uum_preset(&t, &t);
+        let mut sets = 0;
+        for seed in 0..10 {
+            for set in trit_rows(&file(&p, seed, 5)).chunks(3) {
+                sets += 1;
+                let cu: Vec<f64> = set.iter().map(|r| num(&r["TRIT_CU"])).collect();
+                // Stage 1 is the single-stage value; stage k adds 25% of it
+                // per stage after the first, to the nearest kPa.
+                for (k, c) in cu.iter().enumerate() {
+                    let want = cu[0] * (1.0 + 0.25 * k as f64);
+                    assert!((c - want).abs() <= 0.5 + 1e-9, "{cu:?}");
+                }
+                assert!(cu[0] < cu[1] && cu[1] < cu[2] || cu[0] < 8.0, "{cu:?}");
+            }
+        }
+        assert!(sets > 50);
+        // With no stage_gain the stages share one cu.
+        let t = triaxial(Some(1.0), None);
+        let flat = uum_preset(&t, &t);
+        for set in trit_rows(&file(&flat, 1, 5)).chunks(3) {
+            assert_eq!(set[0]["TRIT_CU"], set[1]["TRIT_CU"]);
+            assert_eq!(set[0]["TRIT_CU"], set[2]["TRIT_CU"]);
+        }
+    }
+
+    #[test]
+    fn with_no_share_or_a_zero_share_every_test_is_single_stage_and_unchanged() {
+        let none = uum_preset("", "");
+        let zero = uum_preset(&triaxial(Some(0.0), Some(0.3)), &triaxial(Some(0.0), None));
+        for seed in 0..10 {
+            let (a, b) = (file(&none, seed, 5), file(&zero, seed, 5));
+            assert_eq!(emit_to_string(&a), emit_to_string(&b), "seed {seed}");
+            assert!(cells(&a, "TRIG", "TRIG_TYPE").iter().all(|t| t == "UU"));
+            assert!(cells(&a, "TRIT", "TRIT_TESN").iter().all(|t| t == "1"));
+        }
+    }
+
+    #[test]
+    fn about_the_share_of_tests_are_multi_stage() {
+        let t = triaxial(Some(0.5), None);
+        let p = uum_preset(&t, &t);
+        let (mut uum, mut all) = (0, 0);
+        for seed in 0..40 {
+            let types = cells(&file(&p, seed, 5), "TRIG", "TRIG_TYPE");
+            all += types.len();
+            uum += types.iter().filter(|t| *t == "UUM").count();
+        }
+        let share = uum as f64 / all as f64;
+        assert!((0.4..0.6).contains(&share), "{uum} of {all}");
+    }
+
+    /// The unit of the specimen on a TRIT row.
+    fn unit_of(site: &Site, row: &TritRow) -> String {
+        let hole = site.holes.iter().find(|h| h.id == row["LOCA_ID"]).unwrap();
+        let depth = num(&row["SPEC_DPTH"]);
+        hole.strata
+            .iter()
+            .find(|s| depth >= s.top && depth <= s.base)
+            .unwrap()
+            .unit
+            .clone()
+    }
+
+    #[test]
+    fn a_share_in_one_unit_moves_only_that_units_rows() {
+        let wlc = triaxial(Some(0.5), Some(0.2));
+        let base = uum_preset(&wlc, "");
+        let more = uum_preset(&wlc, &triaxial(Some(0.7), Some(0.1)));
+        let mut moved = 0;
+        for seed in 0..10 {
+            let site = build::build(&base, seed, 5);
+            let a = trit_rows(&build::lower(&site, &base, seed, Grid::Local));
+            let b = trit_rows(&file(&more, seed, 5));
+            let of_wlc = |rows: &[TritRow]| {
+                rows.iter()
+                    .filter(|r| unit_of(&site, r) == "WLC")
+                    .cloned()
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(of_wlc(&a), of_wlc(&b), "seed {seed}");
+            moved += usize::from(a != b);
+        }
+        assert!(moved > 5, "LC's share moved nothing");
+    }
+
+    #[test]
+    fn a_smaller_multi_stage_site_is_a_prefix_of_a_larger_one() {
+        let t = triaxial(Some(0.5), Some(0.2));
+        let p = uum_preset(&t, &t);
+        for seed in 0..10 {
+            let (small, large) = (file(&p, seed, 3), file(&p, seed, 7));
+            for g in ["TRIG", "TRIT"] {
+                let rows = |m: &ProjectModel| {
+                    m.groups
+                        .iter()
+                        .find(|x| x.code == g)
+                        .map(|x| x.rows.iter().map(|r| r.values.clone()).collect::<Vec<_>>())
+                        .unwrap_or_default()
+                };
+                assert!(rows(&large).starts_with(&rows(&small)), "{g} seed {seed}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_multi_stage_file_is_rust_clean_across_seeds() {
+        let p = uum_preset(&triaxial(Some(0.6), Some(0.2)), &triaxial(Some(0.4), None));
+        let dir = tempfile::tempdir().unwrap();
+        let mut uum = 0;
+        for seed in 0..25 {
+            let m = file(&p, seed, 6);
+            let path = dir.path().join("site.ags");
+            std::fs::write(&path, emit_to_string(&m)).unwrap();
+            assert_eq!(rust_check(&path).0, RustResult::Clean, "seed {seed}");
+            uum += cells(&m, "TRIG", "TRIG_TYPE")
+                .iter()
+                .filter(|t| *t == "UUM")
+                .count();
+        }
+        assert!(uum > 10);
     }
 }

@@ -11,7 +11,8 @@
 //!   `SAMP_TYPE` can carry the group (`SampleQuality::permitted_samp_types`)
 //!   and a keyed draw falls under the group's rate. The row's KEY is the SAMP
 //!   KEY plus `SPEC_REF = 1` and `SPEC_DPTH` at the sample's mid-depth.
-//! - TRIT is scheduled with TRIG: one row (`TRIT_TESN = 1`) per TRIG row.
+//! - TRIT is scheduled with TRIG: one row (`TRIT_TESN = 1`) per TRIG row, or
+//!   three (`TESN` 1 to 3) for a multi-stage test (`TRIG_TYPE = UUM`).
 //! - ISPT is a LOCA child keyed (`LOCA_ID`, `ISPT_TOP`): one test at the top of
 //!   each D sample, thinned by the rate. Sample tops are unique in a hole, so
 //!   no two SPTs share a top.
@@ -29,6 +30,7 @@ use laterite_ags4_validator::{DictVersion, Dictionary};
 use super::build::{Hole, Numbered, Sample, Site, numbered};
 use super::draw::{Key, uniform};
 use super::preset::{Preset, SUITE_GROUPS, SuiteEntry};
+use super::results;
 use super::water;
 use crate::sample_quality::SampleQuality;
 use crate::synth::model::{Group, Row};
@@ -225,9 +227,16 @@ impl Ctx<'_> {
         let entry_of = |h: &str| self.dict.heading(code, h).expect("heading exists");
         let rows = tested
             .iter()
-            .map(|(hi, n)| {
+            .flat_map(|(hi, n)| {
                 let hole = &self.site.holes[*hi];
-                Row::owned(cols.iter().map(|h| self.value(code, h, hole, n)).collect())
+                let row: Vec<String> = cols.iter().map(|h| self.value(code, h, hole, n)).collect();
+                if code == "TRIT"
+                    && let Some(gain) = results::uum_gain(self.site, hole, n.sample)
+                {
+                    self.stages(&cols, &row, hole, n.sample, gain)
+                } else {
+                    vec![Row::owned(row)]
+                }
             })
             .collect();
         Some(Group {
@@ -242,6 +251,40 @@ impl Ctx<'_> {
         })
     }
 
+    /// The three TRIT rows of a multi-stage test from its single-stage `row`:
+    /// the stage number, cell pressure and strength change, and everything
+    /// else (density, moisture content) is the specimen's and is repeated.
+    fn stages(
+        &self,
+        cols: &[&str],
+        row: &[String],
+        hole: &Hole,
+        sample: &Sample,
+        gain: f64,
+    ) -> Vec<Row> {
+        results::UUM_STAGES
+            .iter()
+            .map(|&(stage, cell_factor)| {
+                let cu = results::trit_cu_stage(self.site, hole, sample, stage, gain);
+                let cell = results::trit_cell(self.site, hole, sample);
+                let values = cols
+                    .iter()
+                    .zip(row)
+                    .map(|(h, v)| match *h {
+                        "TRIT_TESN" => stage.to_string(),
+                        "TRIT_CELL" => {
+                            cell.map_or_else(String::new, |c| (c * cell_factor).to_string())
+                        }
+                        "TRIT_CU" => cu.map_or_else(String::new, |c| c.to_string()),
+                        "TRIT_DEVF" => cu.map_or_else(String::new, |c| (2 * c).to_string()),
+                        _ => v.clone(),
+                    })
+                    .collect();
+                Row::owned(values)
+            })
+            .collect()
+    }
+
     fn value(&self, code: &str, heading: &str, hole: &Hole, n: &Numbered<'_>) -> String {
         let s = n.sample;
         match heading {
@@ -252,7 +295,12 @@ impl Ctx<'_> {
             "SAMP_ID" => format!("{}-{}", hole.id, n.reference),
             "SPEC_REF" | "TRIT_TESN" => "1".to_string(),
             "SPEC_DPTH" => m2(round2(f64::midpoint(s.top, s.base))),
-            "TRIG_TYPE" => "UU".to_string(),
+            "TRIG_TYPE" => if results::uum_gain(self.site, hole, s).is_some() {
+                "UUM"
+            } else {
+                "UU"
+            }
+            .to_string(),
             "TRIG_COND" => "UNDISTURBED".to_string(),
             _ => {
                 let p = self
