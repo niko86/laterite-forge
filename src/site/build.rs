@@ -1586,20 +1586,20 @@ mod shipped_pins {
             (
                 "london-basin",
                 0u64,
-                "7cb1bad87a68477f79d5adf8b1b7827f238ca80151f6797753e8220106b1dacc",
-                19314usize,
+                "e9f1245b8dc62e054c1b1a8ddd6b33c6337386679cc7558b121a5549ef4a2192",
+                19315usize,
             ),
             (
                 "london-basin",
                 1,
-                "93b5ccf3d6584135a9b2aa1ce33b621c948ad22dbc093aa92b14193626825f66",
-                15172,
+                "66cfd63eb420f3c7fd275da2555eef5f569632ffa1c5663b768c2a48d9375940",
+                15173,
             ),
             (
                 "london-basin",
                 2,
-                "88ddff6574abece85f5dcf1e28ef9bd4136f8bd2f817f589588eee66b58fec70",
-                26366,
+                "081453b5e46eb3875f772c79b4aa8724b85f58f574b3808585534c0456062f51",
+                26368,
             ),
         ] {
             let text = shipped(name, seed);

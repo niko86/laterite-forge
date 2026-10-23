@@ -77,7 +77,8 @@ pub const TRIT_STRENGTH_HEADINGS: &[&str] = &["TRIT_CU", "TRIT_DEVF"];
 pub const LLPL_HEADINGS: &[&str] = &["LLPL_LL", "LLPL_PL", "LLPL_PI"];
 /// The chance a result is an outlier. Basis: forge judgement.
 pub const RESULT_OUTLIER_RATE: f64 = 0.02;
-/// Scatter is a standard normal truncated at this many standard deviations.
+/// The scatter draw is a standard normal truncated at this many standard
+/// deviations.
 const TRUNCATION: f64 = 3.0;
 
 /// A standard normal draw truncated at +-[`TRUNCATION`]: Box-Muller on two

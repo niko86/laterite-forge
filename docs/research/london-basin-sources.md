@@ -111,8 +111,10 @@ the groundwater basis.
 
 ## Calibration method
 
-A written result is the property model's value at the specimen times
-(1 + COV x e), with e a standard normal truncated at +-3 (`site/results.rs`).
+A written result is the property model's value at the specimen times a
+lognormal factor with mean 1 and the quantity's COV, exp(s e - s^2/2) with
+s^2 = ln(1 + COV^2) and e a standard normal truncated at +-3
+(`site/results.rs`).
 The model value is a smooth field across the site mapped onto the preset's
 range, plus any depth gradient, with about one stratum in fifty an outlier.
 A pooled synthetic COV therefore has two parts: the spread of the model across
@@ -149,12 +151,12 @@ The measuring script stayed outside the repository.
 | w (LNMC_MC) | LC | 16,866 | 25.8 | COV 0.118 | 26, COV about 0.12 |
 | w | WLC | 425 | 26.4 | COV 0.119 | same |
 | Bulk density (LDEN_BDEN) | LC / WLC | 11,886 / 292 | 1.98 / 1.97 Mg/m3 | COV 0.055 / 0.053 | about 2.0 (check) |
-| cu over the Brosse line (TRIT_CU) | LC | 11,807 | ratio 1.02 | COV 0.343 | about 0.34 |
-| cu (TRIT_CU), pooled with depth | LC | 11,807 | 189 kPa | COV 0.503 | not a target |
-| cu (TRIT_CU) | WLC | 304 | 92 kPa | COV 0.440 | 90, COV about 0.44 |
-| SPT N (ISPT_NVAL) | RTD | 2,215 | 27.1 | COV 0.474, P10-P90 11-44 | about 27, COV 0.40-0.50 |
-| SPT N, cross-check | WLC | 488 | 19.5 | COV 0.426 | BGS weathered 24.1, COV 0.43 |
-| SPT N, cross-check | LC | 19,786 | 39.5 | COV 0.505 | BGS unweathered 32.3, COV 0.31 (refusals dropped) |
+| cu over the Brosse line (TRIT_CU) | LC | 11,807 | ratio 1.02 | COV 0.339 | about 0.34 |
+| cu (TRIT_CU), pooled with depth | LC | 11,807 | 189 kPa | COV 0.501 | not a target |
+| cu (TRIT_CU) | WLC | 304 | 92 kPa | COV 0.443 | 90, COV about 0.44 |
+| SPT N (ISPT_NVAL) | RTD | 2,215 | 27.0 | COV 0.474, P10-P90 13-45 | about 27, COV 0.40-0.50 |
+| SPT N, cross-check | WLC | 488 | 19.4 | COV 0.423 | BGS weathered 24.1, COV 0.43 |
+| SPT N, cross-check | LC | 19,786 | 39.4 | COV 0.502 | BGS unweathered 32.3, COV 0.31 (refusals dropped) |
 
 Groundwater, against crawl 2:
 
@@ -201,10 +203,10 @@ Clay stratum.
   from the top of the LC unit, below WLC, which is at most 3 m thick. Their
   fit is linear only to about 30 m, and LC here reaches up to 40 m below its
   top, so the deepest cu values run high.
-- Results scatter normally, not lognormally, truncated at +-3 standard
-  deviations. With the larger COVs a very low result is possible but rare: at
-  `SPT_COV` 0.42, 0.9% of RTD N values are 0, and at `STRENGTH_COV` 0.345,
-  0.5% of LC cu values fall below 15% of the Brosse line.
+- Results scatter lognormally, so none is zero or negative: over 400 seeds
+  no RTD N is 0 and no LC cu falls below 15% of the Brosse line. Under
+  normal scatter, at these COVs, 0.9% and 0.5% did. A lognormal result's
+  median sits under its mean, by 1/sqrt(1 + COV^2): about 9% for RTD N.
 - Jones & Terrington's values are modified PI (IP′, PI scaled by the
   fraction finer than 425 µm); using them as a PI target is forge judgement.
 - The BGS samples are small and the literature is used for the primary basis
