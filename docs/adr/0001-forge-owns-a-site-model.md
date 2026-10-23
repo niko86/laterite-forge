@@ -150,6 +150,13 @@ consumer can replace.
   0-1, a missing `basis`, and count weights that are not four non-negative
   numbers with a positive sum. A count of 0 gives no `with` clause. The `3+`
   bucket draws 3, 4 or 5 with equal chance (`forge judgement`).
+- `amounts = { weights = [rare, occasional, frequent, numerous, abundant],
+  basis }` weights the amount word. Each constituent draws its own amount
+  independently, so amounts repeat (without `amounts` they are uniform); the
+  parts then run from the most to the least frequent amount, the most-shared
+  constituent taking the most frequent, and neighbours sharing an amount share
+  its word ("occasional brick and concrete"). The loader checks the weights
+  like `count`'s: five non-negative numbers, not all zero, with a `basis`.
 - A stratum draws its count, then that many distinct constituents by
   conditional Poisson sampling, the tilt fitted so each constituent's mention
   share comes out as the preset gives it. Shares and counts only agree if the

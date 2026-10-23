@@ -96,6 +96,15 @@ pub struct Unit {
 pub struct MadeGroundSpec {
     pub constituents: Option<Vec<ConstituentShare>>,
     pub count: Option<CountWeights>,
+    pub amounts: Option<AmountWeights>,
+}
+
+/// Weights for the amount word each constituent takes, independently.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AmountWeights {
+    /// Weights for rare, occasional, frequent, numerous and abundant.
+    pub weights: [f64; 5],
+    pub basis: String,
 }
 
 /// One constituent and the fraction of the unit's strata that mention it.
@@ -1398,6 +1407,7 @@ fn read_made_ground(u: &mut Node, errs: &mut Vec<String>) -> Option<Option<MadeG
             let mut m = Node::new(t, at);
             let constituents = read_constituent_shares(&mut m, errs);
             let count = read_count(&mut m, errs);
+            let amounts = read_amounts(&mut m, errs);
             if t.is_empty() {
                 errs.push(format!(
                     "{}: empty (write `true` for the default draw)",
@@ -1408,6 +1418,7 @@ fn read_made_ground(u: &mut Node, errs: &mut Vec<String>) -> Option<Option<MadeG
             Some(Some(MadeGroundSpec {
                 constituents: constituents?,
                 count: count?,
+                amounts: amounts?,
             }))
         }
         Some(_) => {
@@ -1521,11 +1532,38 @@ fn read_share(c: &mut Node, errs: &mut Vec<String>) -> Option<Range> {
 // Outer `None` is a reported problem; inner `None` is "not written".
 #[allow(clippy::option_option)]
 fn read_count(m: &mut Node, errs: &mut Vec<String>) -> Option<Option<CountWeights>> {
-    if !m.table.contains_key("count") {
-        m.get("count");
+    let w = read_weights::<4>(m, "count", "0, 1, 2 and 3+ constituents", errs)?;
+    Some(w.map(|(weights, basis)| CountWeights { weights, basis }))
+}
+
+/// `amounts = { weights = [rare, occasional, frequent, numerous, abundant],
+/// basis }`, absent meaning equal weights.
+// Outer `None` is a reported problem; inner `None` is "not written".
+#[allow(clippy::option_option)]
+fn read_amounts(m: &mut Node, errs: &mut Vec<String>) -> Option<Option<AmountWeights>> {
+    let w = read_weights::<5>(
+        m,
+        "amounts",
+        "rare, occasional, frequent, numerous and abundant",
+        errs,
+    )?;
+    Some(w.map(|(weights, basis)| AmountWeights { weights, basis }))
+}
+
+/// `key = { weights = [N non-negative numbers, not all zero], basis }`.
+// Outer `None` is a reported problem; inner `None` is "not written".
+#[allow(clippy::option_option)]
+fn read_weights<const N: usize>(
+    m: &mut Node,
+    key: &'static str,
+    labels: &str,
+    errs: &mut Vec<String>,
+) -> Option<Option<([f64; N], String)>> {
+    if !m.table.contains_key(key) {
+        m.get(key);
         return Some(None);
     }
-    let mut c = req_table(m, "count", errs)?;
+    let mut c = req_table(m, key, errs)?;
     let basis = match c.get("basis") {
         None => {
             errs.push(format!("{}: no basis", c.path));
@@ -1543,14 +1581,14 @@ fn read_count(m: &mut Node, errs: &mut Vec<String>) -> Option<Option<CountWeight
             errs.push(format!("{wat}: missing"));
             None
         }
-        Some(Value::Array(a)) if a.len() == 4 => {
+        Some(Value::Array(a)) if a.len() == N => {
             let nums: Vec<Option<f64>> = a
                 .iter()
                 .enumerate()
                 .map(|(i, v)| num(Some(v), &format!("{wat}[{i}]"), errs))
                 .collect();
             let w: Vec<f64> = nums.iter().flatten().copied().collect();
-            if w.len() != 4 {
+            if w.len() != N {
                 None
             } else if let Some(i) = w.iter().position(|x| *x < 0.0) {
                 errs.push(format!("{wat}[{i}]: {} is negative", w[i]));
@@ -1559,26 +1597,25 @@ fn read_count(m: &mut Node, errs: &mut Vec<String>) -> Option<Option<CountWeight
                 errs.push(format!("{wat}: weights sum to zero"));
                 None
             } else {
-                Some([w[0], w[1], w[2], w[3]])
+                let mut out = [0.0; N];
+                out.copy_from_slice(&w);
+                Some(out)
             }
         }
         Some(Value::Array(a)) => {
             errs.push(format!(
-                "{wat}: needs 4 weights (0, 1, 2 and 3+ constituents), found {}",
+                "{wat}: needs {N} weights ({labels}), found {}",
                 a.len()
             ));
             None
         }
         Some(_) => {
-            errs.push(format!("{wat}: must be an array of 4 numbers"));
+            errs.push(format!("{wat}: must be an array of {N} numbers"));
             None
         }
     };
     c.finish(errs);
-    Some(Some(CountWeights {
-        weights: weights?,
-        basis: basis?,
-    }))
+    Some(Some((weights?, basis?)))
 }
 
 fn read_description(u: &mut Node, errs: &mut Vec<String>) -> Option<DescriptionSpec> {
@@ -2866,6 +2903,39 @@ rate = { min = 1, max = 1, basis = "test fixture" }
         assert_eq!(
             count(r#"weights = [1, "x", 2, 1], basis = "test fixture""#),
             "units[0] (RTD).made_ground.count.weights[1]: must be a number"
+        );
+    }
+
+    #[test]
+    fn amount_weights_load_and_are_refused_like_count_weights() {
+        let amounts = |inner: &str| mg_errors(&format!("{{ amounts = {{ {inner} }} }}"));
+        let p = Preset::from_toml(&rtd_made_ground(
+            &valid(),
+            r#"{ amounts = { weights = [0.14, 0.25, 0.07, 0.0, 0.02], basis = "test fixture" } }"#,
+        ))
+        .expect("valid");
+        let a = p.units[0].made_ground.as_ref().unwrap().amounts.as_ref();
+        assert_eq!(a.unwrap().weights, [0.14, 0.25, 0.07, 0.0, 0.02]);
+        assert_eq!(a.unwrap().basis, "test fixture");
+        assert_eq!(
+            amounts(r"weights = [1, 2, 2, 1, 1]"),
+            "units[0] (RTD).made_ground.amounts: no basis"
+        );
+        assert_eq!(
+            amounts(r#"basis = "test fixture""#),
+            "units[0] (RTD).made_ground.amounts.weights: missing"
+        );
+        assert_eq!(
+            amounts(r#"weights = [1, 2, 2, 1], basis = "test fixture""#),
+            "units[0] (RTD).made_ground.amounts.weights: needs 5 weights (rare, occasional, frequent, numerous and abundant), found 4"
+        );
+        assert_eq!(
+            amounts(r#"weights = [1, 2, -2, 1, 1], basis = "test fixture""#),
+            "units[0] (RTD).made_ground.amounts.weights[2]: -2 is negative"
+        );
+        assert_eq!(
+            amounts(r#"weights = [0, 0, 0, 0, 0], basis = "test fixture""#),
+            "units[0] (RTD).made_ground.amounts.weights: weights sum to zero"
         );
     }
 

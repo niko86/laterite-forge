@@ -156,24 +156,34 @@ pub fn made_ground(matrix: &SoilDescription, vocab: &Vocab, rng: &mut Rng) -> Ma
 /// most frequent first. No constituents leaves the matrix text under the tag,
 /// without a `with` clause.
 fn compose(matrix: &SoilDescription, parts: Vec<Constituent>) -> MadeGround {
-    // The first amount keeps its `with`; the rest follow `and` (or a comma).
-    let phrases: Vec<String> = parts
-        .iter()
-        .enumerate()
-        .map(|(i, k)| {
-            let amount = if i == 0 {
-                k.amount.as_str()
-            } else {
-                k.amount.strip_prefix("with ").unwrap_or(&k.amount)
-            };
-            format!("{amount} {}", k.name)
-        })
-        .collect();
-    let clause = match phrases.split_last() {
+    // Neighbours sharing an amount share its word ("occasional brick and
+    // concrete"). The first amount keeps its `with`; the rest follow `and`
+    // (or a comma).
+    let list = |items: &[&str]| match items.split_last() {
         None => String::new(),
-        Some((last, [])) => last.clone(),
+        Some((last, [])) => (*last).to_string(),
         Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
     };
+    let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
+    for k in &parts {
+        match groups.last_mut() {
+            Some((amount, names)) if *amount == k.amount => names.push(&k.name),
+            _ => groups.push((&k.amount, vec![&k.name])),
+        }
+    }
+    let phrases: Vec<String> = groups
+        .iter()
+        .enumerate()
+        .map(|(i, (amount, names))| {
+            let amount = if i == 0 {
+                amount
+            } else {
+                amount.strip_prefix("with ").unwrap_or(amount)
+            };
+            format!("{amount} {}", list(names))
+        })
+        .collect();
+    let clause = list(&phrases.iter().map(String::as_str).collect::<Vec<_>>());
 
     // Tertiaries close the soil description proper: before the first full
     // stop, so a grading sentence stays after them.
@@ -218,7 +228,13 @@ pub struct Mix {
     tilt: Vec<f64>,
     /// `P(count = k)` for `k` in `0..=MAX_COUNT`.
     count: [f64; MAX_COUNT + 1],
+    /// `P(amount = i)` for each vocabulary amount, rarest first. Each
+    /// constituent draws its own, so amounts may repeat.
+    amount: [f64; AMOUNTS],
 }
+
+/// How many amount terms the vocabulary has (rare to abundant).
+pub const AMOUNTS: usize = 5;
 
 /// The elementary symmetric polynomials `e_0..=e_n` of `w`.
 fn elementary(w: impl IntoIterator<Item = f64>, n: usize) -> Vec<f64> {
@@ -236,14 +252,18 @@ impl Mix {
     /// `shares` pairs a constituent with the fraction of strata that mention
     /// it (0 drops it). `count` holds the weights for 0, 1, 2 and 3+
     /// constituents, `None` meaning one or two with equal chance (the default
-    /// lane's). `amounts` is how many amount terms the vocabulary has, which
-    /// bounds the count.
+    /// lane's). `amounts` holds the weights for rare, occasional, frequent,
+    /// numerous and abundant, `None` meaning equal.
     ///
     /// Callers have checked the names, the shares and the weights.
-    pub fn new(shares: &[(&str, f64)], count: Option<[f64; 4]>, amounts: usize) -> Mix {
+    pub fn new(
+        shares: &[(&str, f64)],
+        count: Option<[f64; 4]>,
+        amounts: Option<[f64; AMOUNTS]>,
+    ) -> Mix {
         let mut kept: Vec<(&str, f64)> = shares.iter().copied().filter(|(_, s)| *s > 0.0).collect();
         kept.sort_by(|a, b| b.1.total_cmp(&a.1));
-        let cap = MAX_COUNT.min(amounts).min(kept.len());
+        let cap = MAX_COUNT.min(kept.len());
 
         let w = count.unwrap_or([0.0, 1.0, 1.0, 0.0]);
         let total: f64 = w.iter().sum();
@@ -253,6 +273,10 @@ impl Mix {
             count[k.min(cap)] += p / total;
         }
 
+        let w = amounts.unwrap_or([1.0; AMOUNTS]);
+        let total: f64 = w.iter().sum();
+        let amount = w.map(|x| x / total);
+
         let names = kept.iter().map(|(n, _)| (*n).to_string()).collect();
         let shares: Vec<f64> = kept.iter().map(|(_, s)| *s).collect();
         let mut mix = Mix {
@@ -260,6 +284,7 @@ impl Mix {
             tilt: shares.iter().map(|s| s / (1.0 - s.min(0.999))).collect(),
             shares,
             count,
+            amount,
         };
         mix.fit();
         mix
@@ -342,7 +367,8 @@ fn unit_float(rng: &mut Rng) -> f64 {
 }
 
 /// Made ground drawn by a preset's [`Mix`]: the count first, then that many
-/// constituents, the most shared taking the most frequent amount. A count of
+/// constituents, each with an amount of its own drawing, the most shared
+/// taking the most frequent. A count of
 /// 0 leaves the tagged matrix with no `with` clause. `rng` is a stream of its
 /// own, as for [`made_ground`].
 // `below(n)` returns a value < n, and every n here is a small `Vec::len()`
@@ -367,13 +393,23 @@ pub fn made_ground_mix(
         .unwrap_or_else(|| mix.count.iter().rposition(|p| *p > 0.0).unwrap_or(0));
     let chosen = mix.pick(rng, n);
 
-    let mut idx: Vec<usize> = Vec::new();
-    while idx.len() < chosen.len() {
-        let i = rng.below(amounts.len() as u64) as usize;
-        if !idx.contains(&i) {
-            idx.push(i);
-        }
-    }
+    // Each amount is its own draw, so repeats are allowed; the most shared
+    // constituent takes the most frequent.
+    assert_eq!(amounts.len(), AMOUNTS, "the vocabulary has five amounts");
+    let mut idx: Vec<usize> = chosen
+        .iter()
+        .map(|_| {
+            let u = unit_float(rng);
+            let mut acc = 0.0;
+            mix.amount
+                .iter()
+                .position(|p| {
+                    acc += p;
+                    u < acc
+                })
+                .unwrap_or_else(|| mix.amount.iter().rposition(|p| *p > 0.0).unwrap_or(0))
+        })
+        .collect();
     idx.sort_unstable_by(|a, b| b.cmp(a));
 
     let parts = chosen
@@ -532,7 +568,7 @@ mod tests {
 
     #[test]
     fn the_fit_reproduces_the_shares_when_they_agree_with_the_count() {
-        let mix = Mix::new(&shares(), Some(COUNT), 5);
+        let mix = Mix::new(&shares(), Some(COUNT), None);
         for (got, (name, want)) in mix.expected_shares().iter().zip(shares()) {
             assert!((got - want).abs() < 0.02, "{name}: {got} vs {want}");
         }
@@ -541,7 +577,7 @@ mod tests {
     #[test]
     #[allow(clippy::cast_precision_loss)]
     fn drawn_mention_shares_and_counts_follow_the_weights() {
-        let mix = Mix::new(&shares(), Some(COUNT), 5);
+        let mix = Mix::new(&shares(), Some(COUNT), None);
         let n = 6000;
         let mut mentions = [0usize; 4];
         let mut counts = [0usize; 4];
@@ -567,7 +603,7 @@ mod tests {
 
     #[test]
     fn a_count_of_zero_has_the_tag_and_no_with_clause() {
-        let mix = Mix::new(&shares(), Some([1.0, 0.0, 0.0, 0.0]), 5);
+        let mix = Mix::new(&shares(), Some([1.0, 0.0, 0.0, 0.0]), None);
         for seed in 0..50 {
             let g = mix_draw(seed, &mix);
             let t = &g.description.text;
@@ -580,27 +616,94 @@ mod tests {
     }
 
     #[test]
-    fn three_or_more_constituents_read_as_a_list_in_decreasing_frequency() {
-        let mix = Mix::new(&shares(), Some([0.0, 0.0, 0.0, 1.0]), 5);
+    fn three_or_more_constituents_run_from_the_most_to_the_least_frequent_amount() {
+        let mix = Mix::new(&shares(), Some([0.0, 0.0, 0.0, 1.0]), None);
         let amounts = vocab().tertiary_amounts();
-        for seed in 0..100 {
+        let mut repeats = 0;
+        for seed in 0..200 {
             let g = mix_draw(seed, &mix);
             let t = &g.description.text;
             assert!((3..=4).contains(&g.constituents.len()), "{t}");
-            assert_eq!(t.matches(" and ").count(), 1, "{t}");
-            assert!(t.contains(", "), "{t}");
             let idx: Vec<usize> = g
                 .constituents
                 .iter()
                 .map(|k| amounts.iter().position(|a| *a == k.amount).unwrap())
                 .collect();
-            assert!(idx.windows(2).all(|w| w[0] > w[1]), "{t}");
+            assert!(idx.windows(2).all(|w| w[0] >= w[1]), "{t}");
+            repeats += idx.windows(2).filter(|w| w[0] == w[1]).count();
+        }
+        assert!(
+            repeats > 0,
+            "amounts are drawn independently, so they repeat"
+        );
+    }
+
+    #[test]
+    fn amounts_are_drawn_by_their_weights() {
+        let w = [0.14, 0.25, 0.07, 0.0, 0.02];
+        let mix = Mix::new(&shares(), Some(COUNT), Some(w));
+        let amounts = vocab().tertiary_amounts();
+        let mut seen = [0.0_f64; AMOUNTS];
+        for seed in 0..4000 {
+            for k in mix_draw(seed, &mix).constituents {
+                seen[amounts.iter().position(|a| *a == k.amount).unwrap()] += 1.0;
+            }
+        }
+        let (n, total): (f64, f64) = (seen.iter().sum(), w.iter().sum());
+        for i in 0..AMOUNTS {
+            let (got, want) = (seen[i] / n, w[i] / total);
+            assert!((got - want).abs() < 0.02, "amount {i}: {got} vs {want}");
+        }
+        assert!(seen[3] < 0.5, "a zero weight is never drawn");
+    }
+
+    #[test]
+    fn a_four_constituent_list_can_be_all_occasional_and_shares_the_word() {
+        let mix = Mix::new(
+            &shares(),
+            Some([0.0, 0.0, 0.0, 1.0]),
+            Some([0.0, 1.0, 0.0, 0.0, 0.0]),
+        );
+        let mut four = 0;
+        for seed in 0..100 {
+            let g = mix_draw(seed, &mix);
+            let t = &g.description.text;
+            assert!(g.constituents.iter().all(|k| k.amount == "with occasional"));
+            assert_eq!(t.matches("occasional").count(), 1, "{t}");
+            if g.constituents.len() == 4 {
+                four += 1;
+                assert!(
+                    t.contains("with occasional brick, concrete, ash and pottery fragments"),
+                    "{t}"
+                );
+            }
+        }
+        assert!(four > 0);
+    }
+
+    #[test]
+    fn without_amount_weights_amounts_are_uniform_and_may_repeat() {
+        let mix = Mix::new(&shares(), Some([0.0, 0.0, 1.0, 0.0]), None);
+        let amounts = vocab().tertiary_amounts();
+        let mut seen = [0.0_f64; AMOUNTS];
+        let mut same = 0;
+        for seed in 0..3000 {
+            let g = mix_draw(seed, &mix);
+            same += usize::from(g.constituents[0].amount == g.constituents[1].amount);
+            for k in g.constituents {
+                seen[amounts.iter().position(|a| *a == k.amount).unwrap()] += 1.0;
+            }
+        }
+        assert!(same > 0);
+        let n: f64 = seen.iter().sum();
+        for x in seen {
+            assert!((x / n - 0.2).abs() < 0.03);
         }
     }
 
     #[test]
     fn a_mix_is_deterministic_per_seed() {
-        let mix = Mix::new(&shares(), Some(COUNT), 5);
+        let mix = Mix::new(&shares(), Some(COUNT), None);
         assert_eq!(
             mix_draw(3, &mix).description.text,
             mix_draw(3, &mix).description.text

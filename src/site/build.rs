@@ -128,7 +128,7 @@ fn lead(terms: &LeadTerms) -> Lead<'static> {
 /// lane's default draw. Each share is drawn once per site in its range, from
 /// a stream keyed by the unit and the constituent's position.
 fn unit_mix(spec: &MadeGroundSpec, unit: &str, seed: u64) -> Option<Mix> {
-    if spec.constituents.is_none() && spec.count.is_none() {
+    if spec.constituents.is_none() && spec.count.is_none() && spec.amounts.is_none() {
         return None;
     }
     let shares: Vec<(&str, f64)> = match &spec.constituents {
@@ -153,11 +153,10 @@ fn unit_mix(spec: &MadeGroundSpec, unit: &str, seed: u64) -> Option<Mix> {
             .map(|n| (n.as_str(), 0.5))
             .collect(),
     };
-    let amounts = bs5930::vocab().tertiary_amounts().len();
     Some(Mix::new(
         &shares,
         spec.count.as_ref().map(|c| c.weights),
-        amounts,
+        spec.amounts.as_ref().map(|a| a.weights),
     ))
 }
 
@@ -1841,6 +1840,25 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
             let got = counts[i] / n;
             assert!((got - weights[i]).abs() < 0.04, "count {i}: {got}");
         }
+    }
+
+    #[test]
+    fn a_unit_with_amount_weights_uses_only_the_weighted_amounts() {
+        let p = preset(
+            r#"made_ground = { count = { weights = [0, 0, 0, 1], basis = "test fixture" }, amounts = { weights = [0, 1, 0, 0, 0], basis = "test fixture" } }"#,
+        );
+        let mut seen = 0;
+        for seed in 0..20 {
+            for s in mg_strata(&build(&p, seed, 6)) {
+                seen += 1;
+                let t = &s.description;
+                assert_eq!(t.matches("occasional").count(), 1, "{t}");
+                for other in ["rare", "frequent", "numerous", "abundant"] {
+                    assert!(!words(t).contains(&other), "{t}");
+                }
+            }
+        }
+        assert!(seen > 0);
     }
 
     #[test]
