@@ -494,3 +494,53 @@ stratum carries a strike or a lab test.
   fine and coarse sets are forge judgement calibrated to description terms.
   The BGS N cross-check comes from 30 projects and spreads wider (COV 0.74)
   than the synthetic N (0.56).
+
+
+## SPT refusals (v5, #63)
+
+v5 writes a refusal when a test reaches 50 blows before the 300 mm main drive:
+`ISPT_NVAL` 50 (not extrapolated), `ISPT_MAIN` 50, `ISPT_NPEN` 150 plus the
+penetration p reached, `ISPT_REP` "50/p"; an ordinary test writes MAIN = N,
+NPEN 450 and REP "N=<N>". The convention is forge judgement (owner decision,
+#63). Any drawn N of 50 or more is a refusal (p = 300 x 50 / N, at least 1 and
+under 300), so every N above 50 that v4 wrote is now 50. The preset sets no
+`refusal_share`, so every refusal in the file is a strength one.
+
+### Method
+
+The two London crawls (the 80 accessions listed under Made Ground above; 169 AGS files; 668 holes after de-duplicating by
+position and depth) were re-read for ISPT rows. A refusal is an `ISPT_NVAL` of
+50 or more, a `*` in `ISPT_REP`, or a main drive under 300 mm given as "for
+NNmm" in the report string. Each test was assigned to the stratum at its top
+plus 0.225 m, classified as in the earlier method (RTD from codes or
+terrace-gravel descriptions and a granular description; LC from code or
+description). Aggregates only.
+
+### Result
+
+| Unit | Crawl tests | Crawl refusals | File refusals (strength only) |
+|---|---|---|---|
+| RTD | 541 (42 files) | 46 (8.5%; file bootstrap 5.2-13.5%) | 5.5% |
+| LC | 977 (34 files) | 140 (14.3%) | 22.5% |
+| WLC | not measured | not measured | 0.5% |
+| MG | not measured | not measured | 0.04% |
+
+- **RTD gets no share.** Of the 46 RTD refusals, 44 have an N of 50 or more and
+  only 2 report an N under 50, so the crawl shows no obstruction refusals
+  beyond the strength ones. The file's strength rule gives 5.5%, inside the
+  bootstrap interval (resampling files, 5,000 draws). The non-refusal tests
+  have mean 24.9, SD 10.3 (n = 412) in the crawl and 25.0, SD 9.7 in the file.
+- **LC is strength only** (owner decision), and f1 is not refitted. The file
+  refuses 22.5% of London Clay tests against 14.3% in the crawl, with a
+  non-refusal mean N of 29.9 against 29.1. f1 is held to the cited 4.5-5
+  (ICE Manual Vol. 2, ch. 63, s63.2.3, p.973). At f1 = 5, the top of that
+  range, the file gives mean 29.2 and 19.3% refusals, so no f1 in the range
+  gives both targets and v4's range is kept; cu (Brosse et al. 2025) is
+  untouched. The gap is the depth mix of the tests, not the rate at depth. By
+  depth below ground the crawl refuses 0/74 (0-5 m), 1/213 (5-10 m), 8/184
+  (10-15 m), 19/257 (15-25 m) and 112/249 (over 25 m): from 15 m down 131 of
+  506 tests (26%), against 29% in the file at f1 = 5, but only 52% of the
+  crawl's LC tests are that deep against 63% of the file's.
+- **MG** takes no share (forge judgement): it is fill, and the crawl was not
+  read for its refusals.
+- File rates are pooled over 100,000 seeds of the default hole counts.

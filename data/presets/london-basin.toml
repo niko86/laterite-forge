@@ -94,9 +94,32 @@
 # The suite lists no LNMC in RTD: its B and D samples are quality class 4 and
 # LNMC needs class 3 (data/sample-quality/table.json), so RTD could carry no
 # LNMC row.
+#
+# v5 (#63): SPT refusals. The ISPT suite lists ISPT_MAIN, ISPT_NPEN and
+# ISPT_REP, and any N of 50 or more is written as a refusal, so every N above
+# 50 that v4 wrote becomes 50 (p = 300 x 50 / N mm, at least 1 and under 300).
+# The refusal convention is forge judgement (owner decision, niko86/laterite-forge#63):
+# an ordinary test writes ISPT_MAIN = N, ISPT_NPEN = 450 and ISPT_REP = "N=<N>";
+# a refusal writes ISPT_NVAL = 50 (not extrapolated), ISPT_MAIN = 50, ISPT_NPEN =
+# 150 + p and ISPT_REP = "50/<p>", p the main-drive penetration reached, mm.
+# No unit takes a refusal_share. LC: strength refusals only (owner decision).
+# The file gives 22.5% of London Clay tests as refusals against 14.3% in the
+# crawl (140 of 977 tests, 34 files), and a non-refusal mean N of 29.9 against
+# 29.1. f1 stays at v4's 4.5-5, the range its source supports: at f1 = 5, the
+# top of it, the mean is 29.2 but refusals are still 19.3%, so no f1 in the
+# range gives both. The gap is the depth mix of the tests, not the rate at
+# depth: from 15 m down the crawl refuses 131 of 506 tests (26%) against 29%
+# in the file at f1 = 5, but only 52% of the crawl's tests are that deep
+# against 63% in the file (docs/research/london-basin-sources.md). RTD: the
+# London crawls give 46 refusals in 541 terrace-gravel tests (8.5%; 42 files,
+# a bootstrap over files gives 5.2-13.5%), 44 of them with N of 50 or more
+# and 2 with a reported N under 50, and the strength rule alone gives 5.5% in
+# the file, inside that interval, so the crawl shows no obstruction refusals
+# beyond the strength ones. MG: none (forge judgement; fill, and the crawl was
+# not read for its refusals). WLC: strength only (0.5%).
 schema = 1
 name = "london-basin"
-version = 4
+version = 5
 summary = "Made Ground over River Terrace Deposits over weathered and unweathered London Clay, London Basin."
 
 [site]
@@ -151,7 +174,7 @@ description = { principals = ["GRAVEL", "SAND"], secondaries = ["sand", "gravel"
 sampling = { types = ["B", "D"], interval_m = { min = 1.0, max = 1.5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 53, s53.7.2, p.791: sampling typically every 1.5 m; Craig's Soil Mechanics, 7th ed., 2004, ch. 8, p.297: SPT every 0.75-1.5 m" } }
 
 [units.properties]
-spt_n = { min = 17, max = 37, basis = "Royse, Rutter & Entwisle 2009, doi:10.1007/s10064-008-0171-0, Fig. 4 (terrace gravels, median about 30, mostly N 10-50; COV about 0.5 derived); calibrated (forge analysis) to mean about 27, COV 0.40-0.50 with SPT_COV. Cross-check: BGS NGDC AGS accessions 128985, 126770, 129866, 121953 (terrace gravel over London Clay, mean 26.8, COV 0.39, n = 142), forge analysis, contains data supplied by UKRI, OGL v3" }
+spt_n = { min = 17, max = 37, basis = "Royse, Rutter & Entwisle 2009, doi:10.1007/s10064-008-0171-0, Fig. 4 (terrace gravels, median about 30, mostly N 10-50; COV about 0.5 derived); calibrated (forge analysis) to mean about 27, COV 0.40-0.50 with SPT_COV. Cross-check: BGS NGDC AGS accessions 128985, 126770, 129866, 121953 (terrace gravel over London Clay, mean 26.8, COV 0.39, n = 142), forge analysis, contains data supplied by UKRI, OGL v3. From v5 an N of 50 or more is a refusal written as 50: the file's non-refusal tests give mean 25.0, SD 9.7 against the crawl's 24.9, SD 10.3 (412 non-refusal tests; forge analysis of the BGS NGDC AGS accessions of the two London crawls listed in the header). Contains data supplied by UKRI, OGL v3." }
 moisture_content_percent = { min = 5, max = 15, basis = "forge judgement" }
 particle_density_ratio = { min = 2.64, max = 2.66, basis = "Head, Manual of Soil Laboratory Testing Vol. 1, 3rd ed., Table 3.1, p.126 (quartz 2.65)" }
 
@@ -182,7 +205,7 @@ plasticity_index_percent = { min = 36, max = 52, basis = "Jones & Terrington 201
 liquidity_index = { min = -0.02, max = 0.01, basis = "Skempton & Henkel 1957, Table 1 (w 26, PL 26, so LI about 0); calibrated (forge analysis) to w mean 26, COV about 0.12 with MOISTURE_COV. Cross-check: BGS NGDC AGS accessions 128985, 129866 (unweathered w mean 25.4, COV 0.12, n = 132), forge analysis, contains data supplied by UKRI, OGL v3. Context: ICE Manual of Geotechnical Engineering Vol. 2, ch. 53, Table 53.7, p.784 gives -0.1 to 0" }
 particle_density_ratio = { min = 2.60, max = 2.71, basis = "Head, Manual of Soil Laboratory Testing Vol. 1, 3rd ed., Table 3.1, p.126 (kaolinite 2.6, quartz 2.65, calcite 2.71). Mineral values; use as a soil-level range is forge judgement" }
 strength = { relation = "cu.linear_with_depth", cu_top_kpa = { min = 82.5, max = 84.0, basis = "Brosse, Lo, Davis & Che 2025, doi:10.3850/GRF-25280825_isgsr-185-P110-cd, Table 3, Model B per-unit intercepts (82.5-84.0 kPa, z below the top of the London Clay). Measuring z from the top of this unaltered LC unit, below WLC, is forge judgement" }, per_m = { min = 6.4, max = 9.2, basis = "Brosse, Lo, Davis & Che 2025, doi:10.3850/GRF-25280825_isgsr-185-P110-cd, Table 3, Model B per-unit slopes (B 6.4, A3 6.8, C 7.3, A2 9.2 kPa/m); the authors find the fit linear to about 30 m. Scatter about the line calibrated (forge analysis) to their COV of about 0.34 with STRENGTH_COV" } }
-spt = { relation = "spt.stroud_butler", f1 = { min = 4.5, max = 5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 63, s63.2.3, p.973, after Simpson and Driscoll 1998" } }
+spt = { relation = "spt.stroud_butler", f1 = { min = 4.5, max = 5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 63, s63.2.3, p.973, after Simpson and Driscoll 1998. Not refitted to the BGS crawl in v5 (#63): the file refuses 22.5% of London Clay tests against 14.3% in the BGS NGDC AGS London crawls (140 of 977 tests, 34 files) and gives non-refusal N mean 29.9 against 29.1; at f1 = 5, the top of this range, 19.3% and 29.2, so no f1 in the cited range gives both, and v4's range is kept (forge analysis). Contains data supplied by UKRI, OGL v3." } }
 
 # Testing rates. Each SAMP-child rate is sized so the smallest default site
 # (3 holes) meets Decoding Eurocode 7's "no comparable experience" minimum
@@ -223,7 +246,7 @@ headings = ["TRIT_CU", "TRIT_DEVF", "TRIT_CELL", "TRIT_BDEN", "TRIT_IMC"]
 
 [[suite]]
 group = "ISPT"
-headings = ["ISPT_NVAL"]
+headings = ["ISPT_NVAL", "ISPT_MAIN", "ISPT_NPEN", "ISPT_REP"]
 units = ["MG", "RTD", "WLC", "LC"]
 rate = { min = 1.0, max = 1.0, basis = "Decoding Eurocode 7 (Bond and Harris, 2008) gives no SPT frequency; ICE Manual of Geotechnical Engineering Vol. 1, 2012, p.630: SPTs 'typically every 1.5 m'. An SPT at every D sample follows the sampling interval (forge judgement)" }
 

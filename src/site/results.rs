@@ -24,7 +24,8 @@
 //! total overburden at the specimen. TRIT's density and moisture content scatter
 //! under TRIT keys of their own. An SPT N is cu at the test's top (scattered
 //! under an ISPT key) over f1 in a unit with the `spt.stroud_butler` relation,
-//! and otherwise the model's N scattered.
+//! and otherwise the model's N scattered. An N of 50 or more is then a
+//! refusal, written as 50 with the penetration reached (see [`ispt`]).
 //!
 //! Written precision follows each heading's TYPE in the bundled dictionary:
 //! LL, PL, PI, both MC headings (X, written as a whole number, the usual
@@ -397,18 +398,38 @@ fn trit_density(site: &Site, hole: &Hole, sample: &Sample) -> Option<(i64, i64)>
     Some((whole(bden / 10.0).max(1), whole(mc).max(0)))
 }
 
-/// The written SPT N at the top of `sample`, whole and at least 0. In a unit
-/// with `spt.stroud_butler` it is cu there (scattered under an ISPT key) over
-/// f1; otherwise the model's N scattered.
-pub(super) fn ispt_nval(site: &Site, hole: &Hole, sample: &Sample) -> Option<i64> {
-    let spec = specimen_at(site, hole, sample, sample.top)?;
+/// One written SPT: the count, the main-drive count, the total penetration
+/// and the report string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Spt {
+    pub nval: i64,
+    pub main: i64,
+    pub npen: i64,
+    pub rep: String,
+}
+
+/// The seating drive, mm, and the full main drive, mm, of the standard test.
+const SEATING_MM: i64 = 150;
+const MAIN_DRIVE_MM: i64 = 300;
+/// The blows at which a test is stopped.
+const REFUSAL_BLOWS: i64 = 50;
+/// The main-drive penetration, mm, an obstruction stops a test at: uniform in
+/// this range. Forge judgement (owner decision, #63): a cobble or boulder
+/// strike can come anywhere in the drive, so the range is the drive less 25 mm
+/// at either end.
+const OBSTRUCTION_PEN_MM: (f64, f64) = (25.0, 275.0);
+
+/// The scattered N before any refusal rule, whole and at least 0. In a unit
+/// with `spt.stroud_butler` it is cu at the top (scattered under an ISPT key)
+/// over f1; otherwise the model's N scattered.
+fn raw_n(site: &Site, spec: &Specimen<'_>) -> Option<i64> {
     let n = if let Some(f1) = spec.model.spt_f1 {
-        scattered_cu(site, &spec, "ISPT")? / f1
+        scattered_cu(site, spec, "ISPT")? / f1
     } else {
         let n = f64::from(spec.model.spt_n?);
         quantity(
             site,
-            &spec,
+            spec,
             "ISPT",
             ("spt_n", IndexQuantity::SptN, SPT_COV),
             n,
@@ -416,6 +437,57 @@ pub(super) fn ispt_nval(site: &Site, hole: &Hole, sample: &Sample) -> Option<i64
     };
     Some(whole(n).max(0))
 }
+
+/// The whole SPT at the top of `sample` (ADR 0001, "SPT refusals").
+///
+/// An ordinary test writes N, MAIN = N, NPEN = 450 and REP = "N=<N>". A
+/// refusal stops short of the 300 mm main drive at 50 blows and writes N = 50
+/// (not extrapolated), MAIN = 50, NPEN = 150 + p and REP = "50/<p>", where p
+/// is the main-drive penetration reached. The convention is forge judgement
+/// (owner decision, #63). A refusal has two causes. Strength: a drawn N of 50
+/// or more, with p = 300 x 50 / N, at least 1 and at most 299 (a test that
+/// reaches the full drive is not a refusal). Obstruction: where the unit has a
+/// `refusal_share`, a keyed draw per (hole, unit, test) under the site's
+/// share, with p uniform in [`OBSTRUCTION_PEN_MM`] from the same stream.
+pub(super) fn ispt(site: &Site, hole: &Hole, sample: &Sample) -> Option<Spt> {
+    let spec = specimen_at(site, hole, sample, sample.top)?;
+    let n = raw_n(site, &spec)?;
+    let pen = if n >= REFUSAL_BLOWS {
+        let p = (MAIN_DRIVE_MM * REFUSAL_BLOWS) as f64 / n as f64;
+        Some(whole(p).clamp(1, MAIN_DRIVE_MM - 1))
+    } else {
+        spec.model.spt_refusal_share.and_then(|share| {
+            let mut rng = Key {
+                tag: "spt-refusal",
+                hole: spec.hole_index as u64,
+                unit: spec.unit,
+                test: spec.sample_index,
+            }
+            .rng(site.properties.seed());
+            let stopped = uniform(&mut rng, 0.0, 1.0) < share;
+            let p = uniform(&mut rng, OBSTRUCTION_PEN_MM.0, OBSTRUCTION_PEN_MM.1);
+            stopped.then(|| whole(p))
+        })
+    };
+    Some(match pen {
+        Some(p) => Spt {
+            nval: REFUSAL_BLOWS,
+            main: REFUSAL_BLOWS,
+            npen: SEATING_MM + p,
+            rep: format!("{REFUSAL_BLOWS}/{p}"),
+        },
+        None => Spt {
+            nval: n,
+            main: n,
+            npen: SEATING_MM + MAIN_DRIVE_MM,
+            rep: format!("N={n}"),
+        },
+    })
+}
+
+/// The ISPT headings that describe the test `ISPT_NVAL` counts, so are listed
+/// only with it.
+pub const ISPT_DEPENDENT_HEADINGS: &[&str] = &["ISPT_MAIN", "ISPT_NPEN", "ISPT_REP"];
 
 fn text<T: std::fmt::Display>(v: Option<T>) -> String {
     v.map(|v| v.to_string()).unwrap_or_default()
@@ -491,7 +563,22 @@ pub(super) const PRODUCERS: &[Producer] = &[
     Producer {
         group: "ISPT",
         heading: "ISPT_NVAL",
-        value: |s, h, x| text(ispt_nval(s, h, x)),
+        value: |s, h, x| text(ispt(s, h, x).map(|t| t.nval)),
+    },
+    Producer {
+        group: "ISPT",
+        heading: "ISPT_MAIN",
+        value: |s, h, x| text(ispt(s, h, x).map(|t| t.main)),
+    },
+    Producer {
+        group: "ISPT",
+        heading: "ISPT_NPEN",
+        value: |s, h, x| text(ispt(s, h, x).map(|t| t.npen)),
+    },
+    Producer {
+        group: "ISPT",
+        heading: "ISPT_REP",
+        value: |s, h, x| text(ispt(s, h, x).map(|t| t.rep)),
     },
 ];
 
@@ -1225,6 +1312,432 @@ rate = {{ min = 1.0, max = 1.0, basis = "test fixture" }}
             assert_eq!(
                 cells(&a, "ISPT", "ISPT_NVAL"),
                 cells(&c, "ISPT", "ISPT_NVAL")
+            );
+        }
+    }
+    // SPT refusals (#63). RTD is coarse, with its own N; WLC is fine, with
+    // strength and Stroud and Butler, and described with very_coarse so it
+    // may take an obstruction share.
+
+    const RTD_N: &str = "spt_n = { min = 10, max = 30, basis = \"test fixture\" }\n";
+    const ISPT_ALL: &str = "[\"ISPT_NVAL\", \"ISPT_MAIN\", \"ISPT_NPEN\", \"ISPT_REP\"]";
+
+    /// The fixture with strength on its fine units, ISPT listing all four
+    /// headings over every unit, RTD's N replaced by `rtd_n` (a range body)
+    /// and `rtd_share` and `wlc_share` added as refusal shares ("" for none).
+    fn refusal_preset(rtd_n: &str, rtd_share: &str, wlc_share: &str) -> Preset {
+        let mut text = strong_fixture().replacen(
+            RTD_N,
+            &format!(
+                "spt_n = {{ {rtd_n}, basis = \"test fixture\" }}\n{}",
+                share_line(rtd_share)
+            ),
+            1,
+        );
+        text = text.replacen(
+            "colours = [\"brown\", \"orangeish brown\"] }",
+            "colours = [\"brown\", \"orangeish brown\"], very_coarse = { cobbles = \"low\" } }",
+            1,
+        );
+        if !wlc_share.is_empty() {
+            // WLC is the first unit with the spt relation line.
+            let rel = "spt = { relation = \"spt.stroud_butler\", f1 = { min = 4, max = 6, basis = \"test fixture\" } }";
+            text = text.replacen(
+                rel,
+                &format!("{}, refusal_share = {wlc_share} }}", &rel[..rel.len() - 2]),
+                1,
+            );
+        }
+        let _ = write!(
+            text,
+            "\n[[suite]]\ngroup = \"ISPT\"\nheadings = {ISPT_ALL}\nunits = [\"RTD\", \"WLC\", \"LC\"]\nrate = {{ min = 1.0, max = 1.0, basis = \"test fixture\" }}\n"
+        );
+        Preset::from_toml(&text).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    fn share_line(share: &str) -> String {
+        if share.is_empty() {
+            String::new()
+        } else {
+            format!("spt = {{ refusal_share = {share} }}\n")
+        }
+    }
+
+    /// Every ISPT row of the seeds as (unit's N cells): NVAL, MAIN, NPEN, REP.
+    fn ispt_rows(p: &Preset, seeds: u64) -> Vec<(i64, i64, i64, String)> {
+        let mut out = Vec::new();
+        for seed in 0..seeds {
+            let m = file(p, seed, 6);
+            let (n, main, npen, rep) = (
+                cells(&m, "ISPT", "ISPT_NVAL"),
+                cells(&m, "ISPT", "ISPT_MAIN"),
+                cells(&m, "ISPT", "ISPT_NPEN"),
+                cells(&m, "ISPT", "ISPT_REP"),
+            );
+            for i in 0..n.len() {
+                out.push((int(&n[i]), int(&main[i]), int(&npen[i]), rep[i].clone()));
+            }
+        }
+        out
+    }
+
+    /// A drawn N of 50 or more is a refusal: N 50 (not extrapolated), MAIN 50,
+    /// NPEN 150 + p and REP "50/p", p under the 300 mm main drive.
+    #[test]
+    fn a_strength_refusal_is_written_as_50_with_the_penetration_reached() {
+        let p = refusal_preset("min = 60, max = 90", "", "");
+        let rows = ispt_rows(&p, 8);
+        let mut refusals = 0;
+        for (n, main, npen, rep) in &rows {
+            if let Some(pen) = rep.strip_prefix("50/") {
+                let pen: i64 = pen.parse().unwrap();
+                assert!((1..300).contains(&pen), "p {pen}");
+                assert_eq!((*n, *main, *npen), (50, 50, 150 + pen), "{rep}");
+                refusals += 1;
+            }
+        }
+        // RTD tests all draw 60-90 and refuse; the clays rarely do.
+        assert!(refusals > 40, "{refusals} refusals of {}", rows.len());
+    }
+
+    /// The (REP, NVAL, NPEN) of every ISPT row in an RTD stratum over `seeds`.
+    fn rtd_rows(p: &Preset, seeds: u64) -> Vec<(String, i64, i64)> {
+        let mut v = Vec::new();
+        for seed in 0..seeds {
+            let site = build::build(p, seed, 6);
+            let m = build::lower(&site, p, seed, Grid::Local);
+            let (loca, top, rep, n, npen) = (
+                cells(&m, "ISPT", "LOCA_ID"),
+                cells(&m, "ISPT", "ISPT_TOP"),
+                cells(&m, "ISPT", "ISPT_REP"),
+                cells(&m, "ISPT", "ISPT_NVAL"),
+                cells(&m, "ISPT", "ISPT_NPEN"),
+            );
+            for i in 0..rep.len() {
+                let hole = site.holes.iter().position(|h| h.id == loca[i]).unwrap();
+                let at = num(&top[i]);
+                let in_rtd = site.holes[hole]
+                    .strata
+                    .iter()
+                    .any(|s| s.unit == "RTD" && s.top <= at && at < s.base);
+                if in_rtd {
+                    v.push((rep[i].clone(), int(&n[i]), int(&npen[i])));
+                }
+            }
+        }
+        v
+    }
+
+    /// p = 300 x 50 / N: a unit whose model N is 100 refuses at about 150 mm
+    /// (a little more, as the scattered N's median sits under its model).
+    #[test]
+    fn the_penetration_of_a_strength_refusal_follows_n() {
+        let p = refusal_preset("min = 100, max = 100", "", "");
+        let rows = rtd_rows(&p, 120);
+        assert!(rows.len() > 150, "{}", rows.len());
+        let mut pens: Vec<i64> = rows
+            .iter()
+            .filter(|r| r.0.starts_with("50/"))
+            .map(|r| r.0[3..].parse().unwrap())
+            .collect();
+        pens.sort_unstable();
+        assert!(pens.len() * 10 > rows.len() * 9, "{} refused", pens.len());
+        let median = pens[pens.len() / 2];
+        assert!((130..=200).contains(&median), "median {median}");
+    }
+
+    #[test]
+    fn an_ordinary_test_writes_main_equal_to_n_npen_450_and_rep_n() {
+        let p = refusal_preset("min = 10, max = 30", "", "");
+        let mut ordinary = 0;
+        for (n, main, npen, rep) in ispt_rows(&p, 8) {
+            if !rep.starts_with("50/") {
+                assert!(n < 50);
+                assert_eq!((main, npen, rep), (n, 450, format!("N={n}")));
+                ordinary += 1;
+            }
+        }
+        assert!(ordinary > 100, "{ordinary}");
+    }
+
+    #[test]
+    fn no_nval_is_ever_above_50() {
+        let p = refusal_preset(
+            "min = 40, max = 120",
+            "{ min = 0.1, max = 0.3, basis = \"test fixture\" }",
+            "",
+        );
+        for (n, main, _, _) in ispt_rows(&p, 12) {
+            assert!(n <= 50 && main <= 50, "N {n} MAIN {main}");
+        }
+    }
+
+    /// With N far below 50 every refusal is an obstruction one, so the
+    /// refused fraction is the share, N stays 50, and p is 25 to 275 mm.
+    #[test]
+    fn the_obstruction_refusals_match_the_share_over_many_seeds() {
+        let p = refusal_preset(
+            "min = 10, max = 30",
+            "{ share = 0.3, basis = \"test fixture\" }",
+            "",
+        );
+        let rtd = rtd_rows(&p, 400);
+        assert!(rtd.len() > 1000, "{} RTD tests is too few", rtd.len());
+        let refused: Vec<_> = rtd.iter().filter(|r| r.0.starts_with("50/")).collect();
+        let rate = refused.len() as f64 / rtd.len() as f64;
+        assert!((rate - 0.3).abs() < 0.04, "rate {rate} of {}", rtd.len());
+        // A rare outlier still refuses by strength (p up to 299), so most but
+        // not all penetrations are the obstruction draw's 25 to 275 mm.
+        let mut pens = Vec::new();
+        for (rep, n, npen) in &refused {
+            let pen: i64 = rep[3..].parse().unwrap();
+            assert_eq!((*n, *npen), (50, 150 + pen));
+            pens.push(pen);
+        }
+        let inside = pens.iter().filter(|p| (25..=275).contains(*p)).count();
+        assert!(inside * 100 > pens.len() * 90, "{inside} of {}", pens.len());
+        assert!(pens.iter().any(|&p| p < 60) && pens.iter().any(|&p| p > 240));
+    }
+
+    /// A unit with the Stroud and Butler relation takes the obstruction share
+    /// too, as a coarse one does.
+    #[test]
+    fn a_fine_unit_with_very_coarse_refuses_by_obstruction_too() {
+        let share = "{ share = 0.4, basis = \"test fixture\" }";
+        let with = refusal_preset("min = 10, max = 30", "", share);
+        let without = refusal_preset("min = 10, max = 30", "", "");
+        let (a, b) = (ispt_rows(&with, 30), ispt_rows(&without, 30));
+        assert_eq!(a.len(), b.len());
+        let refused = |rows: &[(i64, i64, i64, String)]| {
+            rows.iter().filter(|r| r.3.starts_with("50/")).count()
+        };
+        // WLC tests form a minority of the rows, so the share adds a lot.
+        assert!(
+            refused(&a) > refused(&b) + 30,
+            "{} vs {}",
+            refused(&a),
+            refused(&b)
+        );
+    }
+
+    /// The share is drawn once per site, uniform in its range, from a stream
+    /// keyed by the unit: every hole and depth of a site sees the same value.
+    #[test]
+    fn the_refusal_share_is_drawn_once_per_site_within_its_range() {
+        let p = refusal_preset(
+            "min = 10, max = 30",
+            "{ min = 0.1, max = 0.5, basis = \"test fixture\" }",
+            "",
+        );
+        let mut seen = std::collections::BTreeSet::new();
+        for seed in 0..80 {
+            let site = build::build(&p, seed, 6);
+            let mut site_share = None;
+            for (k, hole) in site.holes.iter().enumerate() {
+                for s in hole.strata.iter().filter(|s| s.unit == "RTD") {
+                    for depth in [s.top, f64::midpoint(s.top, s.base)] {
+                        let e = site.properties_at(k, depth).unwrap();
+                        let share = e.spt_refusal_share.expect("RTD has a share");
+                        assert!((0.1..=0.5).contains(&share), "{share}");
+                        assert_eq!(
+                            site_share.get_or_insert(share).to_bits(),
+                            share.to_bits(),
+                            "seed {seed}"
+                        );
+                    }
+                }
+                // The fine units carry none.
+                for s in hole.strata.iter().filter(|s| s.unit != "RTD") {
+                    assert!(
+                        site.properties_at(k, s.top)
+                            .unwrap()
+                            .spt_refusal_share
+                            .is_none()
+                    );
+                }
+            }
+            if let Some(s) = site_share {
+                seen.insert(s.to_bits());
+            }
+        }
+        assert!(seen.len() > 30, "{} distinct shares", seen.len());
+    }
+
+    /// A share changes ISPT results and nothing else: every other group, and
+    /// the ISPT keys, are the bytes of the file without it.
+    #[test]
+    fn a_refusal_share_moves_only_the_ispt_results() {
+        let share = "{ share = 0.3, basis = \"test fixture\" }";
+        let (on, off) = (
+            refusal_preset("min = 10, max = 30", share, share),
+            refusal_preset("min = 10, max = 30", "", ""),
+        );
+        for seed in 0..10 {
+            let (a, b) = (file(&on, seed, 5), file(&off, seed, 5));
+            assert_eq!(a.groups.len(), b.groups.len());
+            for (ga, gb) in a.groups.iter().zip(&b.groups) {
+                assert_eq!(ga.code, gb.code);
+                if ga.code == "ISPT" {
+                    for h in ["LOCA_ID", "ISPT_TOP"] {
+                        assert_eq!(cells(&a, "ISPT", h), cells(&b, "ISPT", h), "{h}");
+                    }
+                } else {
+                    let rows = |g: &crate::synth::model::Group| {
+                        g.rows.iter().map(|r| r.values.clone()).collect::<Vec<_>>()
+                    };
+                    assert_eq!(rows(ga), rows(gb), "{}, seed {seed}", ga.code);
+                }
+            }
+            assert_ne!(
+                cells(&a, "ISPT", "ISPT_REP"),
+                cells(&b, "ISPT", "ISPT_REP"),
+                "seed {seed}"
+            );
+        }
+    }
+
+    const LINEAR_SHARE: &str = "{ top = { min = 0.0, max = 0.0, basis = \"test fixture\" }, per_m = { min = 0.12, max = 0.12, basis = \"test fixture\" } }";
+
+    /// A linear share rises with depth within a site (clamped at 1), and so
+    /// do the refusals it causes over many seeds.
+    #[test]
+    fn a_linear_refusal_share_rises_with_depth() {
+        let p = refusal_preset("min = 10, max = 30", LINEAR_SHARE, "");
+        let (mut shallow, mut deep) = ((0u32, 0u32), (0u32, 0u32));
+        for seed in 0..300 {
+            let site = build::build(&p, seed, 6);
+            let m = build::lower(&site, &p, seed, Grid::Local);
+            let (loca, top, rep) = (
+                cells(&m, "ISPT", "LOCA_ID"),
+                cells(&m, "ISPT", "ISPT_TOP"),
+                cells(&m, "ISPT", "ISPT_REP"),
+            );
+            for (k, hole) in site.holes.iter().enumerate() {
+                for s in hole.strata.iter().filter(|s| s.unit == "RTD") {
+                    let (a, b) = (
+                        site.properties_at(k, s.top)
+                            .unwrap()
+                            .spt_refusal_share
+                            .unwrap(),
+                        site.properties_at(k, s.base - 0.01)
+                            .unwrap()
+                            .spt_refusal_share
+                            .unwrap(),
+                    );
+                    assert!(a <= b && (0.0..=1.0).contains(&b), "{a} {b}");
+                    assert!(
+                        (a - (0.12 * s.top).min(1.0)).abs() < 1e-9,
+                        "{a} at {}",
+                        s.top
+                    );
+                }
+            }
+            for i in 0..rep.len() {
+                let hole = site.holes.iter().position(|h| h.id == loca[i]).unwrap();
+                let at = num(&top[i]);
+                if site.holes[hole]
+                    .strata
+                    .iter()
+                    .any(|s| s.unit == "RTD" && s.top <= at && at < s.base)
+                {
+                    let bucket = if at < 2.5 { &mut shallow } else { &mut deep };
+                    bucket.0 += u32::from(rep[i].starts_with("50/"));
+                    bucket.1 += 1;
+                }
+            }
+        }
+        assert!(shallow.1 > 100 && deep.1 > 100, "{shallow:?} {deep:?}");
+        let (s, d) = (
+            f64::from(shallow.0) / f64::from(shallow.1),
+            f64::from(deep.0) / f64::from(deep.1),
+        );
+        assert!(s < 0.25 && d > 0.3 && d > s + 0.15, "shallow {s}, deep {d}");
+    }
+
+    /// The linear share's `top` and `per_m` are each drawn once per site in
+    /// their ranges.
+    #[test]
+    fn the_linear_shares_top_and_slope_are_drawn_once_per_site() {
+        let share = "{ top = { min = 0.0, max = 0.1, basis = \"test fixture\" }, per_m = { min = 0.01, max = 0.03, basis = \"test fixture\" } }";
+        let p = refusal_preset("min = 10, max = 30", share, "");
+        let mut seen = std::collections::BTreeSet::new();
+        for seed in 0..60 {
+            let site = build::build(&p, seed, 6);
+            let mut line: Option<(f64, f64)> = None;
+            for (k, hole) in site.holes.iter().enumerate() {
+                for s in hole.strata.iter().filter(|s| s.unit == "RTD") {
+                    let (z0, z1) = (s.top + 0.01, s.base - 0.01);
+                    let (a, b) = (
+                        site.properties_at(k, z0)
+                            .unwrap()
+                            .spt_refusal_share
+                            .unwrap(),
+                        site.properties_at(k, z1)
+                            .unwrap()
+                            .spt_refusal_share
+                            .unwrap(),
+                    );
+                    if z1 - z0 < 0.5 || b >= 1.0 {
+                        continue;
+                    }
+                    let per_m = (b - a) / (z1 - z0);
+                    let top = a - per_m * z0;
+                    assert!((0.0..=0.1 + 1e-9).contains(&top), "top {top}");
+                    assert!(
+                        (0.01 - 1e-9..=0.03 + 1e-9).contains(&per_m),
+                        "per_m {per_m}"
+                    );
+                    let (t0, p0) = *line.get_or_insert((top, per_m));
+                    assert!(
+                        (t0 - top).abs() < 1e-9 && (p0 - per_m).abs() < 1e-9,
+                        "seed {seed}"
+                    );
+                    seen.insert(per_m.to_bits());
+                }
+            }
+        }
+        assert!(seen.len() > 20, "{} distinct slopes", seen.len());
+    }
+
+    /// A plain share draws as it did before the linear form existed: the
+    /// output of a fixture with one is pinned.
+    #[test]
+    fn a_plain_refusal_share_is_byte_identical_to_before_the_linear_form() {
+        use sha2::{Digest, Sha256};
+        let p = refusal_preset(
+            "min = 10, max = 30",
+            "{ min = 0.1, max = 0.5, basis = \"test fixture\" }",
+            "{ share = 0.3, basis = \"test fixture\" }",
+        );
+        let mut all = String::new();
+        for seed in 0..3 {
+            all.push_str(&emit_to_string(&file(&p, seed, 5)));
+        }
+        let got = crate::synth::hex(&Sha256::digest(all.as_bytes()));
+        assert_eq!(
+            (got.as_str(), all.len()),
+            (
+                "30dbaad5492b2822c653b44c2a2692afc0736fd61e369f69026fe49f2c6b9a52",
+                26335
+            ),
+            "taken on the commit before the linear form: re-pin only on purpose"
+        );
+    }
+
+    #[test]
+    fn a_file_with_refusals_is_rust_clean_across_seeds() {
+        let share = "{ min = 0.1, max = 0.4, basis = \"test fixture\" }";
+        let p = refusal_preset("min = 30, max = 70", share, share);
+        let dir = tempfile::tempdir().unwrap();
+        for seed in 0..25 {
+            let m = file(&p, seed, 6);
+            let path = dir.path().join("site.ags");
+            std::fs::write(&path, emit_to_string(&m)).unwrap();
+            assert_eq!(rust_check(&path).0, RustResult::Clean, "seed {seed}");
+            assert!(
+                cells(&m, "ISPT", "ISPT_REP")
+                    .iter()
+                    .any(|r| r.starts_with("50/"))
             );
         }
     }

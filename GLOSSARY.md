@@ -49,6 +49,10 @@ _Avoid_: fill, artificial ground
 A stratum of a unit or lens whose preset entry sets `water_bearing`. A hole that meets one strikes water at its top, and the readings rise toward the water table, or stay at the strike when the table is deeper (perched water). Optionally a table with a `share` (0 to 1, cited, drawn once per site), the fraction of holes meeting the stratum that yield water in it; `true` is share 1. A hole that does not yield gets no strike from the stratum, and the water-table rule applies as before. Never a made-ground unit.
 _Avoid_: aquifer, wet layer
 
+**Refusal**:
+An SPT stopped at 50 blows before the full 300 mm main drive, written as N 50 (not extrapolated), `ISPT_MAIN` 50, `ISPT_NPEN` 150 plus the penetration reached, and `ISPT_REP` "50/<mm>". Any drawn N of 50 or more is one (strength), and a unit may add a `spt.refusal_share` for cobble and boulder strikes (obstruction).
+_Avoid_: capped N, extrapolated N
+
 **Very coarse clause**:
 The optional "with low cobble content" part of a description (BS 5930 Table 15), set by a unit's `very_coarse` constraint as a level for cobbles, boulders or both. It closes the soil description proper, and consumes no random draws.
 _Avoid_: cobble tag, oversize

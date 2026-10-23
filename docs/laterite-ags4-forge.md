@@ -93,11 +93,17 @@ sources: []
 > the **site model** (ADR 0001, `docs/adr/0001-forge-owns-a-site-model.md` in
 > this repo): a preset, either a shipped one (`london-basin`, `tyneside-till`) or a TOML path,
 > describes believable synthetic ground, and forge builds holes, strata,
-> samples and the preset's test suite from it. `london-basin` v4 writes PROJ,
+> samples and the preset's test suite from it. `london-basin` v5 writes PROJ,
 > TRAN, LOCA, GEOL, SAMP, LNMC, LLPL, LDEN, TRIG/TRIT, ISPT and WSTG/WSTD,
 > with every value from the property model and every range cited in the
 > preset (`docs/research/london-basin-sources.md` gives the calibration).
-> `tyneside-till` v1 writes the same groups for NE England glacial till:
+> Its ISPT rows carry `ISPT_NVAL`, `ISPT_MAIN`, `ISPT_NPEN` and `ISPT_REP`; a
+> test that reaches 50 blows before the full 300 mm main drive is a refusal
+> (N 50, MAIN 50, NPEN 150 plus the penetration reached, REP "50/<mm>"), from
+> strength (any drawn N of 50 or more) and, where a preset sets
+> `spt.refusal_share`, from cobble and boulder strikes (ADR 0001, "SPT
+> refusals").
+> `tyneside-till` v2 writes the same groups for NE England glacial till:
 > weathered, red and grey till with a glaciofluvial sand and gravel lens in
 > the grey till, water-bearing in a 0.36 share of the holes it reaches,
 > calibrated to Clarke et al. 2008 and a BGS NGDC crawl
