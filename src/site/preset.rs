@@ -84,9 +84,11 @@ pub struct Unit {
     /// `MADE GROUND: ` + matrix + constituents, and it never yields a water
     /// strike or takes a lab test.
     pub made_ground: Option<MadeGroundSpec>,
-    /// A hole that meets this unit strikes water at its top (ADR 0001,
-    /// "Water-bearing strata"). Never set on a made-ground unit.
-    pub water_bearing: bool,
+    /// `Some` makes the unit water-bearing: a hole that meets it strikes
+    /// water at its top with probability `share`, drawn once per site in
+    /// the range (ADR 0001, "Water-bearing strata"). `true` is share 1.
+    /// Never set on a made-ground unit.
+    pub water_bearing: Option<Range>,
     pub sampling: Sampling,
     /// Index properties (required).
     pub properties: Properties,
@@ -149,8 +151,8 @@ pub struct Lens {
     /// hole, within `[0, 1]`.
     pub depth_in_host: Range,
     pub description: DescriptionSpec,
-    /// A hole that meets this lens strikes water at its top.
-    pub water_bearing: bool,
+    /// As [`Unit::water_bearing`].
+    pub water_bearing: Option<Range>,
     pub sampling: Sampling,
     /// Index properties (required).
     pub properties: Properties,
@@ -366,12 +368,20 @@ impl Preset {
     }
 
     /// Whether `unit`, a unit or lens id, is water-bearing.
+    #[cfg(test)]
     pub fn is_water_bearing(&self, unit: &str) -> bool {
+        self.water_share(unit).is_some()
+    }
+
+    /// The strike share range of `unit`, a unit or lens id, when it is
+    /// water-bearing. `true` in the file is the range 1 to 1.
+    pub fn water_share(&self, unit: &str) -> Option<&Range> {
         self.units
             .iter()
-            .map(|u| (&u.id, u.water_bearing))
-            .chain(self.lenses.iter().map(|l| (&l.id, l.water_bearing)))
-            .any(|(id, wb)| id == unit && wb)
+            .map(|u| (&u.id, &u.water_bearing))
+            .chain(self.lenses.iter().map(|l| (&l.id, &l.water_bearing)))
+            .find(|(id, _)| *id == unit)
+            .and_then(|(_, wb)| wb.as_ref())
     }
 
     pub fn from_toml(text: &str) -> Result<Preset, PresetErrors> {
@@ -1460,25 +1470,41 @@ fn read_suite_rate(e: &mut Node, errs: &mut Vec<String>) -> Option<Range> {
     Some(r)
 }
 
-/// Reads the optional `water_bearing` of a unit or lens: a boolean, false when
-/// absent. `made_ground` is whether the unit is made ground, which never
-/// yields water. The outer `None` is a problem already reported.
-fn read_water_bearing(n: &mut Node, made_ground: bool, errs: &mut Vec<String>) -> Option<bool> {
+/// Reads the optional `water_bearing` of a unit or lens: `true` (share 1),
+/// `false` (absent), or a table `{ share = ... }` read like a made-ground
+/// share. `made_ground` is whether the unit is made ground, which never
+/// yields water.
+// Outer `None` is a reported problem; inner `None` is "not water-bearing".
+#[allow(clippy::option_option)]
+fn read_water_bearing(
+    n: &mut Node,
+    made_ground: bool,
+    errs: &mut Vec<String>,
+) -> Option<Option<Range>> {
     let at = n.at("water_bearing");
+    let refuse = |errs: &mut Vec<String>| {
+        errs.push(format!(
+            "{at}: not allowed on a made-ground unit (Made Ground never yields a water strike)"
+        ));
+        None
+    };
     match n.get("water_bearing") {
-        None => Some(false),
-        Some(Value::Boolean(b)) => {
-            if *b && made_ground {
-                errs.push(format!(
-                    "{at}: not allowed on a made-ground unit (Made Ground never yields a water strike)"
-                ));
-                None
-            } else {
-                Some(*b)
-            }
+        None | Some(Value::Boolean(false)) => Some(None),
+        Some(Value::Boolean(true) | Value::Table(_)) if made_ground => refuse(errs),
+        Some(Value::Boolean(true)) => Some(Some(Range {
+            min: 1.0,
+            max: 1.0,
+            basis: String::new(),
+            skew: None,
+        })),
+        Some(Value::Table(t)) => {
+            let mut w = Node::new(t, at);
+            let share = read_share(&mut w, errs);
+            w.finish(errs);
+            share.map(Some)
         }
         Some(_) => {
-            errs.push(format!("{at}: must be true or false"));
+            errs.push(format!("{at}: must be true, false or a table with a share"));
             None
         }
     }
@@ -3157,15 +3183,15 @@ rate = { min = 1, max = 1, basis = "test fixture" }
     #[test]
     fn water_bearing_loads_on_a_unit_and_a_lens_and_defaults_to_false() {
         let p = Preset::from_toml(&valid()).unwrap();
-        assert!(p.units.iter().all(|u| !u.water_bearing));
+        assert!(p.units.iter().all(|u| u.water_bearing.is_none()));
         let on = rtd_made_ground(&valid(), "false")
             .replace("made_ground = false", "water_bearing = true");
         let p = Preset::from_toml(&on).expect("valid");
-        assert!(p.units[0].water_bearing && p.is_water_bearing("RTD"));
+        assert!(p.units[0].water_bearing.is_some() && p.is_water_bearing("RTD"));
         assert!(!p.is_water_bearing("LC"));
         let lens = lens_with("host = \"LC\"", "host = \"LC\"\nwater_bearing = true");
         let p = Preset::from_toml(&lens).expect("valid");
-        assert!(p.lenses[0].water_bearing && p.is_water_bearing(&p.lenses[0].id));
+        assert!(p.lenses[0].water_bearing.is_some() && p.is_water_bearing(&p.lenses[0].id));
     }
 
     #[test]
@@ -3187,11 +3213,89 @@ rate = { min = 1, max = 1, basis = "test fixture" }
             .replace("made_ground = false", "water_bearing = \"yes\"");
         assert_eq!(
             errors_of(&text).join("\n"),
-            "units[0] (RTD).water_bearing: must be true or false"
+            "units[0] (RTD).water_bearing: must be true, false or a table with a share"
         );
         let lens = lens_with("host = \"LC\"", "host = \"LC\"\nwater_bearing = 1");
         let e = errors_of(&lens).join("\n");
-        assert!(e.contains(".water_bearing: must be true or false"), "{e}");
+        assert!(
+            e.contains(".water_bearing: must be true, false or a table with a share"),
+            "{e}"
+        );
+    }
+
+    fn wb_unit(wb: &str) -> String {
+        rtd_made_ground(&valid(), "false")
+            .replace("made_ground = false", &format!("water_bearing = {wb}"))
+    }
+
+    #[test]
+    fn water_bearing_takes_a_share_range_or_a_plain_share_with_a_basis() {
+        let range = |text: &str| {
+            Preset::from_toml(text).unwrap().units[0]
+                .water_bearing
+                .clone()
+        };
+        let t = range(&wb_unit("true")).expect("true is a share");
+        assert_eq!((t.min, t.max), (1.0, 1.0));
+        assert!(range(&wb_unit("false")).is_none());
+        let r = range(&wb_unit(
+            r#"{ share = { min = 0.3, max = 0.4, basis = "test fixture" } }"#,
+        ))
+        .unwrap();
+        assert_eq!((r.min, r.max, r.basis.as_str()), (0.3, 0.4, "test fixture"));
+        let r = range(&wb_unit(r#"{ share = 0.36, basis = "test fixture" }"#)).unwrap();
+        assert_eq!((r.min, r.max), (0.36, 0.36));
+        let lens = lens_with(
+            "host = \"LC\"",
+            "host = \"LC\"\nwater_bearing = { share = 0.5, basis = \"test fixture\" }",
+        );
+        assert!(
+            Preset::from_toml(&lens).unwrap().lenses[0]
+                .water_bearing
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn a_water_bearing_share_is_refused_when_out_of_range_or_without_a_basis() {
+        let e = errors_of(&wb_unit(r#"{ share = 1.2, basis = "test fixture" }"#)).join("\n");
+        assert!(
+            e.contains("units[0] (RTD).water_bearing.share: min 1.2 is outside 0 to 1"),
+            "{e}"
+        );
+        let e = errors_of(&wb_unit(
+            r#"{ share = { min = -0.1, max = 0.5, basis = "test fixture" } }"#,
+        ))
+        .join("\n");
+        assert!(
+            e.contains("water_bearing.share: min -0.1 is outside 0 to 1"),
+            "{e}"
+        );
+        let e = errors_of(&wb_unit("{ share = 0.5 }")).join("\n");
+        assert!(e.contains("units[0] (RTD).water_bearing: no basis"), "{e}");
+        let e = errors_of(&wb_unit("{ share = { min = 0.4, max = 0.5 } }")).join("\n");
+        assert!(
+            e.contains("units[0] (RTD).water_bearing.share: no basis"),
+            "{e}"
+        );
+        let e = errors_of(&wb_unit("{}")).join("\n");
+        assert!(
+            e.contains("units[0] (RTD).water_bearing.share: missing"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn a_water_bearing_table_is_refused_on_a_made_ground_unit_naming_the_field() {
+        let text = rtd_made_ground(&valid(), "true").replace(
+            "made_ground = true",
+            "made_ground = true\nwater_bearing = { share = 0.5, basis = \"test fixture\" }",
+        );
+        let e = errors_of(&text).join("\n");
+        assert!(
+            e.contains("units[0] (RTD).water_bearing: not allowed on a made-ground unit"),
+            "{e}"
+        );
     }
 
     #[test]

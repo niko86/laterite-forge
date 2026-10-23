@@ -96,6 +96,7 @@ pub(super) fn strikes(site: &Site, preset: &Preset, seed: u64) -> Vec<Strike> {
         .strike_rise_m
         .as_ref()
         .map_or(DEFAULT_RISE_M, |r| (r.min, r.max));
+    let shares = site_shares(preset, seed);
     let mut out = Vec::new();
     for (hi, hole) in site.holes.iter().enumerate() {
         let table = round2(site.properties.groundwater_depth(hole));
@@ -106,10 +107,11 @@ pub(super) fn strikes(site: &Site, preset: &Preset, seed: u64) -> Vec<Strike> {
             // Made Ground yields no strike, whatever its properties: perched
             // water is out of scope (niko86/laterite-forge#42, M2).
             .filter(|s| !preset.is_made_ground(&s.unit) && site.properties.is_coarse(&s.unit));
+        // The first water-bearing stratum down the hole that yields water.
         let bearing = hole
             .strata
             .iter()
-            .find(|s| preset.is_water_bearing(&s.unit));
+            .find(|s| yields(&shares, seed, hi, &s.unit));
         if in_table.is_none() && bearing.is_none() {
             continue;
         }
@@ -133,6 +135,36 @@ pub(super) fn strikes(site: &Site, preset: &Preset, seed: u64) -> Vec<Strike> {
         out.extend(by_stratum.or(by_table));
     }
     out
+}
+
+/// The strike share of each water-bearing unit or lens on this site, drawn
+/// once in the unit's range from a stream keyed by its id.
+fn site_shares(preset: &Preset, seed: u64) -> Vec<(&str, f64)> {
+    let ids = preset
+        .units
+        .iter()
+        .map(|u| u.id.as_str())
+        .chain(preset.lenses.iter().map(|l| l.id.as_str()));
+    ids.filter_map(|id| {
+        let r = preset.water_share(id)?;
+        let share = uniform(&mut Key::unit("water-share", id).rng(seed), r.min, r.max);
+        Some((id, share))
+    })
+    .collect()
+}
+
+/// Whether a hole's stratum of `unit` is water-bearing and yields water. A
+/// share of 1 makes no draw, so `water_bearing = true` moves nothing.
+fn yields(shares: &[(&str, f64)], seed: u64, hole: usize, unit: &str) -> bool {
+    let Some(&(_, share)) = shares.iter().find(|(id, _)| *id == unit) else {
+        return false;
+    };
+    share >= 1.0
+        || uniform(
+            &mut Key::stratum("water-bearing", hole, unit).rng(seed),
+            0.0,
+            1.0,
+        ) < share
 }
 
 /// The `WSTG` group, or `None` when no hole strikes water.
@@ -720,6 +752,138 @@ particle_density_ratio = {{ min = 2.6, max = 2.7, basis = "test fixture" }}
             with_lens("water_bearing = true", WIDE),
             deep_table("water_bearing = true", WIDE),
         ] {
+            for seed in 0..30 {
+                assert!(is_clean(&file(&p, seed, 6)), "seed {seed}");
+            }
+        }
+    }
+
+    /// The `water_bearing` line for a plain share.
+    fn share(v: f64) -> String {
+        format!("water_bearing = {{ share = {v}, basis = \"test fixture\" }}")
+    }
+
+    #[test]
+    fn the_struck_fraction_of_holes_meeting_the_stratum_matches_the_share() {
+        let p = deep_table(&share(0.4), WIDE);
+        let (mut met, mut struck) = (0_u32, 0_u32);
+        for seed in 0..300 {
+            let site = build::build(&p, seed, 6);
+            let found = strikes(&site, &p, seed);
+            for (hi, hole) in site.holes.iter().enumerate() {
+                if lens_top(hole).is_some() {
+                    met += 1;
+                    struck += u32::from(found.iter().any(|s| s.hole == hi));
+                }
+            }
+        }
+        assert!(met > 1000, "{met} holes met the lens");
+        let got = f64::from(struck) / f64::from(met);
+        assert!((got - 0.4).abs() < 0.05, "{struck} of {met} struck: {got}");
+    }
+
+    #[test]
+    fn a_struck_hole_strikes_at_the_top_of_the_stratum() {
+        let p = deep_table(&share(0.5), WIDE);
+        for seed in 0..30 {
+            let site = build::build(&p, seed, 6);
+            for s in strikes(&site, &p, seed) {
+                let top = lens_top(&site.holes[s.hole]).expect("met the lens");
+                assert!((s.depth - top).abs() < 1e-9, "seed {seed}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_share_is_drawn_once_per_site_within_its_range() {
+        let p = with_lens(
+            "water_bearing = { share = { min = 0.2, max = 0.8, basis = \"test fixture\" } }",
+            WIDE,
+        );
+        let mut seen = std::collections::BTreeSet::new();
+        for seed in 0..40 {
+            let found = site_shares(&p, seed);
+            let (_, v) = *found.iter().find(|(id, _)| *id == "WB").expect("WB");
+            assert!((0.2..=0.8).contains(&v), "{v}");
+            assert_eq!(found, site_shares(&p, seed), "same seed, same share");
+            seen.insert(format!("{v:.4}"));
+        }
+        assert!(seen.len() > 30, "{} distinct shares", seen.len());
+    }
+
+    #[test]
+    fn true_is_byte_identical_to_a_share_of_one() {
+        let (on, one) = (
+            with_lens("water_bearing = true", WIDE),
+            with_lens(&share(1.0), WIDE),
+        );
+        let range = with_lens(
+            "water_bearing = { share = { min = 1.0, max = 1.0, basis = \"test fixture\" } }",
+            WIDE,
+        );
+        for seed in 0..10 {
+            let want = emit_to_string(&file(&on, seed, 6));
+            assert_eq!(want, emit_to_string(&file(&one, seed, 6)), "seed {seed}");
+            assert_eq!(want, emit_to_string(&file(&range, seed, 6)), "seed {seed}");
+        }
+    }
+
+    #[test]
+    fn a_share_of_one_makes_no_per_hole_draw() {
+        // Every hole that meets the stratum strikes at its top, and the
+        // strike rise is the only draw: the same rows as the pre-share rule.
+        let p = with_lens("water_bearing = true", WIDE);
+        for seed in 0..10 {
+            let site = build::build(&p, seed, 6);
+            let found = strikes(&site, &p, seed);
+            assert_eq!(found.len(), 6, "seed {seed}");
+            for (hi, hole) in site.holes.iter().enumerate() {
+                let first = hole.strata.iter().find(|s| s.unit == "WB");
+                if let Some(first) = first {
+                    assert!((found[hi].depth - first.top).abs() < 1e-9);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_share_of_zero_gives_no_strikes_from_the_stratum() {
+        let zero = deep_table(&share(0.0), WIDE);
+        for seed in 0..30 {
+            let site = build::build(&zero, seed, 6);
+            assert!(strikes(&site, &zero, seed).is_empty(), "seed {seed}");
+            assert!(rows(&file(&zero, seed, 6), "WSTG").is_empty());
+        }
+    }
+
+    #[test]
+    fn a_hole_that_does_not_yield_falls_back_to_the_table_rule() {
+        // With the table in reach, a share of zero is the file without the
+        // flag, byte for byte.
+        let (zero, absent) = (with_lens(&share(0.0), WIDE), with_lens("", WIDE));
+        for seed in 0..10 {
+            assert_eq!(
+                emit_to_string(&file(&zero, seed, 6)),
+                emit_to_string(&file(&absent, seed, 6)),
+                "seed {seed}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_share_moves_only_the_water_groups() {
+        let (on, off) = (with_lens(&share(0.5), WIDE), with_lens("", WIDE));
+        for seed in 0..10 {
+            let (a, b) = (file(&on, seed, 6), file(&off, seed, 6));
+            for g in ["TRAN", "LOCA", "GEOL", "SAMP"] {
+                assert_eq!(text(&a, g), text(&b, g), "{g} at seed {seed}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_shared_water_bearing_file_is_rust_clean_across_seeds() {
+        for p in [with_lens(&share(0.5), WIDE), deep_table(&share(0.5), WIDE)] {
             for seed in 0..30 {
                 assert!(is_clean(&file(&p, seed, 6)), "seed {seed}");
             }

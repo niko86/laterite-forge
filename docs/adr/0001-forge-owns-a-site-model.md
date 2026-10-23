@@ -112,7 +112,7 @@ consumer can replace.
   the default is 0-0.5 m (`forge judgement`).
 - Water-bearing strata. A unit or lens may set `water_bearing = true` (an
   additive part of schema 1; the loader refuses it on a made-ground unit and
-  on a non-boolean). Thin glaciofluvial sand and gravel lenses in till are
+  on anything but a boolean or a share table). Thin glaciofluvial sand and gravel lenses in till are
   frequently water-bearing, perched or sub-artesian (CIRIA C504 Fig 6.3,
   p.117; Eyles & Sladen 1981, p.134), and a thin lens rarely contains the
   table, so the table rule almost never strikes there. A hole that meets a
@@ -125,6 +125,17 @@ consumer can replace.
   takes precedence over a table strike in a shallower coarse stratum (AGS
   allows several `WSTG` rows per hole; one keeps the file shape and the draw
   count of the table rule, `forge judgement`). Without the flag nothing moves.
+  Not every hole that meets such a stratum records a strike in it (a BGS
+  crawl of NE England found 89 of 249 holes meeting a granular layer, 36%), so
+  the flag may instead be a table, `water_bearing = { share = { min, max,
+  basis } }` (or `{ share = 0.36, basis = "..." }`), the share read like a
+  made-ground share and refused outside 0 to 1, without a basis, or on a
+  made-ground unit. The share is drawn once per site in its range from a
+  stream keyed by the unit or lens id. Each hole that meets the stratum then
+  draws once, keyed by hole and stratum, and yields water when the draw is
+  under the share. A hole that does not yield gets no strike from that stratum
+  (the next water-bearing stratum down is tried, then the table rule). `true`
+  is share 1 and makes no draw, so it stays byte-identical.
 - Coordinates are on a local grid by default. `--grid bng --origin <E>,<N>`
   adds national-grid coordinates for tools that only plot BNG, at an origin the
   consumer chooses and is responsible for. No shipped preset carries a real
