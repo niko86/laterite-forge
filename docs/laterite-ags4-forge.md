@@ -93,7 +93,7 @@ sources: []
 > the **site model** (ADR 0001, `docs/adr/0001-forge-owns-a-site-model.md` in
 > this repo): a preset, either the shipped `london-basin` or a TOML path,
 > describes believable synthetic ground, and forge builds holes, strata,
-> samples and the preset's test suite from it. `london-basin` v3 writes PROJ,
+> samples and the preset's test suite from it. `london-basin` v4 writes PROJ,
 > TRAN, LOCA, GEOL, SAMP, LNMC, LLPL, LDEN, TRIG/TRIT, ISPT and WSTG/WSTD,
 > with every value from the property model and every range cited in the
 > preset (`docs/research/london-basin-sources.md` gives the calibration).
