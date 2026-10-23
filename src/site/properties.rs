@@ -112,6 +112,8 @@ pub const LIQUIDITY_INDEX: Domain = Domain::between(-1.0, 3.0);
 pub const SPT_N: Domain = Domain::at_least(0.0);
 /// Moisture content, percent: a mass ratio of water to solids, not negative.
 pub const MOISTURE_CONTENT_PERCENT: Domain = Domain::at_least(0.0);
+/// Bulk density, kg/m3: positive.
+pub const BULK_DENSITY_KG_M3: Domain = Domain::above(0.0);
 /// Particle density ratio Gs: above 1 (denser than water) and below 4, which
 /// clears the densest common soil minerals (iron oxides sit near 5 but are
 /// not soil-forming here) with room.
@@ -134,7 +136,7 @@ const WATER_DENSITY_KG_M3: f64 = 1000.0;
 
 /// An outlier lands beyond the nearer range bound by this fraction of the
 /// range width, drawn between the two. Forge judgement.
-const OUTLIER_OVERSHOOT: (f64, f64) = (0.25, 0.75);
+pub(super) const OUTLIER_OVERSHOOT: (f64, f64) = (0.25, 0.75);
 
 /// Outlier-stream indices (the `test` part of the key) of the drawn
 /// quantities. Gs and Sr are smooth only: an outlier particle density is not
@@ -215,14 +217,22 @@ impl Drawn {
             return v;
         }
         let r = &self.quantity.range;
-        let width = r.max - r.min;
-        let beyond = if (v - r.min).abs() <= (r.max - v).abs() {
-            r.min - overshoot * width
-        } else {
-            r.max + overshoot * width
-        };
-        self.domain.clamp(beyond)
+        beyond_range(v, (r.min, r.max), overshoot, &self.domain)
     }
+}
+
+/// An outlier standing in for `v`: beyond the nearer end of `range` by
+/// `overshoot` (a fraction) of the range's width, clamped to `domain`. The
+/// property model and the written results (`site::results`) share it.
+pub(super) fn beyond_range(v: f64, range: (f64, f64), overshoot: f64, domain: &Domain) -> f64 {
+    let (lo, hi) = range;
+    let width = hi - lo;
+    let beyond = if (v - lo).abs() <= (hi - v).abs() {
+        lo - overshoot * width
+    } else {
+        hi + overshoot * width
+    };
+    domain.clamp(beyond)
 }
 
 /// Where and which: the inputs of one evaluation.
@@ -326,6 +336,23 @@ impl UnitModel {
     }
 }
 
+/// A quantity a written index result scatters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum IndexQuantity {
+    LiquidLimit,
+    PlasticLimit,
+    MoistureContent,
+    BulkDensity,
+}
+
+/// The interval a quantity spans in a unit, and the domain it is clamped to.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Band {
+    pub lo: f64,
+    pub hi: f64,
+    pub domain: Domain,
+}
+
 /// The site's property model: one [`UnitModel`] per unit or lens that carries
 /// properties, plus the water table.
 #[derive(Debug, Clone, PartialEq)]
@@ -403,6 +430,92 @@ impl PropertyModel {
             ),
             units,
         }
+    }
+
+    /// The seed the model was built under.
+    pub(super) fn seed(&self) -> u64 {
+        self.seed
+    }
+
+    /// The range `q` spans in `unit` (the interval a specimen's value sits in
+    /// before scatter) and the physical domain it is clamped to. `None` when
+    /// the unit has no such quantity or the range cannot be worked out. A
+    /// derived quantity's range is its extremes over the ends of the ranges it
+    /// derives from: LL = PL + PI, w = PL + LI x PI, and bulk density through
+    /// the phase relations at the ends of w, Gs and Sr.
+    pub(super) fn band(&self, unit: &str, q: IndexQuantity) -> Option<Band> {
+        let m = self.units.iter().find(|u| u.id == unit)?;
+        let ends = |d: &Drawn| [d.quantity.range.min, d.quantity.range.max];
+        let hull = |vs: Vec<f64>| {
+            let lo = vs.iter().copied().fold(f64::INFINITY, f64::min);
+            let hi = vs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            (lo.is_finite() && hi.is_finite()).then_some((lo, hi))
+        };
+        let w_range = || -> Option<(f64, f64)> {
+            match (&m.fine, &m.coarse) {
+                (Some(f), _) => {
+                    let mut vs = Vec::new();
+                    for pl in ends(&f.plastic_limit) {
+                        for pi in ends(&f.plasticity_index) {
+                            for li in ends(&f.liquidity_index) {
+                                vs.push((pl + li * pi).max(0.0));
+                            }
+                        }
+                    }
+                    hull(vs)
+                }
+                (None, Some(c)) => hull(ends(&c.moisture_content).to_vec()),
+                (None, None) => None,
+            }
+        };
+        let (range, domain) = match q {
+            IndexQuantity::LiquidLimit => {
+                let f = m.fine.as_ref()?;
+                let mut vs = Vec::new();
+                for pl in ends(&f.plastic_limit) {
+                    for pi in ends(&f.plasticity_index) {
+                        vs.push(pl + pi);
+                    }
+                }
+                (hull(vs)?, PLASTIC_LIMIT_PERCENT)
+            }
+            IndexQuantity::PlasticLimit => {
+                let f = m.fine.as_ref()?;
+                (
+                    hull(ends(&f.plastic_limit).to_vec())?,
+                    PLASTIC_LIMIT_PERCENT,
+                )
+            }
+            IndexQuantity::MoistureContent => (w_range()?, MOISTURE_CONTENT_PERCENT),
+            IndexQuantity::BulkDensity => {
+                let (w_lo, w_hi) = w_range()?;
+                let srs = m
+                    .saturation
+                    .as_ref()
+                    .map_or_else(|| vec![1.0], |s| ends(s).into_iter().chain([1.0]).collect());
+                let mut vs = Vec::new();
+                for w in [w_lo, w_hi] {
+                    for gs in ends(&m.particle_density) {
+                        for &sr in &srs {
+                            if let Ok(rho) = catalogue::bulk_density_kg_m3(
+                                w / 100.0,
+                                gs,
+                                sr,
+                                WATER_DENSITY_KG_M3,
+                            ) {
+                                vs.push(rho);
+                            }
+                        }
+                    }
+                }
+                (hull(vs)?, BULK_DENSITY_KG_M3)
+            }
+        };
+        Some(Band {
+            lo: range.0,
+            hi: range.1,
+            domain,
+        })
     }
 
     /// The water table's depth below ground at `hole`.

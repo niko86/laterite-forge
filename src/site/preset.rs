@@ -2008,10 +2008,10 @@ rate = { min = 1, max = 1, basis = "test fixture" }
     fn a_heading_no_producer_can_make_is_refused() {
         let e = suite_errors(&suite_with(
             "headings = []\nunits = [\"LC\"]\nrate = { min = 0.3",
-            "headings = [\"LLPL_LL\"]\nunits = [\"LC\"]\nrate = { min = 0.3",
+            "headings = [\"LLPL_PREP\"]\nunits = [\"LC\"]\nrate = { min = 0.3",
         ));
         assert!(
-            e.contains("suite[0].headings[0]: no producer makes LLPL_LL"),
+            e.contains("suite[0].headings[0]: no producer makes LLPL_PREP"),
             "{e}"
         );
         let e = suite_errors(&suite_with(

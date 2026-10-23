@@ -1,8 +1,8 @@
 //! A preset's suite: which test groups a `--site` file carries and on which
 //! samples (ADR 0001, "Output and determinism").
 //!
-//! This slice writes KEY and REQUIRED headings only; result values come from
-//! [`PRODUCERS`], which later slices fill. Everything here draws from its own
+//! A preset's suite writes KEY and REQUIRED headings, plus the headings it
+//! lists; their values come from [`PRODUCERS`] (index results: `results`). Everything here draws from its own
 //! keyed streams, so a suite moves no LOCA, GEOL or SAMP byte.
 //!
 //! Scheduling:
@@ -42,9 +42,9 @@ pub struct Producer {
 
 /// Every heading beyond KEY and REQUIRED the forge can produce. The loader
 /// refuses a suite heading not listed here; lowering calls `value`. Later
-/// slices add entries (LNMC, LLPL, LDEN, TRIG and TRIT results, ISPT N values)
+/// slices add entries (TRIG and TRIT results, ISPT N values)
 /// without touching the loader.
-pub const PRODUCERS: &[Producer] = &[];
+pub const PRODUCERS: &[Producer] = super::results::PRODUCERS;
 
 /// The producer for `heading` of `group`, if one is registered.
 pub fn producer(group: &str, heading: &str) -> Option<&'static Producer> {
