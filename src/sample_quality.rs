@@ -2,8 +2,9 @@
 //! quality class each `SAMP_TYPE` code can deliver.
 //!
 //! A forge-authored draft for owner review (`data/sample-quality/README.md`).
-//! Nothing calls it yet: choosing `SAMP_TYPE` by unit is the rest of
-//! niko86/laterite-forge#3, so the module allows `dead_code` until then.
+//! The site suite uses `permitted_samp_types`; choosing `SAMP_TYPE` by unit is
+//! the rest of niko86/laterite-forge#3, so the module allows `dead_code` until
+//! then.
 #![allow(dead_code)]
 
 use std::collections::BTreeMap;
