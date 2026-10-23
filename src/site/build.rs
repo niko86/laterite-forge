@@ -13,6 +13,7 @@ use super::draw::{Key, uniform};
 use super::ground::Field;
 use super::preset::{DescriptionSpec, Extent, Lens, Preset, Sampling};
 use super::properties::{LeadTerms, PropertyModel};
+use super::suite;
 use crate::synth::bs5930::{self, Lead, UnitDescription};
 use crate::synth::generic;
 use crate::synth::model::{Group, ProjectModel, Row, collect_abbr, collect_type, collect_unit};
@@ -433,12 +434,13 @@ pub fn marker(preset: &Preset) -> String {
 }
 
 /// Lower `site` into the groups the emitter writes: PROJ (with the marker),
-/// TRAN, LOCA, GEOL, SAMP, then ABBR/UNIT/TYPE covering exactly what those use.
+/// TRAN, LOCA, GEOL, SAMP, the preset's suite (if any), then ABBR/UNIT/TYPE covering exactly what those use.
 pub fn lower(site: &Site, preset: &Preset, seed: u64, grid: Grid) -> ProjectModel {
     let dict = Dictionary::bundled(DictVersion::V4_2);
     let mut groups = vec![proj(preset, seed), tran(seed), loca(site, grid)];
     groups.push(geol(site));
     groups.push(samp(site));
+    groups.extend(suite::groups(site, preset, seed, suite::PRODUCERS));
     let abbr = collect_abbr(&groups, &dict);
     let unit = collect_unit(&groups);
     let types = collect_type(&groups);
@@ -566,6 +568,28 @@ fn geol(site: &Site) -> Group {
     )
 }
 
+/// A hole's sample with its `SAMP_REF`.
+pub(super) struct Numbered<'a> {
+    /// The hole's 1-based count of samples top-down.
+    pub reference: String,
+    pub stratum: &'a Stratum,
+    pub sample: &'a Sample,
+}
+
+/// The hole's samples top-down, numbered as `SAMP` writes them, so the test
+/// groups that hang off SAMP carry the same KEY.
+pub(super) fn numbered(hole: &Hole) -> impl Iterator<Item = Numbered<'_>> {
+    hole.strata
+        .iter()
+        .flat_map(|st| st.samples.iter().map(move |sample| (st, sample)))
+        .enumerate()
+        .map(|(n, (stratum, sample))| Numbered {
+            reference: (n + 1).to_string(),
+            stratum,
+            sample,
+        })
+}
+
 /// SAMP, in dictionary heading order: the five-part KEY, then `SAMP_BASE`.
 /// `SAMP_REF` counts the hole's samples top-down, which with the top makes
 /// the KEY unique; `SAMP_ID` repeats it with the hole so it reads on its own.
@@ -574,21 +598,16 @@ fn samp(site: &Site) -> Group {
         .holes
         .iter()
         .flat_map(|h| {
-            h.strata
-                .iter()
-                .flat_map(|s| &s.samples)
-                .enumerate()
-                .map(|(n, s)| {
-                    let reference = (n + 1).to_string();
-                    Row::owned(vec![
-                        h.id.clone(),
-                        m2(s.top),
-                        reference.clone(),
-                        s.code.clone(),
-                        format!("{}-{reference}", h.id),
-                        m2(s.base),
-                    ])
-                })
+            numbered(h).map(|n| {
+                Row::owned(vec![
+                    h.id.clone(),
+                    m2(n.sample.top),
+                    n.reference.clone(),
+                    n.sample.code.clone(),
+                    format!("{}-{}", h.id, n.reference),
+                    m2(n.sample.base),
+                ])
+            })
         })
         .collect();
     group(
@@ -609,7 +628,7 @@ fn samp(site: &Site) -> Group {
 // rounded value, so any difference is a gap or an overlap.
 #[allow(clippy::float_cmp)]
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::pipeline::rust_check;
     use crate::synth::emit::emit_to_string;
@@ -617,7 +636,7 @@ mod tests {
 
     /// Three units: one often absent (its thickness range dips below zero),
     /// one always present, and a last unit that runs to final depth.
-    const FIXTURE: &str = r#"
+    pub(in crate::site) const FIXTURE: &str = r#"
 schema = 1
 name = "test-basin"
 version = 3

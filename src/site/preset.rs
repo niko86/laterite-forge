@@ -13,6 +13,7 @@ use toml::Table;
 use toml::Value;
 
 use super::properties::{self as props, Domain};
+use super::suite;
 
 /// The only schema this forge reads.
 const SCHEMA: i64 = 1;
@@ -34,6 +35,9 @@ pub struct Preset {
     pub units: Vec<Unit>,
     /// Empty when the preset has none.
     pub lenses: Vec<Lens>,
+    /// The lab and in-situ test groups the file carries; empty when the preset
+    /// has none.
+    pub suite: Vec<SuiteEntry>,
 }
 
 // Every field carries its unit as the TOML key does (`_m`).
@@ -97,6 +101,25 @@ pub struct Lens {
     /// Index properties (required).
     pub properties: Properties,
 }
+
+/// One test group of the preset's suite: which units it applies to and how
+/// often (ADR 0001, "Output and determinism").
+#[derive(Debug, Clone, PartialEq)]
+pub struct SuiteEntry {
+    /// An AGS group, one of [`SUITE_GROUPS`].
+    pub group: String,
+    /// Headings beyond KEY and REQUIRED, each made by a registered producer.
+    pub headings: Vec<String>,
+    /// Unit or lens ids the test applies to. Empty only for TRIT, which is
+    /// scheduled with its TRIG parent.
+    pub units: Vec<String>,
+    /// The fraction of eligible samples tested. `None` only for TRIT.
+    pub rate: Option<Range>,
+}
+
+/// The groups a suite may list. TRIT is a child of TRIG; ISPT is a LOCA child,
+/// the rest hang off SAMP.
+pub const SUITE_GROUPS: &[&str] = &["LNMC", "LLPL", "LDEN", "TRIG", "TRIT", "ISPT"];
 
 /// Constraints for the unit's description. The site layer checks the terms
 /// against the BS 5930 vocabulary, not the loader.
@@ -609,6 +632,7 @@ fn read_preset(root: &Table, errs: &mut Vec<String>) -> Option<Preset> {
     let hole_types = read_hole_types(&mut n, errs);
     let units = read_units(&mut n, errs);
     let lenses = read_lenses(&mut n, errs);
+    let suite = read_suite(&mut n, errs);
     n.finish(errs);
 
     Some(Preset {
@@ -619,6 +643,7 @@ fn read_preset(root: &Table, errs: &mut Vec<String>) -> Option<Preset> {
         hole_types: hole_types?,
         units: units?,
         lenses: lenses?,
+        suite: suite?,
     })
 }
 
@@ -941,6 +966,153 @@ fn read_lenses(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Lens>> {
         }
     }
     Some(out)
+}
+
+/// The optional `[[suite]]`: empty when absent.
+fn read_suite(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<SuiteEntry>> {
+    if !n.table.contains_key("suite") {
+        n.get("suite");
+        return Some(Vec::new());
+    }
+    let items = read_array(n, "suite", errs)?;
+    // Unit and lens ids as written, whether or not the entry itself loaded.
+    let ids: Vec<&str> = ["units", "lenses"]
+        .iter()
+        .filter_map(|k| match n.table.get(*k) {
+            Some(Value::Array(a)) => Some(a),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|u| u.as_table()?.get("id")?.as_str())
+        .collect();
+    let groups_written: Vec<Option<&str>> = match n.table.get("suite") {
+        Some(Value::Array(a)) => a
+            .iter()
+            .map(|e| e.as_table().and_then(|t| t.get("group")?.as_str()))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let dict = Dictionary::bundled(DictVersion::V4_2);
+    let mut out = Vec::new();
+    for (mut e, i) in items {
+        let group = req_str(&mut e, "group", errs);
+        let mut group_ok = false;
+        if let Some(g) = &group {
+            if !SUITE_GROUPS.contains(&g.as_str()) {
+                errs.push(format!(
+                    "{}: \"{g}\" is not a suite group ({})",
+                    e.at("group"),
+                    SUITE_GROUPS.join(", ")
+                ));
+            } else if dict.group(g).is_none() {
+                errs.push(format!(
+                    "{}: \"{g}\" is not in the bundled dictionary",
+                    e.at("group")
+                ));
+            } else if let Some(f) = groups_written.iter().position(|x| *x == Some(g.as_str()))
+                && f < i
+            {
+                errs.push(format!(
+                    "{}: suite[{f}] already has an entry for {g}",
+                    e.at("group")
+                ));
+            } else {
+                group_ok = true;
+            }
+        }
+        let trit = group.as_deref() == Some("TRIT");
+        if trit && !groups_written.contains(&Some("TRIG")) {
+            errs.push(format!("{}: TRIT needs a TRIG entry", e.path));
+        }
+        let headings =
+            read_suite_headings(&mut e, group.as_deref().filter(|_| group_ok), &dict, errs);
+        let (units, rate) = if trit {
+            for key in ["units", "rate"] {
+                if e.table.contains_key(key) {
+                    errs.push(format!(
+                        "{}: TRIT is scheduled with TRIG and has no {key} of its own",
+                        e.at(key)
+                    ));
+                }
+            }
+            e.get("units");
+            e.get("rate");
+            (Some(Vec::new()), Some(None))
+        } else {
+            (
+                read_suite_units(&mut e, &ids, errs),
+                read_suite_rate(&mut e, errs).map(Some),
+            )
+        };
+        e.finish(errs);
+        if let (Some(group), Some(headings), Some(units), Some(rate)) =
+            (group, headings, units, rate)
+        {
+            out.push(SuiteEntry {
+                group,
+                headings,
+                units,
+                rate,
+            });
+        }
+    }
+    Some(out)
+}
+
+/// `headings`: each must be a heading of `group` beyond KEY and REQUIRED, and
+/// some registered producer must make it.
+fn read_suite_headings(
+    e: &mut Node,
+    group: Option<&str>,
+    dict: &Dictionary<'static>,
+    errs: &mut Vec<String>,
+) -> Option<Vec<String>> {
+    let list = str_list(e, "headings", errs)?;
+    let Some(group) = group else {
+        return Some(list);
+    };
+    let known = dict.group_headings(group);
+    for (i, h) in list.iter().enumerate() {
+        let at = format!("{}[{i}]", e.at("headings"));
+        let entry = known.iter().any(|k| k == h).then(|| dict.heading(group, h));
+        match entry.flatten() {
+            None => errs.push(format!("{at}: \"{h}\" is not a heading of {group}")),
+            Some(x) if x.status.contains("KEY") || x.status.contains("REQUIRED") => errs.push(
+                format!("{at}: {h} is a KEY or REQUIRED heading, which is always written"),
+            ),
+            Some(_) if suite::producer(group, h).is_none() => {
+                errs.push(format!("{at}: no producer makes {h}"));
+            }
+            Some(_) => {}
+        }
+    }
+    Some(list)
+}
+
+fn read_suite_units(e: &mut Node, ids: &[&str], errs: &mut Vec<String>) -> Option<Vec<String>> {
+    let list = str_list(e, "units", errs)?;
+    if list.is_empty() {
+        errs.push(format!("{}: must not be empty", e.at("units")));
+    }
+    for (i, u) in list.iter().enumerate() {
+        if !ids.contains(&u.as_str()) {
+            errs.push(format!(
+                "{}[{i}]: \"{u}\" is not a unit or lens",
+                e.at("units")
+            ));
+        }
+    }
+    Some(list)
+}
+
+fn read_suite_rate(e: &mut Node, errs: &mut Vec<String>) -> Option<Range> {
+    let r = read_range(e, "rate", errs)?;
+    for (which, v) in [("min", r.min), ("max", r.max)] {
+        if !(0.0..=1.0).contains(&v) {
+            errs.push(format!("{}: {which} {v} is outside [0, 1]", e.at("rate")));
+        }
+    }
+    Some(r)
 }
 
 fn read_description(u: &mut Node, errs: &mut Vec<String>) -> Option<DescriptionSpec> {
@@ -1718,5 +1890,151 @@ outlier_rate = { min = 0.0, max = 0.05, basis = "test fixture" }
             let text = with_props(&RTD_PROPS.replacen(from, to, 1), LC_PROPS);
             assert_refused(&text, expected);
         }
+    }
+
+    const SUITE: &str = r#"
+[[suite]]
+group = "LLPL"
+headings = []
+units = ["LC"]
+rate = { min = 0.3, max = 0.5, basis = "test fixture" }
+
+[[suite]]
+group = "TRIG"
+headings = []
+units = ["LC"]
+rate = { min = 0.1, max = 0.2, basis = "test fixture" }
+
+[[suite]]
+group = "TRIT"
+headings = []
+
+[[suite]]
+group = "ISPT"
+headings = []
+units = ["RTD"]
+rate = { min = 1, max = 1, basis = "test fixture" }
+"#;
+
+    fn with_suite() -> String {
+        format!("{}{SUITE}", valid())
+    }
+
+    fn suite_with(from: &str, to: &str) -> String {
+        assert!(SUITE.contains(from), "suite fixture lacks {from:?}");
+        with_suite().replacen(from, to, 1)
+    }
+
+    fn suite_errors(text: &str) -> String {
+        errors_of(text).join("\n")
+    }
+
+    #[test]
+    fn a_preset_without_a_suite_has_none() {
+        assert!(Preset::from_toml(&valid()).unwrap().suite.is_empty());
+    }
+
+    #[test]
+    fn a_valid_suite_loads_into_typed_values() {
+        let p = Preset::from_toml(&with_suite()).expect("valid");
+        let groups: Vec<&str> = p.suite.iter().map(|e| e.group.as_str()).collect();
+        assert_eq!(groups, ["LLPL", "TRIG", "TRIT", "ISPT"]);
+        assert_eq!(p.suite[0].units, ["LC"]);
+        let rate = p.suite[0].rate.as_ref().unwrap();
+        assert_eq!((rate.min, rate.max), (0.3, 0.5));
+        assert!(p.suite[2].rate.is_none() && p.suite[2].units.is_empty());
+    }
+
+    #[test]
+    fn a_suite_group_outside_the_scope_is_refused() {
+        let e = suite_errors(&suite_with("\"LLPL\"", "\"CMPG\""));
+        assert!(
+            e.contains("suite[0].group: \"CMPG\" is not a suite group"),
+            "{e}"
+        );
+        let e = suite_errors(&suite_with("\"LLPL\"", "\"NOPE\""));
+        assert!(
+            e.contains("suite[0].group: \"NOPE\" is not a suite group"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_unit_id_is_refused() {
+        let e = suite_errors(&suite_with(
+            "units = [\"LC\"]\nrate = { min = 0.3",
+            "units = [\"ZZ\"]\nrate = { min = 0.3",
+        ));
+        assert!(
+            e.contains("suite[0].units[0]: \"ZZ\" is not a unit or lens"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn a_rate_outside_zero_to_one_is_refused() {
+        let e = suite_errors(&suite_with("min = 0.3, max = 0.5", "min = 0.3, max = 1.5"));
+        assert!(
+            e.contains("suite[0].rate: max 1.5 is outside [0, 1]"),
+            "{e}"
+        );
+        let e = suite_errors(&suite_with("min = 0.3, max = 0.5", "min = -0.1, max = 0.5"));
+        assert!(
+            e.contains("suite[0].rate: min -0.1 is outside [0, 1]"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn a_trit_entry_needs_trig_and_has_no_rate_or_units() {
+        let no_trig = with_suite().replacen(
+            "[[suite]]\ngroup = \"TRIG\"\nheadings = []\nunits = [\"LC\"]\nrate = { min = 0.1, max = 0.2, basis = \"test fixture\" }\n",
+            "",
+            1,
+        );
+        let e = suite_errors(&no_trig);
+        assert!(e.contains("suite[1]: TRIT needs a TRIG entry"), "{e}");
+        let e = suite_errors(&suite_with(
+            "group = \"TRIT\"\nheadings = []",
+            "group = \"TRIT\"\nheadings = []\nrate = { min = 0.1, max = 0.2, basis = \"x\" }",
+        ));
+        assert!(
+            e.contains("suite[2].rate: TRIT is scheduled with TRIG and has no rate of its own"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn a_heading_no_producer_can_make_is_refused() {
+        let e = suite_errors(&suite_with(
+            "headings = []\nunits = [\"LC\"]\nrate = { min = 0.3",
+            "headings = [\"LLPL_LL\"]\nunits = [\"LC\"]\nrate = { min = 0.3",
+        ));
+        assert!(
+            e.contains("suite[0].headings[0]: no producer makes LLPL_LL"),
+            "{e}"
+        );
+        let e = suite_errors(&suite_with(
+            "headings = []\nunits = [\"LC\"]\nrate = { min = 0.3",
+            "headings = [\"NOPE\"]\nunits = [\"LC\"]\nrate = { min = 0.3",
+        ));
+        assert!(
+            e.contains("suite[0].headings[0]: \"NOPE\" is not a heading of LLPL"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn a_duplicate_group_or_missing_field_is_refused() {
+        let dup = format!(
+            "{}\n[[suite]]\ngroup = \"LLPL\"\nheadings = []\nunits = [\"LC\"]\nrate = {{ min = 0.1, max = 0.2, basis = \"x\" }}\n",
+            with_suite()
+        );
+        assert!(suite_errors(&dup).contains("already has an entry"), "dup");
+        let e = suite_errors(&suite_with(
+            "units = [\"LC\"]\nrate = { min = 0.3",
+            "rate = { min = 0.3",
+        ));
+        assert!(e.contains("suite[0].units: missing"), "{e}");
     }
 }
