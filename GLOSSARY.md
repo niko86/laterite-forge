@@ -46,7 +46,7 @@ A unit whose preset entry sets `made_ground`. Its strata are described `MADE GRO
 _Avoid_: fill, artificial ground
 
 **Water-bearing stratum**:
-A stratum of a unit or lens whose preset entry sets `water_bearing`. A hole that meets one strikes water at its top, and the readings rise toward the water table, or stay at the strike when the table is deeper (perched water). Never a made-ground unit.
+A stratum of a unit or lens whose preset entry sets `water_bearing`. A hole that meets one strikes water at its top, and the readings rise toward the water table, or stay at the strike when the table is deeper (perched water). Optionally a table with a `share` (0 to 1, cited, drawn once per site), the fraction of holes meeting the stratum that yield water in it; `true` is share 1. A hole that does not yield gets no strike from the stratum, and the water-table rule applies as before. Never a made-ground unit.
 _Avoid_: aquifer, wet layer
 
 **Very coarse clause**:
