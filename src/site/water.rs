@@ -7,26 +7,30 @@
 //! not yield water at drilling speed. The site model has no clock, so a strike
 //! has no date.
 //!
-//! - The strike depth is the water table plus a drilling lag, drawn from
-//!   [`LAG_M`] and clamped to the base of the stratum, so the strike is always
-//!   in the coarse stratum and above final depth. The lag is one keyed draw per
-//!   hole, which moves no other byte.
+//! - The strike depth is the water table plus the strike rise (the drilling
+//!   lag: the bit is below the water when it is noticed). The rise is drawn
+//!   from the preset's `site.strike_rise_m`, else from [`DEFAULT_RISE_M`], and
+//!   clamped to the base of the stratum, so the strike is always in the coarse
+//!   stratum and above final depth. The rise is one keyed draw per hole, which
+//!   moves no other byte.
 //! - `WSTD` records the water rising from the strike depth back to the table
 //!   at 5, 10, 15 and 20 minutes ([`MINUTES`]). The depth to water follows a
 //!   decay normalised to reach the table exactly at 20 minutes.
 //!
-//! The lag, the logging minutes and the decay are `forge judgement`: the
+//! The default rise, the logging minutes and the decay are `forge judgement`: the
 //! ordinary UK 5-minute, 20-minute logging pattern, not a published curve.
 
 use laterite_ags4_validator::{DictVersion, Dictionary};
 
 use super::build::Site;
 use super::draw::{Key, uniform};
+use super::preset::Preset;
 use crate::synth::model::{Group, Row};
 
-/// The drilling lag range, metres: how far below the water table the bit is
-/// when the water is noticed (`forge judgement`).
-const LAG_M: (f64, f64) = (0.0, 0.5);
+/// The default strike rise range, metres, used when the preset gives none:
+/// how far below the water table the bit is when the water is noticed
+/// (`forge judgement`).
+const DEFAULT_RISE_M: (f64, f64) = (0.0, 0.5);
 
 /// The minutes after the strike at which the rise is logged (`forge
 /// judgement`).
@@ -57,7 +61,12 @@ impl Strike {
 }
 
 /// The strikes of every hole in file order: at most one per hole.
-pub(super) fn strikes(site: &Site, seed: u64) -> Vec<Strike> {
+pub(super) fn strikes(site: &Site, preset: &Preset, seed: u64) -> Vec<Strike> {
+    let (rise_min, rise_max) = preset
+        .site
+        .strike_rise_m
+        .as_ref()
+        .map_or(DEFAULT_RISE_M, |r| (r.min, r.max));
     let mut out = Vec::new();
     for (hi, hole) in site.holes.iter().enumerate() {
         let table = round2(site.properties.groundwater_depth(hole));
@@ -69,10 +78,10 @@ pub(super) fn strikes(site: &Site, seed: u64) -> Vec<Strike> {
         else {
             continue;
         };
-        let lag = uniform(&mut Key::hole("strike", hi).rng(seed), LAG_M.0, LAG_M.1);
+        let rise = uniform(&mut Key::hole("strike", hi).rng(seed), rise_min, rise_max);
         out.push(Strike {
             hole: hi,
-            depth: round2(table + lag).min(stratum.base),
+            depth: round2(table + rise).min(stratum.base),
             table,
         });
     }
@@ -198,21 +207,21 @@ headings = []
     }
 
     #[test]
-    fn a_strike_is_in_a_coarse_stratum_within_the_lag_of_the_table_and_above_final_depth() {
+    fn a_strike_is_in_a_coarse_stratum_within_the_rise_of_the_table_and_above_final_depth() {
         let p = wet();
         let mut seen = 0;
         for seed in 0..60 {
             let site = build::build(&p, seed, 6);
-            for s in strikes(&site, seed) {
+            for s in strikes(&site, &p, seed) {
                 seen += 1;
                 let hole = &site.holes[s.hole];
                 let table = round2(site.properties.groundwater_depth(hole));
                 assert!((s.table - table).abs() < 1e-9);
                 assert!(s.depth >= table, "strike above the table, seed {seed}");
                 assert!(
-                    s.depth <= table + LAG_M.1 + 1e-9,
-                    "lag over {} m, seed {seed}",
-                    LAG_M.1
+                    s.depth <= table + DEFAULT_RISE_M.1 + 1e-9,
+                    "rise over {} m, seed {seed}",
+                    DEFAULT_RISE_M.1
                 );
                 let st = hole
                     .strata
@@ -229,16 +238,72 @@ headings = []
     }
 
     #[test]
-    fn the_lag_varies_across_strikes() {
+    fn the_rise_varies_across_strikes() {
         let p = wet();
-        let mut lags = std::collections::BTreeSet::new();
+        let mut rises = std::collections::BTreeSet::new();
         for seed in 0..60 {
             let site = build::build(&p, seed, 6);
-            for s in strikes(&site, seed) {
-                lags.insert(format!("{:.2}", s.depth - s.table));
+            for s in strikes(&site, &p, seed) {
+                rises.insert(format!("{:.2}", s.depth - s.table));
             }
         }
-        assert!(lags.len() > 10, "{} distinct lags", lags.len());
+        assert!(rises.len() > 10, "{} distinct rises", rises.len());
+    }
+
+    /// [`WATER`] over [`FIXTURE`] with a preset strike rise of 1-2 m.
+    fn wet_with_rise() -> Preset {
+        let text = format!("{FIXTURE}{WATER}").replace(
+            "groundwater_depth_m = { min = 1.0, max = 4.0,",
+            "strike_rise_m = { min = 1.0, max = 2.0, basis = \"test fixture\" }\n\
+             groundwater_depth_m = { min = 1.0, max = 4.0,",
+        );
+        Preset::from_toml(&text).expect("rise fixture loads")
+    }
+
+    #[test]
+    fn a_preset_strike_rise_sets_the_depth_below_the_table() {
+        let p = wet_with_rise();
+        let (mut seen, mut clamped) = (0, 0);
+        for seed in 0..60 {
+            let site = build::build(&p, seed, 6);
+            for s in strikes(&site, &p, seed) {
+                seen += 1;
+                let hole = &site.holes[s.hole];
+                let st = hole
+                    .strata
+                    .iter()
+                    .find(|st| s.table >= st.top && s.table < st.base)
+                    .expect("the table is in a stratum");
+                let rise = s.depth - s.table;
+                if (s.depth - st.base).abs() < 1e-9 {
+                    clamped += 1;
+                    assert!(rise <= 2.0 + 1e-9, "seed {seed}");
+                } else {
+                    assert!((1.0 - 1e-9..=2.0 + 1e-9).contains(&rise), "{rise}");
+                }
+            }
+        }
+        assert!(seen > 30, "{seen} strikes is too few to mean anything");
+        assert!(seen > clamped, "every strike clamped");
+    }
+
+    #[test]
+    fn a_preset_without_a_strike_rise_draws_the_default_range_from_the_same_key() {
+        let p = wet();
+        assert!(p.site.strike_rise_m.is_none());
+        let explicit = Preset::from_toml(&format!("{FIXTURE}{WATER}").replace(
+            "groundwater_depth_m = { min = 1.0, max = 4.0,",
+            "strike_rise_m = { min = 0.0, max = 0.5, basis = \"test fixture\" }\n\
+             groundwater_depth_m = { min = 1.0, max = 4.0,",
+        ))
+        .unwrap();
+        for seed in 0..20 {
+            assert_eq!(
+                emit_to_string(&file(&p, seed, 6)),
+                emit_to_string(&file(&explicit, seed, 6)),
+                "seed {seed}"
+            );
+        }
     }
 
     #[test]
@@ -247,7 +312,7 @@ headings = []
         let (mut fine, mut coarse) = (0, 0);
         for seed in 0..60 {
             let site = build::build(&p, seed, 6);
-            let found = strikes(&site, seed);
+            let found = strikes(&site, &p, seed);
             for (hi, hole) in site.holes.iter().enumerate() {
                 let table = round2(site.properties.groundwater_depth(hole));
                 let st = hole
@@ -343,7 +408,7 @@ headings = []
     fn a_site_that_strikes_no_water_is_byte_identical_to_one_without_the_groups() {
         let (with, without) = (dry_with(WATER), dry_with(""));
         for seed in 0..10 {
-            assert!(strikes(&build::build(&with, seed, 6), seed).is_empty());
+            assert!(strikes(&build::build(&with, seed, 6), &with, seed).is_empty());
             assert_eq!(
                 emit_to_string(&file(&with, seed, 6)),
                 emit_to_string(&file(&without, seed, 6)),

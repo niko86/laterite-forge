@@ -130,6 +130,9 @@ pub const OUTLIER_RATE: Domain = Domain::between(0.0, 1.0);
 /// Depth of the water table below ground level, metres: not above ground.
 pub const GROUNDWATER_DEPTH_M: Domain = Domain::at_least(0.0);
 
+/// The strike rise, metres: never above the water table.
+pub const STRIKE_RISE_M: Domain = Domain::at_least(0.0);
+
 /// The chance, per (hole, unit, quantity), of an outlier when a preset gives
 /// no `outlier_rate`. Basis: forge judgement. Rare enough that a unit's trend
 /// reads clearly, common enough to show up in a modest file.

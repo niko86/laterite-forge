@@ -83,7 +83,7 @@ pub(super) fn groups(
         }
         if code == "WSTG" || code == "WSTD" {
             // Not scheduled on samples: a strike follows the water table.
-            let strikes = water::strikes(site, seed);
+            let strikes = water::strikes(site, preset, seed);
             let made = if code == "WSTG" {
                 water::wstg(site, &strikes)
             } else {

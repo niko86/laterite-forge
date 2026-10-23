@@ -49,6 +49,10 @@ pub struct Site {
     pub ground_level_m: Range,
     /// The water table's depth below ground level, metres.
     pub groundwater_depth_m: Range,
+    /// The strike rise, metres: how far below the water table the bit is when
+    /// the water is noticed (drilling lag). Absent means forge's own 0-0.5 m
+    /// default.
+    pub strike_rise_m: Option<Range>,
 }
 
 /// Size of the local grid, whose origin is (0, 0).
@@ -853,12 +857,22 @@ fn read_site(n: &mut Node, errs: &mut Vec<String>) -> Option<Site> {
             errs,
         );
     }
+    let strike_rise = if s.table.contains_key("strike_rise_m") {
+        let r = read_range(&mut s, "strike_rise_m", errs);
+        if let Some(r) = &r {
+            check_domain(r, &s.at("strike_rise_m"), &props::STRIKE_RISE_M, errs);
+        }
+        r
+    } else {
+        None
+    };
     s.finish(errs);
     let (x, y) = extent?;
     Some(Site {
         extent_m: Extent { x, y },
         ground_level_m: ground?,
         groundwater_depth_m: groundwater?,
+        strike_rise_m: strike_rise,
     })
 }
 
@@ -1892,6 +1906,55 @@ outlier_rate = { min = 0.0, max = 0.05, basis = "test fixture" }
             .site
             .groundwater_depth_m;
         assert_eq!((g.min, g.max), (1.0, 4.0));
+    }
+
+    const RISE: &str = "strike_rise_m = { min = 1.0, max = 2.0, basis = \"test fixture\" }\n";
+
+    fn with_rise(rise: &str) -> String {
+        with(
+            "groundwater_depth_m = { min = 1.0, max = 4.0, basis = \"test fixture\" }\n",
+            &format!(
+                "groundwater_depth_m = {{ min = 1.0, max = 4.0, basis = \"test fixture\" }}\n{rise}"
+            ),
+        )
+    }
+
+    #[test]
+    fn the_strike_rise_is_optional_and_loads_when_given() {
+        assert_eq!(
+            Preset::from_toml(&valid()).unwrap().site.strike_rise_m,
+            None
+        );
+        let r = Preset::from_toml(&with_rise(RISE))
+            .unwrap()
+            .site
+            .strike_rise_m
+            .expect("given");
+        assert_eq!((r.min, r.max), (1.0, 2.0));
+    }
+
+    #[test]
+    fn the_strike_rise_needs_a_basis() {
+        assert_refused(
+            &with_rise("strike_rise_m = { min = 1.0, max = 2.0 }\n"),
+            "site.strike_rise_m: no basis",
+        );
+    }
+
+    #[test]
+    fn the_strike_rise_may_not_be_negative() {
+        assert_refused(
+            &with_rise(&RISE.replace("min = 1.0", "min = -1.0")),
+            "site.strike_rise_m: min -1 is outside its domain (>= 0)",
+        );
+    }
+
+    #[test]
+    fn the_strike_rise_min_may_not_exceed_its_max() {
+        assert_refused(
+            &with_rise(&RISE.replace("min = 1.0, max = 2.0", "min = 3.0, max = 2.0")),
+            "site.strike_rise_m: min 3 is greater than max 2",
+        );
     }
 
     #[test]
