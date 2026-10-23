@@ -45,6 +45,10 @@ _Avoid_: layer, unit (for this meaning)
 A unit whose preset entry sets `made_ground`. Its strata are described `MADE GROUND: ` + matrix + constituents. It takes no lab tests and never yields a water strike.
 _Avoid_: fill, artificial ground
 
+**Very coarse clause**:
+The optional "with low cobble content" part of a description (BS 5930 Table 15), set by a unit's `very_coarse` constraint as a level for cobbles, boulders or both. It closes the soil description proper, and consumes no random draws.
+_Avoid_: cobble tag, oversize
+
 **Lens**:
 A unit with limited lateral extent, lying within a single host unit. A hole that passes through a lens records its host as two strata, one above the lens and one below.
 _Avoid_: band, pocket, inclusion

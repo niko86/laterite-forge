@@ -20,9 +20,11 @@
 //!
 //! Scope (v1): natural inorganic coarse (SAND/GRAVEL) and fine (SILT/CLAY)
 //! soils — the two lanes that share the standard word order. Very coarse
-//! (BOULDERS/COBBLES), peat/organic and anthropogenic ground use different
-//! apportionment/word orders and are left for later (as the source skill
-//! itself stages them).
+//! (BOULDERS/COBBLES) *principals*, peat/organic and anthropogenic ground use
+//! different apportionment/word orders and are left for later (as the source
+//! skill itself stages them). A unit may still carry a Table 15 cobble or
+//! boulder *content* clause ([`VeryCoarse`]), which is plain text from its
+//! constraint.
 
 use laterite_ags4_parity::Rng;
 use serde::Deserialize;
@@ -30,6 +32,12 @@ use serde::Deserialize;
 // Vendored skill data (data/bs5930/PROVENANCE.md). Parsed once into `Vocab`.
 const TERMS_JSON: &str = include_str!("../../data/bs5930/terms.json");
 const PARTICLE_SIZES_JSON: &str = include_str!("../../data/bs5930/particle-sizes.json");
+const PROPORTION_RULES_JSON: &str = include_str!("../../data/bs5930/proportion-rules.json");
+
+/// The words Table 15 puts between the level and `content` when a band covers
+/// both very coarse fractions. A per-fraction clause swaps them for the one
+/// fraction named.
+const TABLE_15_BOTH: &str = "boulder or cobble";
 
 /// Hues with no chroma form (BS 5930 Table 7 note): a chroma word like
 /// "reddish" must never precede these.
@@ -125,6 +133,9 @@ pub struct Vocab {
     /// Vendored `tertiaryAmounts` (`with rare` … `with abundant`), rarest
     /// first.
     tertiary_amounts: Vec<String>,
+    /// Vendored Table 15 band qualifiers (`with low boulder or cobble content`
+    /// …), indexed by [`Content`].
+    very_coarse: [String; 3],
 }
 
 impl Vocab {
@@ -179,8 +190,105 @@ impl Vocab {
                 .map(|x| (x.term.clone(), x.typical_colour.clone()))
                 .collect(),
             tertiary_amounts: t.tertiary_amounts.iter().map(|x| x.text.clone()).collect(),
+            very_coarse: Content::ALL.map(table_15_band),
         }
     }
+
+    /// The Table 15 clause for a unit's very coarse content, or `None` when it
+    /// names neither fraction.
+    ///
+    /// Both fractions at one level read as the vendored band qualifier, which
+    /// covers "boulder or cobble" content as a whole. Fractions at different
+    /// levels each take the qualifier with their own name in place of
+    /// "boulder or cobble", cobbles first: the vendored worked example gives
+    /// "with low cobble content" that way, and the data has no other
+    /// per-fraction wording. The derivation is the forge's. The levels'
+    /// percentage limits are not applied, as no percentage is drawn.
+    pub(crate) fn very_coarse_clause(&self, v: VeryCoarse) -> Option<String> {
+        let band = |c: Content| &self.very_coarse[c as usize];
+        match (v.cobbles, v.boulders) {
+            (None, None) => None,
+            (Some(c), Some(b)) if c == b => Some(band(c).clone()),
+            (cobbles, boulders) => {
+                let parts: Vec<String> = [(cobbles, "cobble"), (boulders, "boulder")]
+                    .into_iter()
+                    .filter_map(|(level, name)| {
+                        level.map(|l| band(l).replacen(TABLE_15_BOTH, name, 1))
+                    })
+                    .collect();
+                // A second part follows `and`, so it loses its own `with`.
+                match parts.as_slice() {
+                    [one] => Some(one.clone()),
+                    [first, second] => Some(format!(
+                        "{first} and {}",
+                        second.strip_prefix("with ").unwrap_or(second)
+                    )),
+                    _ => None,
+                }
+            }
+        }
+    }
+}
+
+/// A Table 15 content level, in the order the vendored bands list them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Content {
+    Low,
+    Medium,
+    High,
+}
+
+impl Content {
+    const ALL: [Content; 3] = [Content::Low, Content::Medium, Content::High];
+
+    /// The word BS 5930 and the preset both use for this level.
+    pub fn word(self) -> &'static str {
+        match self {
+            Content::Low => "low",
+            Content::Medium => "medium",
+            Content::High => "high",
+        }
+    }
+
+    /// The level written as `word`, or `None` for anything else.
+    pub fn parse(word: &str) -> Option<Content> {
+        Self::ALL.into_iter().find(|c| c.word() == word)
+    }
+}
+
+/// A unit's cobble and boulder content, each optional. The vendored rules give
+/// Table 15 for a fine principal and the vendored worked example uses it on a
+/// SAND, so it is open to every principal a unit can name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VeryCoarse {
+    pub cobbles: Option<Content>,
+    pub boulders: Option<Content>,
+}
+
+/// The vendored Table 15 qualifier for `level`.
+fn table_15_band(level: Content) -> String {
+    let rules: serde_json::Value = serde_json::from_str(PROPORTION_RULES_JSON)
+        .expect("vendored proportion-rules.json is valid");
+    let bands = rules
+        .pointer("/principalClasses/fine_principal_with_very_coarse/secondaries/veryCoarse/bands")
+        .and_then(serde_json::Value::as_array)
+        .expect("vendored Table 15 bands");
+    let lead = format!("with {} ", level.word());
+    bands
+        .iter()
+        .filter_map(|b| b.get("qualifier")?.as_str())
+        .find(|q| q.starts_with(&lead) && q.contains(TABLE_15_BOTH))
+        .unwrap_or_else(|| panic!("vendored Table 15 has a {} band", level.word()))
+        .to_string()
+}
+
+/// `clause` set at the end of the soil description proper: before the first
+/// full stop, so a grading sentence stays after it.
+pub(crate) fn with_very_coarse(text: &str, clause: &str) -> String {
+    let stop = text.find('.').unwrap_or(text.len());
+    let (head, tail) = text.split_at(stop);
+    let tail = if tail.is_empty() { "." } else { tail };
+    format!("{head} {clause}{tail}")
 }
 
 /// Which lane of the standard word order a description follows.
@@ -627,6 +735,8 @@ pub struct UnitDescription {
     pub secondaries: Vec<String>,
     /// Whole colour phrases, each used verbatim (`"dark grey"`).
     pub colours: Vec<String>,
+    /// Cobble and boulder content (Table 15), written after the principal.
+    pub very_coarse: Option<VeryCoarse>,
 }
 
 /// The four principals a unit may name, with the lowercase fraction each is
@@ -710,6 +820,13 @@ impl UnitDescription {
                     "secondary {sec:?} is the own fraction of every listed principal"
                 ));
             }
+        }
+        if let Some(VeryCoarse {
+            cobbles: None,
+            boulders: None,
+        }) = self.very_coarse
+        {
+            out.push("very coarse content names neither cobbles nor boulders".to_string());
         }
         if self.colours.is_empty() {
             out.push("empty palette".to_string());
@@ -856,6 +973,11 @@ pub fn describe_unit(
         first.make_ascii_uppercase();
     }
     text.push('.');
+    // Deterministic text from the constraint: no draw, so a unit without it
+    // keeps every byte it had.
+    if let Some(clause) = unit.very_coarse.and_then(|v| vocab.very_coarse_clause(v)) {
+        text = with_very_coarse(&text, &clause);
+    }
 
     Ok(SoilDescription {
         text,
@@ -1236,6 +1358,7 @@ mod tests {
             principals: own(principals),
             secondaries: own(secondaries),
             colours: own(colours),
+            very_coarse: None,
         }
     }
 
@@ -1556,5 +1679,202 @@ mod tests {
             .unwrap()
             .text;
         assert_eq!(a, b);
+    }
+}
+
+#[cfg(test)]
+mod very_coarse_tests {
+    use super::*;
+
+    const LOW: Option<Content> = Some(Content::Low);
+    const MEDIUM: Option<Content> = Some(Content::Medium);
+    const HIGH: Option<Content> = Some(Content::High);
+
+    fn clause(cobbles: Option<Content>, boulders: Option<Content>) -> Option<String> {
+        Vocab::load().very_coarse_clause(VeryCoarse { cobbles, boulders })
+    }
+
+    fn unit(principals: &[&str], very_coarse: Option<VeryCoarse>) -> UnitDescription {
+        let own = |xs: &[&str]| xs.iter().map(|x| (*x).to_string()).collect::<Vec<_>>();
+        UnitDescription {
+            principals: own(principals),
+            // Every fraction that is not the own fraction of all the principals.
+            secondaries: own(&["sand", "gravel", "silt", "clay"])
+                .into_iter()
+                .filter(|f| !principals.iter().all(|p| p.eq_ignore_ascii_case(f)))
+                .collect(),
+            colours: own(&["grey", "dark brown"]),
+            very_coarse,
+        }
+    }
+
+    /// Both fractions at one level read as the vendored band qualifier as it
+    /// stands.
+    #[test]
+    fn both_fractions_at_one_level_use_the_vendored_wording() {
+        assert_eq!(
+            clause(LOW, LOW).unwrap(),
+            "with low boulder or cobble content"
+        );
+        assert_eq!(
+            clause(MEDIUM, MEDIUM).unwrap(),
+            "with medium boulder or cobble content"
+        );
+        assert_eq!(
+            clause(HIGH, HIGH).unwrap(),
+            "with high boulder or cobble content"
+        );
+    }
+
+    #[test]
+    fn one_fraction_names_only_itself() {
+        assert_eq!(clause(LOW, None).unwrap(), "with low cobble content");
+        assert_eq!(clause(None, MEDIUM).unwrap(), "with medium boulder content");
+        assert_eq!(clause(HIGH, None).unwrap(), "with high cobble content");
+    }
+
+    #[test]
+    fn fractions_at_different_levels_are_joined_cobbles_first() {
+        assert_eq!(
+            clause(LOW, MEDIUM).unwrap(),
+            "with low cobble content and medium boulder content"
+        );
+        assert_eq!(
+            clause(HIGH, LOW).unwrap(),
+            "with high cobble content and low boulder content"
+        );
+    }
+
+    #[test]
+    fn neither_fraction_is_no_clause() {
+        assert_eq!(clause(None, None), None);
+    }
+
+    /// The vendored worked example for a SAND words cobbles as this does.
+    #[test]
+    fn the_per_fraction_wording_matches_the_vendored_worked_example() {
+        assert!(PROPORTION_RULES_JSON.contains(r#""qualifier": "with low cobble content""#));
+        assert_eq!(clause(LOW, None).unwrap(), "with low cobble content");
+    }
+
+    #[test]
+    fn the_clause_sits_before_a_grading_sentence() {
+        let text = with_very_coarse(
+            "Dense brown SAND. Gravel is subangular fine to medium.",
+            "with low boulder or cobble content",
+        );
+        assert_eq!(
+            text,
+            "Dense brown SAND with low boulder or cobble content. Gravel is subangular fine to medium."
+        );
+        assert_eq!(
+            with_very_coarse("Dense brown SAND", "with low cobble content"),
+            "Dense brown SAND with low cobble content."
+        );
+    }
+
+    #[test]
+    fn a_unit_description_ends_in_the_clause() {
+        let v = Vocab::load();
+        let vc = VeryCoarse {
+            cobbles: LOW,
+            boulders: MEDIUM,
+        };
+        for (principal, lead, expected) in [
+            (
+                "CLAY",
+                Lead {
+                    fine: Some("Firm"),
+                    coarse: None,
+                },
+                "Firm grey CLAY with low cobble content and medium boulder content.",
+            ),
+            (
+                "SAND",
+                Lead {
+                    fine: None,
+                    coarse: Some("Dense"),
+                },
+                "Dense grey SAND with low cobble content and medium boulder content.",
+            ),
+        ] {
+            let mut u = unit(&[principal], Some(vc));
+            u.secondaries.clear();
+            u.colours = vec!["grey".to_string()];
+            let d = describe_unit(&v, &mut Rng::seeded(1), &u, lead).unwrap();
+            assert_eq!(d.text, expected);
+        }
+    }
+
+    /// The clause is text from the constraint: the draw is the one a unit
+    /// without it makes, and the generator is left in the same state.
+    #[test]
+    fn the_clause_consumes_no_draws() {
+        let v = Vocab::load();
+        let vc = VeryCoarse {
+            cobbles: HIGH,
+            boulders: LOW,
+        };
+        let text_clause = " with high cobble content and low boulder content";
+        for principals in [&["CLAY", "SAND"][..], &["SILT"][..], &["GRAVEL"][..]] {
+            for seed in 0..200u64 {
+                let lead = Lead {
+                    fine: Some("Stiff"),
+                    coarse: Some("Dense"),
+                };
+                let (mut a, mut b) = (Rng::seeded(seed), Rng::seeded(seed));
+                let plain = describe_unit(&v, &mut a, &unit(principals, None), lead).unwrap();
+                let with = describe_unit(&v, &mut b, &unit(principals, Some(vc)), lead).unwrap();
+                assert_eq!(
+                    with.text.replace(text_clause, ""),
+                    plain.text,
+                    "seed {seed}"
+                );
+                assert_eq!(with.secondaries.len(), plain.secondaries.len());
+                assert_eq!(a.below(1 << 40), b.below(1 << 40), "seed {seed}: state");
+            }
+        }
+    }
+
+    #[test]
+    fn a_unit_without_the_field_has_no_clause() {
+        let v = Vocab::load();
+        let d = describe_unit(
+            &v,
+            &mut Rng::seeded(4),
+            &unit(&["CLAY"], None),
+            Lead::default(),
+        )
+        .unwrap();
+        assert!(!d.text.contains("content"), "{}", d.text);
+    }
+
+    /// The default draw has no very coarse clause, so the existing
+    /// no-double-'very' guarantee on a fine principal is untouched by it.
+    #[test]
+    fn the_default_draw_carries_no_very_coarse_clause() {
+        let v = Vocab::load();
+        for seed in 0..500u64 {
+            let d = describe(&v, &mut Rng::seeded(seed));
+            assert!(!d.text.contains("cobble"), "seed {seed}: {}", d.text);
+            assert!(!d.text.contains("boulder"), "seed {seed}: {}", d.text);
+        }
+    }
+
+    #[test]
+    fn a_constraint_naming_neither_fraction_is_a_problem() {
+        let v = Vocab::load();
+        let u = unit(
+            &["CLAY"],
+            Some(VeryCoarse {
+                cobbles: None,
+                boulders: None,
+            }),
+        );
+        assert_eq!(
+            u.problems(&v),
+            ["very coarse content names neither cobbles nor boulders"]
+        );
+        assert!(describe_unit(&v, &mut Rng::seeded(1), &u, Lead::default()).is_err());
     }
 }

@@ -121,6 +121,30 @@ consumer can replace.
   `GEOL_DESC` takes its principal, secondaries and palette from the unit's
   description constraints. It takes its strength or density term from the
   model, not from an independent draw.
+- A description may carry a very coarse clause (BS 5930 Table 15), written
+  `very_coarse = { cobbles = "low", boulders = "medium" }` inside the
+  description constraints. Each side is optional but one is required, and each
+  is a level: `low`, `medium` or `high`. Cobbles and boulders are separate keys
+  because they are separate particle sizes in the vendored data, and a unit
+  may want only one. The levels are the three vendored band qualifiers, not
+  percentages, so nothing is drawn: the clause is text from the constraint,
+  consumes no RNG, and a unit without the key is byte-identical. The loader
+  refuses an unknown level or key and an empty table, naming the field. It is
+  an additive part of schema 1, and units and lenses both take it.
+  - Wording is the vendored qualifier. Both sides at one level read as the
+    vendored band as it stands, "with low boulder or cobble content". Sides at
+    different levels, or only one side, swap "boulder or cobble" for the
+    fraction named, cobbles first: "with low cobble content and medium boulder
+    content". The vendored data gives only "with low cobble content" as a
+    per-fraction example, so the other per-fraction wordings are the forge's
+    derivation from the band template. Norbury 2010, Table 8.4 (p.112), sets
+    cobble and boulder content at different percentage limits, which is why
+    the two can differ; the forge does not apply those limits.
+  - Placement: the clause closes the soil description proper, before the first
+    full stop and so before any grading sentence. A made-ground unit's
+    constituents follow it, giving "MADE GROUND: Loose dark brown GRAVEL with
+    low cobble content with occasional brick fragments." Constituents are the made-ground
+    lane's own, appended last as before.
 - For fine soils the term comes from the consistency index Ic = (LL − w) / PI,
   using cited BS EN ISO 14688-2 boundaries. That keeps the description in step
   with the LLPL and LNMC rows in the same file. Undrained strength follows its

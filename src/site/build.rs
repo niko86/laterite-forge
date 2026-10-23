@@ -113,6 +113,7 @@ fn unit_description(d: &DescriptionSpec) -> UnitDescription {
         principals: d.principals.clone(),
         secondaries: d.secondaries.clone(),
         colours: d.colours.clone(),
+        very_coarse: d.very_coarse,
     }
 }
 
@@ -1973,6 +1974,118 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
             let path = dir.path().join("site.ags");
             std::fs::write(&path, emit_to_string(&m)).unwrap();
             assert_eq!(rust_check(&path).0, RustResult::Clean, "seed {seed}");
+        }
+    }
+
+    /// [`with_made_ground`] with the made-ground unit's description also
+    /// carrying `very_coarse`, written as a TOML inline table.
+    fn with_very_coarse(spec: &str, very_coarse: &str) -> String {
+        let text = with_made_ground(spec);
+        let from = r#"colours = ["dark brown", "black"] }"#;
+        assert!(text.contains(from));
+        text.replacen(
+            from,
+            &format!(r#"colours = ["dark brown", "black"], very_coarse = {very_coarse} }}"#),
+            1,
+        )
+    }
+
+    const ONE_BRICK: &str = r#"made_ground = { constituents = [{ name = "brick", share = 1.0, basis = "test fixture" }], count = { weights = [0, 1, 0, 0], basis = "test fixture" } }"#;
+
+    #[test]
+    fn very_coarse_content_precedes_the_made_ground_constituents() {
+        let p = Preset::from_toml(&with_very_coarse(
+            ONE_BRICK,
+            r#"{ cobbles = "low", boulders = "medium" }"#,
+        ))
+        .expect("loads");
+        let mut seen = 0;
+        for seed in 0..10 {
+            for s in mg_strata(&build(&p, seed, 6)) {
+                seen += 1;
+                let clause = " with low cobble content and medium boulder content with ";
+                assert!(s.description.starts_with(TAG), "{}", s.description);
+                assert!(
+                    s.description.ends_with(" brick fragments."),
+                    "constituents close the description: {}",
+                    s.description
+                );
+                let at = s.description.find(clause).expect(&s.description);
+                let principal = s.description[..at].rsplit(' ').next().unwrap();
+                assert!(
+                    ["SAND", "GRAVEL"].contains(&principal),
+                    "the clause follows the principal: {}",
+                    s.description
+                );
+                assert_eq!(s.description.matches('.').count(), 1, "{}", s.description);
+            }
+        }
+        assert!(seen > 0);
+    }
+
+    #[test]
+    fn very_coarse_content_closes_a_made_ground_with_no_constituents() {
+        let p = Preset::from_toml(&with_very_coarse(
+            NO_CONSTITUENTS,
+            r#"{ cobbles = "high", boulders = "high" }"#,
+        ))
+        .expect("loads");
+        for s in mg_strata(&build(&p, 2, 6)) {
+            assert!(
+                s.description
+                    .ends_with(" with high boulder or cobble content."),
+                "{}",
+                s.description
+            );
+        }
+    }
+
+    /// Without the field a unit's text is the one it had, plain or made ground.
+    #[test]
+    fn a_unit_without_very_coarse_is_unchanged_by_the_field_existing() {
+        for spec in [WEIGHTED, ""] {
+            let plain = build(&preset(spec), 5, 6);
+            let with = build(
+                &Preset::from_toml(&with_very_coarse(spec, r#"{ cobbles = "low" }"#))
+                    .expect("loads"),
+                5,
+                6,
+            );
+            let strata = |s: &Site| -> Vec<(String, String)> {
+                s.holes
+                    .iter()
+                    .flat_map(|h| &h.strata)
+                    .map(|st| (st.unit.clone(), st.description.clone()))
+                    .collect()
+            };
+            let (plain, with) = (strata(&plain), strata(&with));
+            assert_eq!(plain.len(), with.len());
+            for ((u, a), (_, b)) in plain.iter().zip(&with) {
+                if u == "MG" {
+                    assert_ne!(a, b);
+                    assert!(b.contains(" with low cobble content"), "{b}");
+                } else {
+                    assert_eq!(a, b, "unit {u} moved");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_very_coarse_site_lowers_to_a_clean_file() {
+        for spec in [WEIGHTED, ""] {
+            let p = Preset::from_toml(&with_very_coarse(
+                spec,
+                r#"{ cobbles = "low", boulders = "medium" }"#,
+            ))
+            .expect("loads");
+            for seed in 0..4 {
+                let m = lower(&build(&p, seed, 6), &p, seed, Grid::Local);
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("site.ags");
+                std::fs::write(&path, emit_to_string(&m)).unwrap();
+                assert_eq!(rust_check(&path).0, RustResult::Clean, "seed {seed}");
+            }
         }
     }
 }
