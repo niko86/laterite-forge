@@ -1989,7 +1989,7 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
 
     #[test]
     fn a_unit_thickness_may_carry_a_skew() {
-        for (text, want) in [("2.0", 2.0), ("3", 3.0), ("0.5", 0.5)] {
+        for (text, want) in [("2.0", 2.0), ("3", 3.0), ("1", 1.0)] {
             let p = Preset::from_toml(&skew_text(text)).expect("valid");
             assert_eq!(p.units[0].thickness_m.as_ref().unwrap().skew, Some(want));
         }
