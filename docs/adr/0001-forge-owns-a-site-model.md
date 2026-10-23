@@ -110,6 +110,21 @@ consumer can replace.
   rise (the drilling lag) below the table, rising to the table over 20
   minutes. The preset may give the rise as `site.strike_rise_m`; without it
   the default is 0-0.5 m (`forge judgement`).
+- Water-bearing strata. A unit or lens may set `water_bearing = true` (an
+  additive part of schema 1; the loader refuses it on a made-ground unit and
+  on a non-boolean). Thin glaciofluvial sand and gravel lenses in till are
+  frequently water-bearing, perched or sub-artesian (CIRIA C504 Fig 6.3,
+  p.117; Eyles & Sladen 1981, p.134), and a thin lens rarely contains the
+  table, so the table rule almost never strikes there. A hole that meets a
+  water-bearing stratum strikes at its top, the first one going down. The
+  strike rise is then the rise of the water, not a drilling lag: the readings
+  rise from the strike to `max(table, strike - rise)`, the rise drawn from
+  `site.strike_rise_m` or its default with the same keyed draw. Where the
+  table is at or below the strike, the water is perched and the readings stay
+  at the strike depth. A hole records one strike, and the water-bearing rule
+  takes precedence over a table strike in a shallower coarse stratum (AGS
+  allows several `WSTG` rows per hole; one keeps the file shape and the draw
+  count of the table rule, `forge judgement`). Without the flag nothing moves.
 - Coordinates are on a local grid by default. `--grid bng --origin <E>,<N>`
   adds national-grid coordinates for tools that only plot BNG, at an origin the
   consumer chooses and is responsible for. No shipped preset carries a real

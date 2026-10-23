@@ -45,6 +45,10 @@ _Avoid_: layer, unit (for this meaning)
 A unit whose preset entry sets `made_ground`. Its strata are described `MADE GROUND: ` + matrix + constituents. It takes no lab tests and never yields a water strike.
 _Avoid_: fill, artificial ground
 
+**Water-bearing stratum**:
+A stratum of a unit or lens whose preset entry sets `water_bearing`. A hole that meets one strikes water at its top, and the readings rise toward the water table, or stay at the strike when the table is deeper (perched water). Never a made-ground unit.
+_Avoid_: aquifer, wet layer
+
 **Very coarse clause**:
 The optional "with low cobble content" part of a description (BS 5930 Table 15), set by a unit's `very_coarse` constraint as a level for cobbles, boulders or both. It closes the soil description proper, and consumes no random draws.
 _Avoid_: cobble tag, oversize

@@ -1,11 +1,14 @@
-//! Water strikes: `WSTG` and `WSTD` rows where a hole meets the water table
-//! in coarse ground (ADR 0001, "Ground").
+//! Water strikes: `WSTG` and `WSTD` rows where a hole meets water (ADR 0001,
+//! "Ground").
 //!
-//! The water table is the site's smooth field (`groundwater_depth`). A hole
-//! strikes water only when the table falls inside one of its coarse
-//! (permeable) strata; a table inside clay gives no strike, because clay does
-//! not yield water at drilling speed. The site model has no clock, so a strike
-//! has no date.
+//! Two rules decide a hole's strike. A hole has at most one strike group (see
+//! below), and the water-bearing rule takes precedence over the table rule.
+//!
+//! **The water table.** The table is the site's smooth field
+//! (`groundwater_depth`). A hole strikes when the table falls inside one of its
+//! coarse (permeable) strata; a table inside clay gives no strike, because clay
+//! does not yield water at drilling speed. The site model has no clock, so a
+//! strike has no date.
 //!
 //! - The strike depth is the water table plus the strike rise (the drilling
 //!   lag: the bit is below the water when it is noticed). The rise is drawn
@@ -16,6 +19,30 @@
 //! - `WSTD` records the water rising from the strike depth back to the table
 //!   at 5, 10, 15 and 20 minutes ([`MINUTES`]). The depth to water follows a
 //!   decay normalised to reach the table exactly at 20 minutes.
+//!
+//! **Water-bearing strata.** A unit or lens flagged `water_bearing` is a
+//! stratum that yields water whether or not the table reaches it: thin
+//! glaciofluvial sand and gravel lenses in till are "frequently water-bearing",
+//! perched or sub-artesian (CIRIA C504 Fig 6.3, p.117; Eyles & Sladen 1981,
+//! p.134), and a thin lens rarely contains the table.
+//!
+//! - A hole that meets a water-bearing stratum strikes at its top. The first
+//!   one going down is the strike.
+//! - The same keyed draw gives the rise `r` (it is not added to the strike, as
+//!   the bit is already at the top of the water). Where the table is above the
+//!   strike the water rises by `r` but not above the table: the readings settle
+//!   at `max(table, strike - r)`.
+//! - Where the table is at or below the strike the water is perched: it is
+//!   held in the lens, with no head from the regional table to lift it, so the
+//!   readings stay at the strike depth. The draw is made and unused, so a
+//!   preset's draws do not depend on which case a hole falls in.
+//!
+//! **One strike per hole.** AGS allows several `WSTG` rows per hole, but one
+//! strike per hole keeps the keyed draw count and the file shape of the
+//! table-only rule. A hole that meets several water-bearing strata records the
+//! first. A table strike in a shallower coarse stratum is dropped in favour of
+//! the water-bearing strike, which the issue makes the rule for such a hole
+//! (`forge judgement`).
 //!
 //! The default rise, the logging minutes and the decay are `forge judgement`: the
 //! ordinary UK 5-minute, 20-minute logging pattern, not a published curve.
@@ -45,8 +72,10 @@ pub(super) struct Strike {
     pub hole: usize,
     /// Depth water was met, metres, 2 decimal places.
     pub depth: f64,
-    /// The water table's depth, metres, 2 decimal places.
-    pub table: f64,
+    /// The depth the readings settle at after 20 minutes, metres, 2 decimal
+    /// places: the water table, or for a water-bearing stratum the higher of
+    /// the table and the strike less the rise (the strike depth when perched).
+    pub settle: f64,
 }
 
 impl Strike {
@@ -56,7 +85,7 @@ impl Strike {
         let end = MINUTES[MINUTES.len() - 1];
         let decay = |m: u32| (-DECAY_PER_MIN * f64::from(m)).exp();
         let left = (decay(minutes) - decay(end)) / (1.0 - decay(end));
-        round2(self.table + (self.depth - self.table) * left)
+        round2(self.settle + (self.depth - self.settle) * left)
     }
 }
 
@@ -70,22 +99,38 @@ pub(super) fn strikes(site: &Site, preset: &Preset, seed: u64) -> Vec<Strike> {
     let mut out = Vec::new();
     for (hi, hole) in site.holes.iter().enumerate() {
         let table = round2(site.properties.groundwater_depth(hole));
-        let Some(stratum) = hole
+        let in_table = hole
             .strata
             .iter()
             .find(|s| table >= s.top && table < s.base)
             // Made Ground yields no strike, whatever its properties: perched
             // water is out of scope (niko86/laterite-forge#42, M2).
-            .filter(|s| !preset.is_made_ground(&s.unit) && site.properties.is_coarse(&s.unit))
-        else {
+            .filter(|s| !preset.is_made_ground(&s.unit) && site.properties.is_coarse(&s.unit));
+        let bearing = hole
+            .strata
+            .iter()
+            .find(|s| preset.is_water_bearing(&s.unit));
+        if in_table.is_none() && bearing.is_none() {
             continue;
-        };
+        }
         let rise = uniform(&mut Key::hole("strike", hi).rng(seed), rise_min, rise_max);
-        out.push(Strike {
+        let by_table = in_table.map(|s| Strike {
             hole: hi,
-            depth: round2(table + rise).min(stratum.base),
-            table,
+            depth: round2(table + rise).min(s.base),
+            settle: table,
         });
+        let by_stratum = bearing.map(|s| Strike {
+            hole: hi,
+            depth: s.top,
+            // Perched water has no head above the strike to rise into.
+            settle: if table < s.top {
+                table.max(round2(s.top - rise))
+            } else {
+                s.top
+            },
+        });
+        // A water-bearing stratum takes precedence over the table rule.
+        out.extend(by_stratum.or(by_table));
     }
     out
 }
@@ -218,7 +263,7 @@ headings = []
                 seen += 1;
                 let hole = &site.holes[s.hole];
                 let table = round2(site.properties.groundwater_depth(hole));
-                assert!((s.table - table).abs() < 1e-9);
+                assert!((s.settle - table).abs() < 1e-9);
                 assert!(s.depth >= table, "strike above the table, seed {seed}");
                 assert!(
                     s.depth <= table + DEFAULT_RISE_M.1 + 1e-9,
@@ -246,7 +291,7 @@ headings = []
         for seed in 0..60 {
             let site = build::build(&p, seed, 6);
             for s in strikes(&site, &p, seed) {
-                rises.insert(format!("{:.2}", s.depth - s.table));
+                rises.insert(format!("{:.2}", s.depth - s.settle));
             }
         }
         assert!(rises.len() > 10, "{} distinct rises", rises.len());
@@ -274,9 +319,9 @@ headings = []
                 let st = hole
                     .strata
                     .iter()
-                    .find(|st| s.table >= st.top && s.table < st.base)
+                    .find(|st| s.settle >= st.top && s.settle < st.base)
                     .expect("the table is in a stratum");
-                let rise = s.depth - s.table;
+                let rise = s.depth - s.settle;
                 if (s.depth - st.base).abs() < 1e-9 {
                     clamped += 1;
                     assert!(rise <= 2.0 + 1e-9, "seed {seed}");
@@ -373,7 +418,7 @@ headings = []
         let s = Strike {
             hole: 0,
             depth: 2.0,
-            table: 2.0,
+            settle: 2.0,
         };
         assert!(MINUTES.iter().all(|&m| (s.reading(m) - 2.0).abs() < 1e-9));
         let s = Strike { depth: 2.4, ..s };
@@ -467,5 +512,224 @@ headings = []
             struck_plain += strikes(&site, &plain, seed).len();
         }
         assert_eq!(struck_plain, 30 * 6);
+    }
+
+    /// A sand lens in the London Clay host, flagged by `flag`, with plan radius
+    /// range `radius`.
+    fn lens(flag: &str, radius: &str) -> String {
+        format!(
+            r#"
+[[lenses]]
+id = "WB"
+name = "Sand lens"
+host = "LC"
+radius_m = {{ {radius}, basis = "test fixture" }}
+thickness_m = {{ min = 1.0, max = 2.0, basis = "test fixture" }}
+depth_in_host = {{ min = 0.3, max = 0.7, basis = "test fixture" }}
+description = {{ principals = ["SAND"], secondaries = ["silt"], colours = ["brown"] }}
+{flag}
+sampling = {{ types = ["D"], interval_m = {{ min = 0.5, max = 1.0, basis = "test fixture" }} }}
+
+[lenses.properties]
+spt_n = {{ min = 10, max = 30, basis = "test fixture" }}
+moisture_content_percent = {{ min = 8, max = 15, basis = "test fixture" }}
+particle_density_ratio = {{ min = 2.6, max = 2.7, basis = "test fixture" }}
+"#
+        )
+    }
+
+    /// Reaches every hole of the 400 x 300 m site.
+    const WIDE: &str = "min = 1000.0, max = 1000.0";
+    /// Leaves most holes clear of the lens.
+    const NARROW: &str = "min = 40.0, max = 80.0";
+
+    /// The fixture with a lens and the water groups.
+    fn with_lens(flag: &str, radius: &str) -> Preset {
+        Preset::from_toml(&format!("{FIXTURE}{}{WATER}", lens(flag, radius))).expect("loads")
+    }
+
+    /// The same with the table 60 m down, below every strike.
+    fn deep_table(flag: &str, radius: &str) -> Preset {
+        let text = format!("{FIXTURE}{}{WATER}", lens(flag, radius)).replace(
+            "groundwater_depth_m = { min = 1.0, max = 4.0,",
+            "groundwater_depth_m = { min = 60.0, max = 60.0,",
+        );
+        Preset::from_toml(&text).expect("loads")
+    }
+
+    fn lens_top(hole: &build::Hole) -> Option<f64> {
+        hole.strata.iter().find(|s| s.unit == "WB").map(|s| s.top)
+    }
+
+    #[test]
+    fn a_hole_meeting_a_water_bearing_lens_strikes_at_its_top() {
+        let p = with_lens("water_bearing = true", WIDE);
+        let mut met = 0;
+        for seed in 0..30 {
+            let site = build::build(&p, seed, 6);
+            let found = strikes(&site, &p, seed);
+            for (hi, hole) in site.holes.iter().enumerate() {
+                let Some(top) = lens_top(hole) else { continue };
+                met += 1;
+                let s = found.iter().find(|s| s.hole == hi).expect("strikes");
+                assert!((s.depth - top).abs() < 1e-9, "seed {seed}: {s:?} vs {top}");
+            }
+        }
+        assert!(met > 60, "{met} holes met the lens");
+    }
+
+    #[test]
+    fn readings_rise_toward_the_table_by_at_most_the_rise_and_never_above_it() {
+        let p = with_lens("water_bearing = true", WIDE);
+        let mut checked = 0;
+        for seed in 0..30 {
+            let site = build::build(&p, seed, 6);
+            let m = build::lower(&site, &p, seed, Grid::Local);
+            let (g, d) = (text(&m, "WSTG"), text(&m, "WSTD"));
+            for (i, strike) in g.iter().enumerate() {
+                let hole = site.holes.iter().find(|h| h.id == strike[0]).unwrap();
+                let table = round2(site.properties.groundwater_depth(hole));
+                let depth: f64 = strike[1].parse().unwrap();
+                assert!(table < depth, "the fixture table is above the lens");
+                let posts: Vec<f64> = d[4 * i..4 * i + 4]
+                    .iter()
+                    .map(|r| r[3].parse().unwrap())
+                    .collect();
+                assert!(posts.windows(2).all(|w| w[1] <= w[0]), "{posts:?}");
+                assert!(posts[0] <= depth);
+                assert!(posts[3] >= table - 1e-9, "above the table: {posts:?}");
+                // The fixture's default rise is at most 0.5 m.
+                assert!(posts[3] >= depth - DEFAULT_RISE_M.1 - 1e-9, "{posts:?}");
+                checked += 1;
+            }
+        }
+        assert!(checked > 60);
+    }
+
+    #[test]
+    fn a_rise_that_would_pass_the_table_stops_at_it() {
+        // Water met at 10.00 m with the table at 9.80 m: a drawn rise of 0.5 m
+        // settles at the table, one of 0.1 m at 9.90 m.
+        let settle = |rise: f64| 9.8_f64.max(round2(10.0 - rise));
+        let at = |rise| Strike {
+            hole: 0,
+            depth: 10.0,
+            settle: settle(rise),
+        };
+        assert!((at(0.5).reading(20) - 9.8).abs() < 1e-9);
+        assert!((at(0.1).reading(20) - 9.9).abs() < 1e-9);
+    }
+
+    #[test]
+    fn perched_water_stays_at_the_strike_depth_when_the_table_is_deeper() {
+        let p = deep_table("water_bearing = true", WIDE);
+        let mut checked = 0;
+        for seed in 0..30 {
+            let site = build::build(&p, seed, 6);
+            let m = build::lower(&site, &p, seed, Grid::Local);
+            let (g, d) = (text(&m, "WSTG"), text(&m, "WSTD"));
+            assert_eq!(d.len(), 4 * g.len());
+            for (i, strike) in g.iter().enumerate() {
+                for r in &d[4 * i..4 * i + 4] {
+                    assert_eq!(r[3], strike[1], "perched water rose, seed {seed}");
+                }
+                checked += 1;
+            }
+            // The lens is the only source of a strike with the table at 60 m.
+            let met = site.holes.iter().filter(|h| lens_top(h).is_some()).count();
+            assert_eq!(g.len(), met, "seed {seed}");
+        }
+        assert!(checked > 60);
+    }
+
+    #[test]
+    fn a_hole_without_the_lens_gets_no_strike_from_it() {
+        let p = deep_table("water_bearing = true", NARROW);
+        let (mut met, mut missed) = (0, 0);
+        for seed in 0..30 {
+            let site = build::build(&p, seed, 6);
+            let found = strikes(&site, &p, seed);
+            for (hi, hole) in site.holes.iter().enumerate() {
+                let struck = found.iter().any(|s| s.hole == hi);
+                if lens_top(hole).is_some() {
+                    met += 1;
+                    assert!(struck, "seed {seed}");
+                } else {
+                    missed += 1;
+                    assert!(!struck, "seed {seed}");
+                }
+            }
+        }
+        assert!(met > 5 && missed > 20, "met {met}, missed {missed}");
+    }
+
+    #[test]
+    fn a_water_bearing_unit_strikes_and_the_first_one_down_is_the_strike() {
+        let text = format!("{FIXTURE}{}{WATER}", lens("water_bearing = true", WIDE)).replace(
+            "name = \"London Clay\"\n",
+            "name = \"London Clay\"\nwater_bearing = true\n",
+        );
+        let p = Preset::from_toml(&text).expect("loads");
+        assert!(p.is_water_bearing("LC") && p.is_water_bearing("WB"));
+        for seed in 0..20 {
+            let site = build::build(&p, seed, 6);
+            let found = strikes(&site, &p, seed);
+            assert_eq!(found.len(), 6, "one strike per hole, seed {seed}");
+            for (hi, hole) in site.holes.iter().enumerate() {
+                // The host's first stratum lies above its lens, so it is the
+                // first water-bearing stratum down the hole.
+                let first = hole
+                    .strata
+                    .iter()
+                    .find(|s| s.unit == "LC" || s.unit == "WB")
+                    .unwrap();
+                assert!((found[hi].depth - first.top).abs() < 1e-9, "seed {seed}");
+            }
+        }
+    }
+
+    #[test]
+    fn an_explicit_false_flag_is_byte_identical_to_no_flag() {
+        let (off, absent) = (
+            with_lens("water_bearing = false", WIDE),
+            with_lens("", WIDE),
+        );
+        for seed in 0..10 {
+            assert_eq!(
+                emit_to_string(&file(&off, seed, 6)),
+                emit_to_string(&file(&absent, seed, 6)),
+                "seed {seed}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_flag_moves_only_the_water_groups() {
+        let (on, off) = (with_lens("water_bearing = true", WIDE), with_lens("", WIDE));
+        for seed in 0..10 {
+            let (a, b) = (file(&on, seed, 6), file(&off, seed, 6));
+            for g in ["TRAN", "LOCA", "GEOL", "SAMP"] {
+                assert_eq!(text(&a, g), text(&b, g), "{g} at seed {seed}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_water_bearing_file_is_rust_clean_across_seeds() {
+        for p in [
+            with_lens("water_bearing = true", WIDE),
+            deep_table("water_bearing = true", WIDE),
+        ] {
+            for seed in 0..30 {
+                assert!(is_clean(&file(&p, seed, 6)), "seed {seed}");
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "prints sample rows"]
+    fn print_sample_rows() {
+        let m = file(&with_lens("water_bearing = true", WIDE), 1, 3);
+        eprintln!("{:?}\n{:?}", text(&m, "WSTG"), text(&m, "WSTD"));
     }
 }
