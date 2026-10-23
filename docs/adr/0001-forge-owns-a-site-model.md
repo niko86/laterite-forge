@@ -49,7 +49,8 @@ consumer can replace.
 - A preset carries `schema` (unknown versions are refused) and `version`. The
   generated file records the preset's name and version. A version bump that
   changes output means notifying consumers and re-baselining, the same
-  obligation as the `describe` pin. Old versions are not kept.
+  obligation as the `describe` pin. Old versions are not kept. The promise
+  starts at `london-basin` v3 (see Slices).
 - Every `--site` file carries a mandatory synthetic marker in a field that
   survives a round-trip.
 
@@ -157,6 +158,13 @@ A glacial preset follows.
 because its descriptions are incomplete on purpose and every slice re-rolls the
 preset pins. It becomes visible and documented with slice 3, and the preset
 versioning promise starts at that point.
+
+The shipped preset first carried a suite (result headings, strength and water
+strikes) in `london-basin` v3 (#48), so `--site`, `--grid` and `--origin`
+became visible in `--help` and `README-cli.md` there, and the promise starts at
+`london-basin` v3: from v3 on, any change to what a shipped preset generates
+bumps its `version`, and consumers are told and re-baseline. v1 and v2 carry
+no such promise. (Amended 2026-10-23, #48.)
 
 ## Considered and rejected
 
