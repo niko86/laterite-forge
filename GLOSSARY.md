@@ -37,6 +37,10 @@ _Avoid_: layer, stratum (for this meaning)
 The part of one unit met in one hole, recorded as one GEOL row.
 _Avoid_: layer, unit (for this meaning)
 
+**Made-ground unit**:
+A unit whose preset entry sets `made_ground`. Its strata are described `MADE GROUND: ` + matrix + constituents. It takes no lab tests and never yields a water strike.
+_Avoid_: fill, artificial ground
+
 **Lens**:
 A unit with limited lateral extent, lying within a single host unit. A hole that passes through a lens records its host as two strata, one above the lens and one below.
 _Avoid_: band, pocket, inclusion

@@ -15,6 +15,7 @@ use toml::Value;
 use super::properties::{self as props, Domain};
 use super::results;
 use super::suite;
+use crate::synth::made_ground;
 
 /// The only schema this forge reads.
 const SCHEMA: i64 = 1;
@@ -78,9 +79,51 @@ pub struct Unit {
     /// `None` only on the last unit, which runs to final depth.
     pub thickness_m: Option<Range>,
     pub description: DescriptionSpec,
+    /// `Some` makes this a made-ground unit: its strata are described
+    /// `MADE GROUND: ` + matrix + constituents, and it never yields a water
+    /// strike or takes a lab test.
+    pub made_ground: Option<MadeGroundSpec>,
     pub sampling: Sampling,
     /// Index properties (required).
     pub properties: Properties,
+}
+
+/// How a made-ground unit names its constituents. Both parts are optional:
+/// without `constituents` the unit draws from the lane's default list with
+/// equal weight, and without `count` a stratum names one or two, as the
+/// default lane does. `made_ground = true` is both absent.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MadeGroundSpec {
+    pub constituents: Option<Vec<ConstituentShare>>,
+    pub count: Option<CountWeights>,
+    pub amounts: Option<AmountWeights>,
+}
+
+/// Weights for the amount word each constituent takes, independently.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AmountWeights {
+    /// Weights for rare, occasional, frequent, numerous and abundant.
+    pub weights: [f64; 5],
+    pub basis: String,
+}
+
+/// One constituent and the fraction of the unit's strata that mention it.
+/// The site draws one value in the range, once, so a site is consistent.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConstituentShare {
+    /// A word of the made-ground vocabulary.
+    pub name: String,
+    /// Fractions in `[0, 1]`; a plain number in the file has `min == max`.
+    pub share: Range,
+}
+
+/// Weights for how many constituents a stratum names.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CountWeights {
+    /// Weights for 0, 1, 2 and 3 or more constituents; at least one is
+    /// positive, none negative. Relative, so they need not sum to 1.
+    pub weights: [f64; 4],
+    pub basis: String,
 }
 
 /// A unit with a limited, lenticular footprint inside one host unit. In plan
@@ -128,6 +171,10 @@ pub struct SuiteEntry {
 pub const SUITE_GROUPS: &[&str] = &[
     "LNMC", "LLPL", "LDEN", "TRIG", "TRIT", "ISPT", "WSTG", "WSTD",
 ];
+
+/// The lab groups, which a made-ground unit may not be tested for (ISPT, an
+/// in-situ test, is allowed).
+const LAB_GROUPS: &[&str] = &["LNMC", "LLPL", "LDEN", "TRIG"];
 
 /// For a group scheduled by something other than a rate over samples, the
 /// parent group its entry needs, if it has one, and why the entry has no
@@ -299,6 +346,13 @@ pub fn resolve(arg: &str) -> Result<Preset, PresetErrors> {
 }
 
 impl Preset {
+    /// Whether `unit` is the id of a made-ground unit. A lens never is.
+    pub fn is_made_ground(&self, unit: &str) -> bool {
+        self.units
+            .iter()
+            .any(|u| u.id == unit && u.made_ground.is_some())
+    }
+
     pub fn from_toml(text: &str) -> Result<Preset, PresetErrors> {
         let root: Table = text
             .parse()
@@ -807,6 +861,16 @@ fn check_suite_values(preset: &Preset, errs: &mut Vec<String>) {
         .position(|e| e.group == "TRIG")
         .map(|t| (t, &preset.suite[t].units));
     for (i, entry) in preset.suite.iter().enumerate() {
+        if LAB_GROUPS.contains(&entry.group.as_str()) {
+            for (j, u) in entry.units.iter().enumerate() {
+                if preset.is_made_ground(u) {
+                    errs.push(format!(
+                        "suite[{i}].units[{j}]: {} may not test made-ground unit \"{u}\" (no lab tests in Made Ground)",
+                        entry.group
+                    ));
+                }
+            }
+        }
         for (j, h) in entry.headings.iter().enumerate() {
             let at = format!("suite[{i}].headings[{j}]");
             if entry.group == "TRIT" && results::TRIT_STRENGTH_HEADINGS.contains(&h.as_str()) {
@@ -1024,11 +1088,18 @@ fn read_units(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Unit>> {
         };
 
         let description = read_description(&mut u, errs);
+        let made_ground = read_made_ground(&mut u, errs);
         let sampling = read_sampling(&mut u, &samp, errs);
         let properties = required_properties(&mut u, description.as_ref(), errs);
         u.finish(errs);
-        if let (Some(id), Some(name), Some(description), Some(sampling), Some(properties)) =
-            (id, name, description, sampling, properties)
+        if let (
+            Some(id),
+            Some(name),
+            Some(description),
+            Some(made_ground),
+            Some(sampling),
+            Some(properties),
+        ) = (id, name, description, made_ground, sampling, properties)
             && (i == last || thickness.is_some())
         {
             out.push(Unit {
@@ -1036,6 +1107,7 @@ fn read_units(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Unit>> {
                 name,
                 thickness_m: thickness,
                 description,
+                made_ground,
                 sampling,
                 properties,
             });
@@ -1319,6 +1391,231 @@ fn read_suite_rate(e: &mut Node, errs: &mut Vec<String>) -> Option<Range> {
         }
     }
     Some(r)
+}
+
+/// Reads a unit's optional `made_ground`: `true` for the lane's default
+/// draw, or a table with a `constituents` list and/or a `count` distribution.
+/// The outer `None` is a problem already reported.
+// Outer `None` is a reported problem; inner `None` is "not written".
+#[allow(clippy::option_option)]
+fn read_made_ground(u: &mut Node, errs: &mut Vec<String>) -> Option<Option<MadeGroundSpec>> {
+    let at = u.at("made_ground");
+    match u.get("made_ground") {
+        None => Some(None),
+        Some(Value::Boolean(true)) => Some(Some(MadeGroundSpec::default())),
+        Some(Value::Table(t)) => {
+            let mut m = Node::new(t, at);
+            let constituents = read_constituent_shares(&mut m, errs);
+            let count = read_count(&mut m, errs);
+            let amounts = read_amounts(&mut m, errs);
+            if t.is_empty() {
+                errs.push(format!(
+                    "{}: empty (write `true` for the default draw)",
+                    m.path
+                ));
+            }
+            m.finish(errs);
+            Some(Some(MadeGroundSpec {
+                constituents: constituents?,
+                count: count?,
+                amounts: amounts?,
+            }))
+        }
+        Some(_) => {
+            errs.push(format!("{at}: must be true or a table"));
+            None
+        }
+    }
+}
+
+/// `constituents = [{ name, share }, ...]`, absent meaning the default list.
+// Outer `None` is a reported problem; inner `None` is "not written".
+#[allow(clippy::option_option)]
+fn read_constituent_shares(
+    m: &mut Node,
+    errs: &mut Vec<String>,
+) -> Option<Option<Vec<ConstituentShare>>> {
+    let at = m.at("constituents");
+    let items = match m.get("constituents") {
+        None => return Some(None),
+        Some(Value::Array(a)) => a,
+        Some(_) => {
+            errs.push(format!("{at}: must be an array of tables"));
+            return None;
+        }
+    };
+    if items.is_empty() {
+        errs.push(format!("{at}: must not be empty"));
+    }
+    let known = made_ground::constituents();
+    let mut out: Vec<ConstituentShare> = Vec::new();
+    let mut ok = !items.is_empty();
+    for (i, v) in items.iter().enumerate() {
+        let Value::Table(t) = v else {
+            errs.push(format!("{at}[{i}]: must be a table"));
+            ok = false;
+            continue;
+        };
+        let mut c = Node::new(t, format!("{at}[{i}]"));
+        let name = req_str(&mut c, "name", errs);
+        if let Some(n) = &name {
+            if !known.vocabulary().any(|k| k == n) {
+                let list: Vec<&str> = known.vocabulary().map(String::as_str).collect();
+                errs.push(format!(
+                    "{}: unknown constituent \"{n}\" (known: {})",
+                    c.at("name"),
+                    list.join(", ")
+                ));
+                ok = false;
+            } else if out.iter().any(|o| &o.name == n) {
+                errs.push(format!("{}: \"{n}\" is listed twice", c.at("name")));
+                ok = false;
+            }
+        }
+        let share = read_share(&mut c, errs);
+        c.finish(errs);
+        match (name, share) {
+            (Some(name), Some(share)) => out.push(ConstituentShare { name, share }),
+            _ => ok = false,
+        }
+    }
+    ok.then_some(Some(out))
+}
+
+/// `share = { min, max, basis }`, or a plain number with the entry's `basis`.
+/// Either way each bound is a fraction in `[0, 1]`.
+fn read_share(c: &mut Node, errs: &mut Vec<String>) -> Option<Range> {
+    let at = c.at("share");
+    let range = match c.get("share") {
+        None => {
+            errs.push(format!("{at}: missing"));
+            return None;
+        }
+        Some(Value::Table(t)) => {
+            let mut r = Node::new(t, at.clone());
+            let range = range_in(&mut r, errs);
+            r.finish(errs);
+            range?
+        }
+        Some(v) => {
+            let share = num(Some(v), &at, errs);
+            let basis = match c.get("basis") {
+                None => {
+                    errs.push(format!("{}: no basis", c.path));
+                    None
+                }
+                Some(Value::String(s)) if !s.trim().is_empty() => Some(s.clone()),
+                Some(_) => {
+                    errs.push(format!("{}: basis must be a non-empty string", c.path));
+                    None
+                }
+            };
+            Range {
+                min: share?,
+                max: share?,
+                basis: basis?,
+            }
+        }
+    };
+    let mut fine = true;
+    for (which, v) in [("min", range.min), ("max", range.max)] {
+        if !(0.0..=1.0).contains(&v) {
+            errs.push(format!("{at}: {which} {v} is outside 0 to 1"));
+            fine = false;
+        }
+    }
+    fine.then_some(range)
+}
+
+/// `count = { weights = [w0, w1, w2, w3plus], basis }`, absent meaning the
+/// default lane's one or two.
+// Outer `None` is a reported problem; inner `None` is "not written".
+#[allow(clippy::option_option)]
+fn read_count(m: &mut Node, errs: &mut Vec<String>) -> Option<Option<CountWeights>> {
+    let w = read_weights::<4>(m, "count", "0, 1, 2 and 3+ constituents", errs)?;
+    Some(w.map(|(weights, basis)| CountWeights { weights, basis }))
+}
+
+/// `amounts = { weights = [rare, occasional, frequent, numerous, abundant],
+/// basis }`, absent meaning equal weights.
+// Outer `None` is a reported problem; inner `None` is "not written".
+#[allow(clippy::option_option)]
+fn read_amounts(m: &mut Node, errs: &mut Vec<String>) -> Option<Option<AmountWeights>> {
+    let w = read_weights::<5>(
+        m,
+        "amounts",
+        "rare, occasional, frequent, numerous and abundant",
+        errs,
+    )?;
+    Some(w.map(|(weights, basis)| AmountWeights { weights, basis }))
+}
+
+/// `key = { weights = [N non-negative numbers, not all zero], basis }`.
+// Outer `None` is a reported problem; inner `None` is "not written".
+#[allow(clippy::option_option)]
+fn read_weights<const N: usize>(
+    m: &mut Node,
+    key: &'static str,
+    labels: &str,
+    errs: &mut Vec<String>,
+) -> Option<Option<([f64; N], String)>> {
+    if !m.table.contains_key(key) {
+        m.get(key);
+        return Some(None);
+    }
+    let mut c = req_table(m, key, errs)?;
+    let basis = match c.get("basis") {
+        None => {
+            errs.push(format!("{}: no basis", c.path));
+            None
+        }
+        Some(Value::String(s)) if !s.trim().is_empty() => Some(s.clone()),
+        Some(_) => {
+            errs.push(format!("{}: basis must be a non-empty string", c.path));
+            None
+        }
+    };
+    let wat = c.at("weights");
+    let weights = match c.get("weights") {
+        None => {
+            errs.push(format!("{wat}: missing"));
+            None
+        }
+        Some(Value::Array(a)) if a.len() == N => {
+            let nums: Vec<Option<f64>> = a
+                .iter()
+                .enumerate()
+                .map(|(i, v)| num(Some(v), &format!("{wat}[{i}]"), errs))
+                .collect();
+            let w: Vec<f64> = nums.iter().flatten().copied().collect();
+            if w.len() != N {
+                None
+            } else if let Some(i) = w.iter().position(|x| *x < 0.0) {
+                errs.push(format!("{wat}[{i}]: {} is negative", w[i]));
+                None
+            } else if w.iter().sum::<f64>() <= 0.0 {
+                errs.push(format!("{wat}: weights sum to zero"));
+                None
+            } else {
+                let mut out = [0.0; N];
+                out.copy_from_slice(&w);
+                Some(out)
+            }
+        }
+        Some(Value::Array(a)) => {
+            errs.push(format!(
+                "{wat}: needs {N} weights ({labels}), found {}",
+                a.len()
+            ));
+            None
+        }
+        Some(_) => {
+            errs.push(format!("{wat}: must be an array of {N} numbers"));
+            None
+        }
+    };
+    c.finish(errs);
+    Some(Some((weights?, basis?)))
 }
 
 fn read_description(u: &mut Node, errs: &mut Vec<String>) -> Option<DescriptionSpec> {
@@ -2469,5 +2766,237 @@ rate = { min = 1, max = 1, basis = "test fixture" }
         Preset::from_toml(&text(&format!("{STRENGTH}{SPT}"), "LC")).expect("valid");
         // A coarse unit has its own N.
         Preset::from_toml(&text("", "RTD")).expect("valid");
+    }
+
+    const RTD_DESC: &str = r#"description = { principals = ["SAND", "GRAVEL"], secondaries = ["gravel"], colours = ["brown"] }"#;
+
+    /// `text` with RTD made ground, `spec` being its `made_ground` value.
+    fn rtd_made_ground(text: &str, spec: &str) -> String {
+        assert!(text.contains(RTD_DESC), "fixture lacks the RTD description");
+        text.replacen(RTD_DESC, &format!("{RTD_DESC}\nmade_ground = {spec}"), 1)
+    }
+
+    fn mg_errors(spec: &str) -> String {
+        errors_of(&rtd_made_ground(&valid(), spec)).join("\n")
+    }
+
+    const BRICK: &str = r#"{ name = "brick", share = 0.5, basis = "test fixture" }"#;
+    const MG_COUNT: &str = r#"{ weights = [1, 2, 2, 1], basis = "test fixture" }"#;
+
+    #[test]
+    fn a_unit_without_made_ground_is_plain() {
+        let p = Preset::from_toml(&valid()).unwrap();
+        assert!(p.units.iter().all(|u| u.made_ground.is_none()));
+        assert!(!p.is_made_ground("RTD"));
+    }
+
+    #[test]
+    fn made_ground_true_loads_with_no_weights() {
+        let p = Preset::from_toml(&rtd_made_ground(&valid(), "true")).expect("valid");
+        assert_eq!(p.units[0].made_ground, Some(MadeGroundSpec::default()));
+        assert!(p.is_made_ground("RTD") && !p.is_made_ground("LC"));
+    }
+
+    #[test]
+    fn made_ground_weights_load_into_typed_values() {
+        let spec = format!(
+            r#"{{ constituents = [{BRICK}, {{ name = "coal", share = {{ min = 0.1, max = 0.2, basis = "test fixture" }} }}], count = {MG_COUNT} }}"#
+        );
+        let p = Preset::from_toml(&rtd_made_ground(&valid(), &spec)).expect("valid");
+        let m = p.units[0].made_ground.as_ref().unwrap();
+        let c = m.constituents.as_ref().unwrap();
+        assert_eq!(c[0].name, "brick");
+        assert_eq!((c[0].share.min, c[0].share.max), (0.5, 0.5));
+        assert_eq!(c[0].share.basis, "test fixture");
+        // The extended vocabulary is nameable.
+        assert_eq!(c[1].name, "coal");
+        assert_eq!((c[1].share.min, c[1].share.max), (0.1, 0.2));
+        assert_eq!(m.count.as_ref().unwrap().weights, [1.0, 2.0, 2.0, 1.0]);
+        assert_eq!(m.count.as_ref().unwrap().basis, "test fixture");
+        // Either part alone is enough.
+        for alone in [
+            format!("{{ constituents = [{BRICK}] }}"),
+            format!("{{ count = {MG_COUNT} }}"),
+        ] {
+            Preset::from_toml(&rtd_made_ground(&valid(), &alone)).expect("valid");
+        }
+    }
+
+    #[test]
+    fn an_unknown_constituent_is_refused_naming_the_field_and_the_known_words() {
+        let e = mg_errors(
+            r#"{ constituents = [{ name = "gold", share = 0.5, basis = "test fixture" }] }"#,
+        );
+        assert!(
+            e.starts_with(
+                "units[0] (RTD).made_ground.constituents[0].name: unknown constituent \"gold\" (known: brick,"
+            ),
+            "{e}"
+        );
+        assert!(e.contains("pottery") && e.contains("coal"), "{e}");
+    }
+
+    #[test]
+    fn a_duplicate_constituent_is_refused() {
+        let e = mg_errors(&format!("{{ constituents = [{BRICK}, {BRICK}] }}"));
+        assert_eq!(
+            e,
+            "units[0] (RTD).made_ground.constituents[1].name: \"brick\" is listed twice"
+        );
+    }
+
+    #[test]
+    fn shares_outside_zero_to_one_are_refused_naming_the_field() {
+        let e = mg_errors(
+            r#"{ constituents = [{ name = "brick", share = 1.2, basis = "test fixture" }] }"#,
+        );
+        assert_eq!(
+            e,
+            "units[0] (RTD).made_ground.constituents[0].share: min 1.2 is outside 0 to 1\n\
+             units[0] (RTD).made_ground.constituents[0].share: max 1.2 is outside 0 to 1"
+        );
+        let e = mg_errors(
+            r#"{ constituents = [{ name = "brick", share = { min = -0.1, max = 0.5, basis = "test fixture" } }] }"#,
+        );
+        assert_eq!(
+            e,
+            "units[0] (RTD).made_ground.constituents[0].share: min -0.1 is outside 0 to 1"
+        );
+    }
+
+    #[test]
+    fn a_share_without_a_basis_is_refused_naming_the_field() {
+        let e = mg_errors(r#"{ constituents = [{ name = "brick", share = 0.5 }] }"#);
+        assert_eq!(e, "units[0] (RTD).made_ground.constituents[0]: no basis");
+        let e = mg_errors(
+            r#"{ constituents = [{ name = "brick", share = { min = 0.4, max = 0.5 } }] }"#,
+        );
+        assert_eq!(
+            e,
+            "units[0] (RTD).made_ground.constituents[0].share: no basis"
+        );
+    }
+
+    #[test]
+    fn count_weights_that_are_missing_short_negative_or_zero_are_refused() {
+        let count = |inner: &str| mg_errors(&format!("{{ count = {{ {inner} }} }}"));
+        assert_eq!(
+            count(r"weights = [1, 2, 2, 1]"),
+            "units[0] (RTD).made_ground.count: no basis"
+        );
+        assert_eq!(
+            count(r#"basis = "test fixture""#),
+            "units[0] (RTD).made_ground.count.weights: missing"
+        );
+        assert_eq!(
+            count(r#"weights = [1, 2, 2], basis = "test fixture""#),
+            "units[0] (RTD).made_ground.count.weights: needs 4 weights (0, 1, 2 and 3+ constituents), found 3"
+        );
+        assert_eq!(
+            count(r#"weights = [1, -2, 2, 1], basis = "test fixture""#),
+            "units[0] (RTD).made_ground.count.weights[1]: -2 is negative"
+        );
+        assert_eq!(
+            count(r#"weights = [0, 0, 0, 0], basis = "test fixture""#),
+            "units[0] (RTD).made_ground.count.weights: weights sum to zero"
+        );
+        assert_eq!(
+            count(r#"weights = [1, "x", 2, 1], basis = "test fixture""#),
+            "units[0] (RTD).made_ground.count.weights[1]: must be a number"
+        );
+    }
+
+    #[test]
+    fn amount_weights_load_and_are_refused_like_count_weights() {
+        let amounts = |inner: &str| mg_errors(&format!("{{ amounts = {{ {inner} }} }}"));
+        let p = Preset::from_toml(&rtd_made_ground(
+            &valid(),
+            r#"{ amounts = { weights = [0.14, 0.25, 0.07, 0.0, 0.02], basis = "test fixture" } }"#,
+        ))
+        .expect("valid");
+        let a = p.units[0].made_ground.as_ref().unwrap().amounts.as_ref();
+        assert_eq!(a.unwrap().weights, [0.14, 0.25, 0.07, 0.0, 0.02]);
+        assert_eq!(a.unwrap().basis, "test fixture");
+        assert_eq!(
+            amounts(r"weights = [1, 2, 2, 1, 1]"),
+            "units[0] (RTD).made_ground.amounts: no basis"
+        );
+        assert_eq!(
+            amounts(r#"basis = "test fixture""#),
+            "units[0] (RTD).made_ground.amounts.weights: missing"
+        );
+        assert_eq!(
+            amounts(r#"weights = [1, 2, 2, 1], basis = "test fixture""#),
+            "units[0] (RTD).made_ground.amounts.weights: needs 5 weights (rare, occasional, frequent, numerous and abundant), found 4"
+        );
+        assert_eq!(
+            amounts(r#"weights = [1, 2, -2, 1, 1], basis = "test fixture""#),
+            "units[0] (RTD).made_ground.amounts.weights[2]: -2 is negative"
+        );
+        assert_eq!(
+            amounts(r#"weights = [0, 0, 0, 0, 0], basis = "test fixture""#),
+            "units[0] (RTD).made_ground.amounts.weights: weights sum to zero"
+        );
+    }
+
+    #[test]
+    fn an_empty_or_malformed_made_ground_is_refused() {
+        assert_eq!(
+            mg_errors("{}"),
+            "units[0] (RTD).made_ground: empty (write `true` for the default draw)"
+        );
+        assert_eq!(
+            mg_errors("false"),
+            "units[0] (RTD).made_ground: must be true or a table"
+        );
+        assert_eq!(
+            mg_errors("{ constituents = [] }"),
+            "units[0] (RTD).made_ground.constituents: must not be empty"
+        );
+        assert_eq!(
+            mg_errors(&format!("{{ colour = 1, count = {MG_COUNT} }}")),
+            "units[0] (RTD).made_ground: unknown key \"colour\""
+        );
+    }
+
+    #[test]
+    fn made_ground_belongs_to_units_not_lenses() {
+        let e = errors_of(&lens_with(
+            "host = \"LC\"",
+            "host = \"LC\"\nmade_ground = true",
+        ))
+        .join("\n");
+        assert!(e.contains("unknown key \"made_ground\""), "{e}");
+    }
+
+    #[test]
+    fn a_suite_listing_a_lab_group_over_a_made_ground_unit_is_refused_naming_entry_and_unit() {
+        let mg = |text: &str| rtd_made_ground(text, "true");
+        // LLPL
+        let e = suite_errors(&mg(&suite_with(
+            "units = [\"LC\"]\nrate = { min = 0.3",
+            "units = [\"RTD\"]\nrate = { min = 0.3",
+        )));
+        assert_eq!(
+            e,
+            "suite[0].units[0]: LLPL may not test made-ground unit \"RTD\" (no lab tests in Made Ground)"
+        );
+        // TRIG
+        let e = suite_errors(&mg(&suite_with(
+            "units = [\"LC\"]\nrate = { min = 0.1",
+            "units = [\"LC\", \"RTD\"]\nrate = { min = 0.1",
+        )));
+        assert_eq!(
+            e,
+            "suite[1].units[1]: TRIG may not test made-ground unit \"RTD\" (no lab tests in Made Ground)"
+        );
+    }
+
+    #[test]
+    fn a_suite_may_still_list_ispt_over_a_made_ground_unit() {
+        // The suite fixture's ISPT runs over RTD.
+        let p = Preset::from_toml(&rtd_made_ground(&with_suite(), "true")).expect("valid");
+        let ispt = p.suite.iter().find(|e| e.group == "ISPT").unwrap();
+        assert_eq!(ispt.units, ["RTD"]);
     }
 }

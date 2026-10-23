@@ -11,11 +11,12 @@ use laterite_ags4_validator::{DictVersion, Dictionary};
 
 use super::draw::{Key, uniform};
 use super::ground::Field;
-use super::preset::{DescriptionSpec, Extent, Lens, Preset, Sampling};
+use super::preset::{DescriptionSpec, Extent, Lens, MadeGroundSpec, Preset, Sampling};
 use super::properties::{LeadTerms, PropertyModel};
 use super::suite;
 use crate::synth::bs5930::{self, Lead, UnitDescription};
 use crate::synth::generic;
+use crate::synth::made_ground::{self, Mix};
 use crate::synth::model::{Group, ProjectModel, Row, collect_abbr, collect_type, collect_unit};
 
 /// How holes are located beyond the local grid.
@@ -122,6 +123,43 @@ fn lead(terms: &LeadTerms) -> Lead<'static> {
     }
 }
 
+/// The weighted constituents of a made-ground unit on this site, or `None`
+/// when the unit gives no weights (`made_ground = true`) and so takes the
+/// lane's default draw. Each share is drawn once per site in its range, from
+/// a stream keyed by the unit and the constituent's position.
+fn unit_mix(spec: &MadeGroundSpec, unit: &str, seed: u64) -> Option<Mix> {
+    if spec.constituents.is_none() && spec.count.is_none() && spec.amounts.is_none() {
+        return None;
+    }
+    let shares: Vec<(&str, f64)> = match &spec.constituents {
+        Some(list) => list
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let key = Key {
+                    test: i as u64,
+                    ..Key::unit("made-ground-share", unit)
+                };
+                (
+                    c.name.as_str(),
+                    uniform(&mut key.rng(seed), c.share.min, c.share.max),
+                )
+            })
+            .collect(),
+        // Equal shares: the fit then gives every default word the same weight.
+        None => made_ground::constituents()
+            .constituents
+            .iter()
+            .map(|n| (n.as_str(), 0.5))
+            .collect(),
+    };
+    Some(Mix::new(
+        &shares,
+        spec.count.as_ref().map(|c| c.weights),
+        spec.amounts.as_ref().map(|a| a.weights),
+    ))
+}
+
 /// The thinnest stratum written: one unit in the last decimal place.
 const MIN_THICKNESS: f64 = 0.01;
 
@@ -178,7 +216,20 @@ pub fn build(preset: &Preset, seed: u64, holes: usize) -> Site {
         .iter()
         .map(|l| (l, Footprint::new(l, extent, seed)))
         .collect();
-    let layers = Layers { surfaces, lenses };
+    let mixes = preset
+        .units
+        .iter()
+        .map(|u| {
+            u.made_ground
+                .as_ref()
+                .and_then(|m| unit_mix(m, &u.id, seed))
+        })
+        .collect();
+    let layers = Layers {
+        surfaces,
+        lenses,
+        mixes,
+    };
     let properties = PropertyModel::new(preset, seed);
     let total_weight: u64 = preset.hole_types.iter().map(|t| u64::from(t.weight)).sum();
 
@@ -222,6 +273,9 @@ struct Layers<'a> {
     /// One thickness surface per unit, in preset order.
     surfaces: Vec<Field>,
     lenses: Vec<(&'a Lens, Footprint)>,
+    /// One per unit, in preset order: the weighted constituents of a made-ground
+    /// unit that gives weights, else `None` (the lane's default draw).
+    mixes: Vec<Option<Mix>>,
 }
 
 /// The strata of hole `k`: one per unit present, top-down, from 0 to
@@ -243,7 +297,7 @@ fn strata(
     let vocab = bs5930::vocab();
     let mut out = Vec::new();
     let mut top = 0.0;
-    for (unit, surface) in preset.units.iter().zip(&layers.surfaces) {
+    for ((unit, surface), mix) in preset.units.iter().zip(&layers.surfaces).zip(&layers.mixes) {
         if top >= final_depth {
             break;
         }
@@ -264,14 +318,25 @@ fn strata(
         }
         let mut rng = Key::stratum("description", k, &unit.id).rng(seed);
         let terms = properties.lead(k, (x, y), &unit.id, top, (top, base));
-        let description = bs5930::describe_unit(
+        let matrix = bs5930::describe_unit(
             vocab,
             &mut rng,
             &unit_description(&unit.description),
             lead(&terms),
         )
-        .expect("problems() was checked before build")
-        .text;
+        .expect("problems() was checked before build");
+        let description = if unit.made_ground.is_some() {
+            // The lane's own stream, so the matrix draw above is the one a
+            // plain unit would make.
+            let mut rng = Key::stratum("made-ground", k, &unit.id).rng(seed);
+            let made = match mix {
+                Some(mix) => made_ground::made_ground_mix(&matrix, vocab, &mut rng, mix),
+                None => made_ground::made_ground(&matrix, vocab, &mut rng),
+            };
+            made.description.text
+        } else {
+            matrix.text
+        };
         let inside = lens_spans(&layers.lenses, &unit.id, x, y, top, base);
         if inside.is_empty() {
             // The common case, with the keys it always had.
@@ -1644,6 +1709,220 @@ mod shipped_pins {
                 std::fs::write(&path, shipped(name, seed)).unwrap();
                 assert_eq!(rust_check(&path).0, RustResult::Clean, "{name} seed {seed}");
             }
+        }
+    }
+}
+
+/// Made-ground units (niko86/laterite-forge#42).
+#[cfg(test)]
+pub(super) mod made_ground_tests {
+    use super::tests::FIXTURE;
+    use super::*;
+    use crate::pipeline::rust_check;
+    use crate::synth::emit::emit_to_string;
+    use crate::synth::made_ground::TAG;
+    use laterite_ags4_parity::RustResult;
+
+    /// A coarse made-ground candidate on top, always 2-3 m thick. `{SPEC}`
+    /// is the unit's `made_ground` line, or nothing for a plain unit.
+    const MG_UNIT: &str = r#"[[units]]
+id = "MG"
+name = "Made Ground"
+thickness_m = { min = 2.0, max = 3.0, basis = "test fixture" }
+description = { principals = ["SAND", "GRAVEL"], secondaries = ["clay"], colours = ["dark brown", "black"] }
+{SPEC}
+sampling = { types = ["B", "D"], interval_m = { min = 1.0, max = 1.5, basis = "test fixture" } }
+
+[units.properties]
+spt_n = { min = 4, max = 30, basis = "test fixture" }
+moisture_content_percent = { min = 8, max = 15, basis = "test fixture" }
+particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
+
+"#;
+
+    /// [`FIXTURE`] with [`MG_UNIT`] above the terrace deposits, carrying
+    /// `spec` as its `made_ground` line.
+    pub(in crate::site) fn with_made_ground(spec: &str) -> String {
+        FIXTURE.replacen(
+            "[[units]]\nid = \"RTD\"",
+            &format!("{}[[units]]\nid = \"RTD\"", MG_UNIT.replace("{SPEC}", spec)),
+            1,
+        )
+    }
+
+    fn preset(spec: &str) -> Preset {
+        Preset::from_toml(&with_made_ground(spec)).expect("made-ground fixture loads")
+    }
+
+    const WEIGHTED: &str = r#"made_ground = { constituents = [{ name = "brick", share = 0.6, basis = "test fixture" }, { name = "concrete", share = { min = 0.5, max = 0.5, basis = "test fixture" } }, { name = "ash", share = 0.3, basis = "test fixture" }, { name = "pottery", share = 0.2, basis = "test fixture" }], count = { weights = [0.2, 0.3, 0.3, 0.2], basis = "test fixture" } }"#;
+
+    const NO_CONSTITUENTS: &str =
+        r#"made_ground = { count = { weights = [1, 0, 0, 0], basis = "test fixture" } }"#;
+
+    fn words(text: &str) -> Vec<&str> {
+        text.split(|c: char| !c.is_ascii_alphabetic()).collect()
+    }
+
+    fn mg_strata(site: &Site) -> impl Iterator<Item = &Stratum> {
+        site.holes
+            .iter()
+            .flat_map(|h| &h.strata)
+            .filter(|s| s.unit == "MG")
+    }
+
+    #[test]
+    fn a_made_ground_unit_describes_every_stratum_as_made_ground_within_its_constraints() {
+        let p = preset(WEIGHTED);
+        assert!(problems(&p).is_empty());
+        let mut seen = 0;
+        for seed in 0..40 {
+            for s in mg_strata(&build(&p, seed, 6)) {
+                seen += 1;
+                let t = &s.description;
+                assert!(t.starts_with(TAG), "{t}");
+                let w = words(t);
+                assert!(w.contains(&"SAND") || w.contains(&"GRAVEL"), "{t}");
+                assert!(!w.contains(&"CLAY") && !w.contains(&"SILT"), "{t}");
+                assert!(t.contains("dark brown") || t.contains("black"), "{t}");
+            }
+        }
+        assert!(seen >= 200, "{seen}");
+    }
+
+    #[test]
+    fn a_made_ground_matrix_is_the_plain_units_with_its_term_from_the_model() {
+        // With a count of 0 the description is the tag over the matrix, and
+        // the matrix is exactly what the same unit draws when it is not made
+        // ground: same constraints, same property-model term. Every other
+        // unit is untouched.
+        let plain = preset("");
+        let made = preset(NO_CONSTITUENTS);
+        for seed in 0..20 {
+            let (a, b) = (build(&plain, seed, 6), build(&made, seed, 6));
+            for (ha, hb) in a.holes.iter().zip(&b.holes) {
+                assert_eq!(ha.strata.len(), hb.strata.len());
+                for (sa, sb) in ha.strata.iter().zip(&hb.strata) {
+                    if sa.unit == "MG" {
+                        assert_eq!(sb.description, format!("{TAG}{}", sa.description));
+                    } else {
+                        assert_eq!(sa, sb, "seed {seed}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[allow(clippy::cast_precision_loss)]
+    fn mention_shares_and_the_count_distribution_follow_the_preset() {
+        let p = preset(WEIGHTED);
+        let names = ["brick", "concrete", "ash", "pottery"];
+        let want = [0.6, 0.5, 0.3, 0.2];
+        let weights = [0.2, 0.3, 0.3, 0.2];
+        let (mut n, mut mentions, mut counts) = (0.0_f64, [0.0_f64; 4], [0.0_f64; 4]);
+        for seed in 0..300 {
+            for s in mg_strata(&build(&p, seed, 6)) {
+                n += 1.0;
+                let w = words(&s.description);
+                let mut count = 0;
+                for (i, name) in names.iter().enumerate() {
+                    if w.contains(name) {
+                        mentions[i] += 1.0;
+                        count += 1;
+                    }
+                }
+                counts[usize::min(count, 3)] += 1.0;
+            }
+        }
+        for i in 0..4 {
+            let got = mentions[i] / n;
+            assert!((got - want[i]).abs() < 0.04, "{}: {got}", names[i]);
+            let got = counts[i] / n;
+            assert!((got - weights[i]).abs() < 0.04, "count {i}: {got}");
+        }
+    }
+
+    #[test]
+    fn a_unit_with_amount_weights_uses_only_the_weighted_amounts() {
+        let p = preset(
+            r#"made_ground = { count = { weights = [0, 0, 0, 1], basis = "test fixture" }, amounts = { weights = [0, 1, 0, 0, 0], basis = "test fixture" } }"#,
+        );
+        let mut seen = 0;
+        for seed in 0..20 {
+            for s in mg_strata(&build(&p, seed, 6)) {
+                seen += 1;
+                let t = &s.description;
+                assert_eq!(t.matches("occasional").count(), 1, "{t}");
+                for other in ["rare", "frequent", "numerous", "abundant"] {
+                    assert!(!words(t).contains(&other), "{t}");
+                }
+            }
+        }
+        assert!(seen > 0);
+    }
+
+    #[test]
+    fn a_count_of_zero_leaves_no_with_clause_but_keeps_the_tag() {
+        let p = preset(NO_CONSTITUENTS);
+        let mut seen = 0;
+        for seed in 0..20 {
+            for s in mg_strata(&build(&p, seed, 6)) {
+                seen += 1;
+                assert!(s.description.starts_with(TAG), "{}", s.description);
+                assert!(!s.description.contains(" with "), "{}", s.description);
+            }
+        }
+        assert!(seen > 0);
+    }
+
+    #[test]
+    fn made_ground_true_takes_the_lanes_default_draw() {
+        let p = preset("made_ground = true");
+        let default = made_ground::constituents();
+        for seed in 0..40 {
+            for s in mg_strata(&build(&p, seed, 6)) {
+                let t = &s.description;
+                assert!(t.starts_with(TAG), "{t}");
+                let named: Vec<&str> = words(t)
+                    .into_iter()
+                    .filter(|w| default.vocabulary().any(|c| c == w))
+                    .collect();
+                assert!((1..=2).contains(&named.len()), "{t}");
+                assert!(
+                    named
+                        .iter()
+                        .all(|n| default.constituents.iter().any(|c| c == n)),
+                    "{t}"
+                );
+                assert!(t.contains("fragments"), "{t}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_made_ground_unit_samples_like_any_unit() {
+        let p = preset(WEIGHTED);
+        let site = build(&p, 3, 6);
+        let mut seen = 0;
+        for s in mg_strata(&site) {
+            for smp in &s.samples {
+                seen += 1;
+                assert!(["B", "D"].contains(&smp.code.as_str()), "{}", smp.code);
+                assert!(smp.top >= s.top - 1e-9 && smp.base <= s.base + 1e-9);
+            }
+        }
+        assert!(seen > 0);
+    }
+
+    #[test]
+    fn a_made_ground_site_lowers_to_a_clean_file() {
+        let p = preset(WEIGHTED);
+        for seed in 0..4 {
+            let m = lower(&build(&p, seed, 6), &p, seed, Grid::Local);
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("site.ags");
+            std::fs::write(&path, emit_to_string(&m)).unwrap();
+            assert_eq!(rust_check(&path).0, RustResult::Clean, "seed {seed}");
         }
     }
 }

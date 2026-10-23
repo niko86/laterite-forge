@@ -28,7 +28,13 @@ pub struct ConstituentList {
     pub basis: String,
     /// Word closing the clause (`fragments`).
     pub suffix: String,
+    /// The default draw's candidates. Their order is part of the pinned
+    /// default draw: never append to or reorder this list.
     pub constituents: Vec<String>,
+    /// Further words a preset's weights may name. The default draw never
+    /// picks from them, so adding one leaves it byte-identical.
+    #[serde(default)]
+    pub extended: Vec<String>,
 }
 
 impl ConstituentList {
@@ -51,15 +57,22 @@ impl ConstituentList {
         if self.constituents.len() < 2 {
             return Err("fewer than two constituents".into());
         }
-        for (i, c) in self.constituents.iter().enumerate() {
-            if c.trim().is_empty() || c != c.trim() {
+        let all: Vec<&String> = self.vocabulary().collect();
+        for (i, c) in all.iter().enumerate() {
+            if c.trim().is_empty() || *c != c.trim() {
                 return Err(format!("blank or padded constituent at {i}"));
             }
-            if self.constituents[..i].contains(c) {
+            if all[..i].contains(c) {
                 return Err(format!("duplicate constituent '{c}'"));
             }
         }
         Ok(())
+    }
+
+    /// Every word a preset may name: the default candidates, then the
+    /// extended ones.
+    pub fn vocabulary(&self) -> impl Iterator<Item = &String> {
+        self.constituents.iter().chain(&self.extended)
     }
 }
 
@@ -85,7 +98,8 @@ pub struct MadeGround {
     /// `text` is the full made-ground text; every other field is the
     /// matrix's.
     pub description: SoilDescription,
-    /// One or two, in order of decreasing frequency.
+    /// In order of decreasing frequency: one or two from [`made_ground`],
+    /// none to [`MAX_COUNT`] from [`made_ground_mix`].
     pub constituents: Vec<Constituent>,
 }
 
@@ -135,20 +149,49 @@ pub fn made_ground(matrix: &SoilDescription, vocab: &Vocab, rng: &mut Rng) -> Ma
         })
         .collect();
 
-    // The first amount keeps its `with`; the second follows `and`.
-    let clause = parts
+    compose(matrix, parts)
+}
+
+/// Build the description text from the matrix and the chosen constituents,
+/// most frequent first. No constituents leaves the matrix text under the tag,
+/// without a `with` clause.
+fn compose(matrix: &SoilDescription, parts: Vec<Constituent>) -> MadeGround {
+    // Neighbours sharing an amount share its word ("occasional brick and
+    // concrete"). The first amount keeps its `with`; the rest follow `and`
+    // (or a comma).
+    let list = |items: &[&str]| match items.split_last() {
+        None => String::new(),
+        Some((last, [])) => (*last).to_string(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+    };
+    let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
+    for k in &parts {
+        match groups.last_mut() {
+            Some((amount, names)) if *amount == k.amount => names.push(&k.name),
+            _ => groups.push((&k.amount, vec![&k.name])),
+        }
+    }
+    let phrases: Vec<String> = groups
         .iter()
         .enumerate()
-        .map(|(i, k)| {
+        .map(|(i, (amount, names))| {
             let amount = if i == 0 {
-                k.amount.as_str()
+                amount
             } else {
-                k.amount.strip_prefix("with ").unwrap_or(&k.amount)
+                amount.strip_prefix("with ").unwrap_or(amount)
             };
-            format!("{amount} {}", k.name)
+            format!("{amount} {}", list(names))
         })
-        .collect::<Vec<_>>()
-        .join(" and ");
+        .collect();
+    // A group of several names already holds an `and`, so the groups are
+    // then set apart with a comma before their own `and` ("occasional brick,
+    // concrete and ash, and rare pottery").
+    let clause = match phrases.split_last() {
+        Some((last, rest)) if !rest.is_empty() && groups.iter().any(|g| g.1.len() > 1) => {
+            format!("{}, and {last}", rest.join(", "))
+        }
+        _ => list(&phrases.iter().map(String::as_str).collect::<Vec<_>>()),
+    };
 
     // Tertiaries close the soil description proper: before the first full
     // stop, so a grading sentence stays after them.
@@ -156,7 +199,11 @@ pub fn made_ground(matrix: &SoilDescription, vocab: &Vocab, rng: &mut Rng) -> Ma
     let stop = body.find('.').unwrap_or(body.len());
     let (head, tail) = body.split_at(stop);
     let tail = if tail.is_empty() { "." } else { tail };
-    let text = format!("{TAG}{head} {clause} {}{tail}", constituents().suffix);
+    let text = if clause.is_empty() {
+        format!("{TAG}{head}{tail}")
+    } else {
+        format!("{TAG}{head} {clause} {}{tail}", constituents().suffix)
+    };
 
     MadeGround {
         description: SoilDescription {
@@ -165,6 +212,223 @@ pub fn made_ground(matrix: &SoilDescription, vocab: &Vocab, rng: &mut Rng) -> Ma
         },
         constituents: parts,
     }
+}
+
+/// The most constituents a stratum names. The count distribution's `3+`
+/// bucket draws 3, 4 or 5 with equal chance (`forge judgement`: BGS reports
+/// the bucket, not its spread).
+pub const MAX_COUNT: usize = 5;
+
+/// A preset's weighted constituents: which words, how often each is
+/// mentioned, and how many a stratum names.
+///
+/// Each stratum draws its count `n` from the count distribution, then a set
+/// of `n` distinct constituents by conditional Poisson sampling, whose
+/// inclusion probabilities are exact. The tilt weights are fitted so that the
+/// fraction of strata mentioning each constituent comes out as its share,
+/// wherever the shares and the count distribution agree (their sum equals the
+/// mean count); where they do not, the fit is a compromise.
+#[derive(Debug, Clone)]
+pub struct Mix {
+    /// Constituents with a non-zero share, most shared first.
+    names: Vec<String>,
+    shares: Vec<f64>,
+    tilt: Vec<f64>,
+    /// `P(count = k)` for `k` in `0..=MAX_COUNT`.
+    count: [f64; MAX_COUNT + 1],
+    /// `P(amount = i)` for each vocabulary amount, rarest first. Each
+    /// constituent draws its own, so amounts may repeat.
+    amount: [f64; AMOUNTS],
+}
+
+/// How many amount terms the vocabulary has (rare to abundant).
+pub const AMOUNTS: usize = 5;
+
+/// The elementary symmetric polynomials `e_0..=e_n` of `w`.
+fn elementary(w: impl IntoIterator<Item = f64>, n: usize) -> Vec<f64> {
+    let mut e = vec![0.0; n + 1];
+    e[0] = 1.0;
+    for x in w {
+        for k in (1..=n).rev() {
+            e[k] += x * e[k - 1];
+        }
+    }
+    e
+}
+
+impl Mix {
+    /// `shares` pairs a constituent with the fraction of strata that mention
+    /// it (0 drops it). `count` holds the weights for 0, 1, 2 and 3+
+    /// constituents, `None` meaning one or two with equal chance (the default
+    /// lane's). `amounts` holds the weights for rare, occasional, frequent,
+    /// numerous and abundant, `None` meaning equal.
+    ///
+    /// Callers have checked the names, the shares and the weights.
+    pub fn new(
+        shares: &[(&str, f64)],
+        count: Option<[f64; 4]>,
+        amounts: Option<[f64; AMOUNTS]>,
+    ) -> Mix {
+        let mut kept: Vec<(&str, f64)> = shares.iter().copied().filter(|(_, s)| *s > 0.0).collect();
+        kept.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let cap = MAX_COUNT.min(kept.len());
+
+        let w = count.unwrap_or([0.0, 1.0, 1.0, 0.0]);
+        let total: f64 = w.iter().sum();
+        let raw = [w[0], w[1], w[2], w[3] / 3.0, w[3] / 3.0, w[3] / 3.0];
+        let mut count = [0.0; MAX_COUNT + 1];
+        for (k, p) in raw.iter().enumerate() {
+            count[k.min(cap)] += p / total;
+        }
+
+        let w = amounts.unwrap_or([1.0; AMOUNTS]);
+        let total: f64 = w.iter().sum();
+        let amount = w.map(|x| x / total);
+
+        let names = kept.iter().map(|(n, _)| (*n).to_string()).collect();
+        let shares: Vec<f64> = kept.iter().map(|(_, s)| *s).collect();
+        let mut mix = Mix {
+            names,
+            tilt: shares.iter().map(|s| s / (1.0 - s.min(0.999))).collect(),
+            shares,
+            count,
+            amount,
+        };
+        mix.fit();
+        mix
+    }
+
+    /// `P(constituent i is in a set of n)` under the current tilt.
+    fn inclusion_given(&self, n: usize) -> Vec<f64> {
+        if n == 0 {
+            return vec![0.0; self.tilt.len()];
+        }
+        let whole = elementary(self.tilt.iter().copied(), n)[n];
+        (0..self.tilt.len())
+            .map(|i| {
+                let rest = self.tilt.iter().enumerate().filter(|(j, _)| *j != i);
+                self.tilt[i] * elementary(rest.map(|(_, w)| *w), n - 1)[n - 1] / whole
+            })
+            .collect()
+    }
+
+    /// The fraction of strata that mention each constituent, in
+    /// [`Mix::names`] order.
+    pub fn expected_shares(&self) -> Vec<f64> {
+        let mut out = vec![0.0; self.tilt.len()];
+        for (n, p) in self.count.iter().enumerate().filter(|(_, p)| **p > 0.0) {
+            for (o, q) in out.iter_mut().zip(self.inclusion_given(n)) {
+                *o += p * q;
+            }
+        }
+        out
+    }
+
+    fn fit(&mut self) {
+        for _ in 0..300 {
+            let got = self.expected_shares();
+            for ((w, s), g) in self.tilt.iter_mut().zip(&self.shares).zip(got) {
+                if g > 0.0 {
+                    *w = (*w * (s / g).powf(0.7)).clamp(1e-9, 1e9);
+                }
+            }
+            let top = self.tilt.iter().copied().fold(0.0, f64::max);
+            for w in &mut self.tilt {
+                *w /= top;
+            }
+        }
+    }
+
+    /// A set of `n` distinct indices by conditional Poisson sampling.
+    fn pick(&self, rng: &mut Rng, n: usize) -> Vec<usize> {
+        let len = self.tilt.len();
+        // suffix[i][k] = e_k of the tilts from i on.
+        let mut suffix = vec![vec![0.0; n + 1]; len + 1];
+        suffix[len][0] = 1.0;
+        for i in (0..len).rev() {
+            suffix[i][0] = 1.0;
+            for k in 1..=n {
+                suffix[i][k] = suffix[i + 1][k] + self.tilt[i] * suffix[i + 1][k - 1];
+            }
+        }
+        let mut out = Vec::new();
+        for i in 0..len {
+            let left = n - out.len();
+            if left == 0 {
+                break;
+            }
+            let p = self.tilt[i] * suffix[i + 1][left - 1] / suffix[i][left];
+            // Draw even when forced, so the stream does not depend on rounding.
+            let hit = unit_float(rng) < p;
+            if hit || len - i == left {
+                out.push(i);
+            }
+        }
+        out
+    }
+}
+
+/// A float in `[0, 1)` from 53 random bits.
+#[allow(clippy::cast_precision_loss)]
+fn unit_float(rng: &mut Rng) -> f64 {
+    (rng.below(1 << 53) as f64) / ((1u64 << 53) as f64)
+}
+
+/// Made ground drawn by a preset's [`Mix`]: the count first, then that many
+/// constituents, each with an amount of its own drawing, the most shared
+/// taking the most frequent. A count of
+/// 0 leaves the tagged matrix with no `with` clause. `rng` is a stream of its
+/// own, as for [`made_ground`].
+// `below(n)` returns a value < n, and every n here is a small `Vec::len()`
+// widened to u64, so the narrowing back to usize is lossless.
+#[allow(clippy::cast_possible_truncation)]
+pub fn made_ground_mix(
+    matrix: &SoilDescription,
+    vocab: &Vocab,
+    rng: &mut Rng,
+    mix: &Mix,
+) -> MadeGround {
+    let amounts = vocab.tertiary_amounts();
+    let u = unit_float(rng);
+    let mut acc = 0.0;
+    let n = mix
+        .count
+        .iter()
+        .position(|p| {
+            acc += p;
+            u < acc
+        })
+        .unwrap_or_else(|| mix.count.iter().rposition(|p| *p > 0.0).unwrap_or(0));
+    let chosen = mix.pick(rng, n);
+
+    // Each amount is its own draw, so repeats are allowed; the most shared
+    // constituent takes the most frequent.
+    assert_eq!(amounts.len(), AMOUNTS, "the vocabulary has five amounts");
+    let mut idx: Vec<usize> = chosen
+        .iter()
+        .map(|_| {
+            let u = unit_float(rng);
+            let mut acc = 0.0;
+            mix.amount
+                .iter()
+                .position(|p| {
+                    acc += p;
+                    u < acc
+                })
+                .unwrap_or_else(|| mix.amount.iter().rposition(|p| *p > 0.0).unwrap_or(0))
+        })
+        .collect();
+    idx.sort_unstable_by(|a, b| b.cmp(a));
+
+    let parts = chosen
+        .into_iter()
+        .zip(idx)
+        .map(|(c, i)| Constituent {
+            amount: amounts[i].clone(),
+            name: mix.names[c].clone(),
+        })
+        .collect();
+    compose(matrix, parts)
 }
 
 #[cfg(test)]
@@ -261,5 +525,235 @@ mod tests {
         let _ = draw(7, Lanes::ALL);
         let b = describe_with(vocab(), &mut Rng::seeded(7), Lanes::ALL).text;
         assert_eq!(a, b);
+    }
+
+    fn shares() -> Vec<(&'static str, f64)> {
+        vec![
+            ("brick", 0.6),
+            ("concrete", 0.5),
+            ("ash", 0.3),
+            ("pottery", 0.2),
+        ]
+    }
+
+    /// Mean count about 1.6 (the `3+` bucket is capped by the four names),
+    /// which is the shares' sum.
+    const COUNT: [f64; 4] = [0.2, 0.3, 0.3, 0.2];
+
+    fn mix_draw(seed: u64, mix: &Mix) -> MadeGround {
+        let m = describe_with(vocab(), &mut Rng::seeded(seed), Lanes::STANDARD);
+        made_ground_mix(&m, vocab(), &mut Rng::seeded(seed ^ SALT), mix)
+    }
+
+    #[test]
+    fn the_extended_words_join_the_vocabulary_but_not_the_default_candidates() {
+        let c = constituents();
+        for w in ["pottery", "coal"] {
+            assert!(c.vocabulary().any(|x| x == w), "{w}");
+            assert!(!c.constituents.iter().any(|x| x == w), "{w}");
+        }
+        assert_eq!(c.constituents.len(), 10);
+        assert_eq!(c.constituents[0], "brick");
+        assert_eq!(c.constituents[9], "plastic");
+    }
+
+    #[test]
+    fn an_extended_word_repeating_a_default_one_is_refused() {
+        let mut c = ConstituentList::load();
+        c.extended.push("brick".into());
+        assert!(c.check().is_err());
+    }
+
+    #[test]
+    fn the_default_draw_never_names_an_extended_word() {
+        let c = constituents();
+        for seed in 0..500 {
+            for k in draw(seed, Lanes::ALL).constituents {
+                assert!(!c.extended.contains(&k.name), "seed {seed}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_fit_reproduces_the_shares_when_they_agree_with_the_count() {
+        let mix = Mix::new(&shares(), Some(COUNT), None);
+        for (got, (name, want)) in mix.expected_shares().iter().zip(shares()) {
+            assert!((got - want).abs() < 0.02, "{name}: {got} vs {want}");
+        }
+    }
+
+    #[test]
+    #[allow(clippy::cast_precision_loss)]
+    fn drawn_mention_shares_and_counts_follow_the_weights() {
+        let mix = Mix::new(&shares(), Some(COUNT), None);
+        let n = 6000;
+        let mut mentions = [0usize; 4];
+        let mut counts = [0usize; 4];
+        for seed in 0..n {
+            let g = mix_draw(seed, &mix);
+            counts[g.constituents.len().min(3)] += 1;
+            assert!(g.description.text.starts_with(TAG));
+            for k in &g.constituents {
+                let i = shares().iter().position(|(s, _)| *s == k.name).unwrap();
+                mentions[i] += 1;
+            }
+        }
+        let n = n as f64;
+        for (i, (name, want)) in shares().into_iter().enumerate() {
+            let got = mentions[i] as f64 / n;
+            assert!((got - want).abs() < 0.03, "{name}: {got} vs {want}");
+        }
+        for (k, want) in COUNT.iter().enumerate() {
+            let got = counts[k] as f64 / n;
+            assert!((got - want).abs() < 0.03, "count {k}: {got} vs {want}");
+        }
+    }
+
+    #[test]
+    fn a_count_of_zero_has_the_tag_and_no_with_clause() {
+        let mix = Mix::new(&shares(), Some([1.0, 0.0, 0.0, 0.0]), None);
+        for seed in 0..50 {
+            let g = mix_draw(seed, &mix);
+            let t = &g.description.text;
+            assert!(g.constituents.is_empty());
+            assert!(t.starts_with(TAG), "{t}");
+            assert!(!t.contains(" with "), "{t}");
+            assert!(!t.contains("fragments"), "{t}");
+            assert!(t.ends_with('.') || t.contains(". "), "{t}");
+        }
+    }
+
+    #[test]
+    fn three_or_more_constituents_run_from_the_most_to_the_least_frequent_amount() {
+        let mix = Mix::new(&shares(), Some([0.0, 0.0, 0.0, 1.0]), None);
+        let amounts = vocab().tertiary_amounts();
+        let mut repeats = 0;
+        for seed in 0..200 {
+            let g = mix_draw(seed, &mix);
+            let t = &g.description.text;
+            assert!((3..=4).contains(&g.constituents.len()), "{t}");
+            let idx: Vec<usize> = g
+                .constituents
+                .iter()
+                .map(|k| amounts.iter().position(|a| *a == k.amount).unwrap())
+                .collect();
+            assert!(idx.windows(2).all(|w| w[0] >= w[1]), "{t}");
+            repeats += idx.windows(2).filter(|w| w[0] == w[1]).count();
+        }
+        assert!(
+            repeats > 0,
+            "amounts are drawn independently, so they repeat"
+        );
+    }
+
+    #[test]
+    fn amounts_are_drawn_by_their_weights() {
+        let w = [0.14, 0.25, 0.07, 0.0, 0.02];
+        let mix = Mix::new(&shares(), Some(COUNT), Some(w));
+        let amounts = vocab().tertiary_amounts();
+        let mut seen = [0.0_f64; AMOUNTS];
+        for seed in 0..4000 {
+            for k in mix_draw(seed, &mix).constituents {
+                seen[amounts.iter().position(|a| *a == k.amount).unwrap()] += 1.0;
+            }
+        }
+        let (n, total): (f64, f64) = (seen.iter().sum(), w.iter().sum());
+        for i in 0..AMOUNTS {
+            let (got, want) = (seen[i] / n, w[i] / total);
+            assert!((got - want).abs() < 0.02, "amount {i}: {got} vs {want}");
+        }
+        assert!(seen[3] < 0.5, "a zero weight is never drawn");
+    }
+
+    /// After a group of several names, the next group follows a comma, so its
+    /// `and` is not read as part of the first group's list.
+    #[test]
+    fn a_group_after_a_multi_name_group_follows_a_comma() {
+        let v = vocab();
+        let matrix = describe_with(v, &mut Rng::seeded(1), Lanes::default());
+        let part = |amount: &str, name: &str| Constituent {
+            amount: amount.to_string(),
+            name: name.to_string(),
+        };
+        let mg = compose(
+            &matrix,
+            vec![
+                part("with occasional", "brick"),
+                part("with occasional", "concrete"),
+                part("with occasional", "ash"),
+                part("with rare", "pottery"),
+            ],
+        );
+        assert!(
+            mg.description
+                .text
+                .contains("with occasional brick, concrete and ash, and rare pottery fragments"),
+            "{}",
+            mg.description.text
+        );
+        let mg = compose(
+            &matrix,
+            vec![part("with frequent", "brick"), part("with rare", "ash")],
+        );
+        assert!(
+            mg.description
+                .text
+                .contains("with frequent brick and rare ash fragments"),
+            "{}",
+            mg.description.text
+        );
+    }
+
+    #[test]
+    fn a_four_constituent_list_can_be_all_occasional_and_shares_the_word() {
+        let mix = Mix::new(
+            &shares(),
+            Some([0.0, 0.0, 0.0, 1.0]),
+            Some([0.0, 1.0, 0.0, 0.0, 0.0]),
+        );
+        let mut four = 0;
+        for seed in 0..100 {
+            let g = mix_draw(seed, &mix);
+            let t = &g.description.text;
+            assert!(g.constituents.iter().all(|k| k.amount == "with occasional"));
+            assert_eq!(t.matches("occasional").count(), 1, "{t}");
+            if g.constituents.len() == 4 {
+                four += 1;
+                assert!(
+                    t.contains("with occasional brick, concrete, ash and pottery fragments"),
+                    "{t}"
+                );
+            }
+        }
+        assert!(four > 0);
+    }
+
+    #[test]
+    fn without_amount_weights_amounts_are_uniform_and_may_repeat() {
+        let mix = Mix::new(&shares(), Some([0.0, 0.0, 1.0, 0.0]), None);
+        let amounts = vocab().tertiary_amounts();
+        let mut seen = [0.0_f64; AMOUNTS];
+        let mut same = 0;
+        for seed in 0..3000 {
+            let g = mix_draw(seed, &mix);
+            same += usize::from(g.constituents[0].amount == g.constituents[1].amount);
+            for k in g.constituents {
+                seen[amounts.iter().position(|a| *a == k.amount).unwrap()] += 1.0;
+            }
+        }
+        assert!(same > 0);
+        let n: f64 = seen.iter().sum();
+        for x in seen {
+            assert!((x / n - 0.2).abs() < 0.03);
+        }
+    }
+
+    #[test]
+    fn a_mix_is_deterministic_per_seed() {
+        let mix = Mix::new(&shares(), Some(COUNT), None);
+        assert_eq!(
+            mix_draw(3, &mix).description.text,
+            mix_draw(3, &mix).description.text
+        );
     }
 }
