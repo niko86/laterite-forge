@@ -16,6 +16,8 @@
 //!   each D sample, thinned by the rate. Sample tops are unique in a hole, so
 //!   no two SPTs share a top.
 //!
+//! - WSTG and WSTD are not scheduled on samples: see `water`.
+//!
 //! The rate is one draw per site and group, uniform in the entry's range, so a
 //! site tests consistently across its holes.
 
@@ -27,6 +29,7 @@ use laterite_ags4_validator::{DictVersion, Dictionary};
 use super::build::{Hole, Numbered, Sample, Site, numbered};
 use super::draw::{Key, uniform};
 use super::preset::{Preset, SUITE_GROUPS, SuiteEntry};
+use super::water;
 use crate::sample_quality::SampleQuality;
 use crate::synth::model::{Group, Row};
 
@@ -77,6 +80,17 @@ pub(super) fn groups(
         };
         if code == "TRIT" {
             continue; // written with TRIG
+        }
+        if code == "WSTG" || code == "WSTD" {
+            // Not scheduled on samples: a strike follows the water table.
+            let strikes = water::strikes(site, seed);
+            let made = if code == "WSTG" {
+                water::wstg(site, &strikes)
+            } else {
+                water::wstd(site, &strikes)
+            };
+            out.extend(made);
+            continue;
         }
         let permitted = quality.permitted_samp_types(code);
         let eligible = |s: &Sample| {
@@ -341,7 +355,8 @@ rate = { min = 0.5, max = 0.5, basis = "test fixture" }
             }
         }
         let m = file(&p, 1, 6);
-        for g in SUITE_GROUPS {
+        // The water groups are not in this suite; `water` tests them.
+        for g in SUITE_GROUPS.iter().filter(|g| !g.starts_with("WST")) {
             assert!(!rows(&m, g).is_empty(), "{g} has no rows at seed 1");
         }
     }

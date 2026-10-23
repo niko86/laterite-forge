@@ -529,6 +529,16 @@ impl PropertyModel {
         GROUNDWATER_DEPTH_M.clamp(field.in_range(range, x, y))
     }
 
+    /// Whether `unit` is coarse (permeable) ground: it has SPT N values and
+    /// no fine-soil set, so a mixed unit counts as fine. A strike needs ground
+    /// that gives water freely, which clay does not.
+    pub(super) fn is_coarse(&self, unit: &str) -> bool {
+        self.units
+            .iter()
+            .find(|u| u.id == unit)
+            .is_some_and(|u| u.coarse.is_some() && u.fine.is_none())
+    }
+
     /// The quantities of `unit` at `depth` in hole number `index`. `None` when
     /// the unit is not in the hole.
     #[allow(dead_code)] // read by tests only until the results groups use it (#1)

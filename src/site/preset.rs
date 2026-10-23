@@ -110,16 +110,32 @@ pub struct SuiteEntry {
     pub group: String,
     /// Headings beyond KEY and REQUIRED, each made by a registered producer.
     pub headings: Vec<String>,
-    /// Unit or lens ids the test applies to. Empty only for TRIT, which is
-    /// scheduled with its TRIG parent.
+    /// Unit or lens ids the test applies to. Empty only for the groups that
+    /// are not scheduled on samples (see [`unscheduled`]).
     pub units: Vec<String>,
-    /// The fraction of eligible samples tested. `None` only for TRIT.
+    /// The fraction of eligible samples tested. `None` only for those groups.
     pub rate: Option<Range>,
 }
 
 /// The groups a suite may list. TRIT is a child of TRIG; ISPT is a LOCA child,
-/// the rest hang off SAMP.
-pub const SUITE_GROUPS: &[&str] = &["LNMC", "LLPL", "LDEN", "TRIG", "TRIT", "ISPT"];
+/// WSTG a LOCA child written wherever a hole meets the water table in coarse
+/// ground, WSTD a child of WSTG; the rest hang off SAMP.
+pub const SUITE_GROUPS: &[&str] = &[
+    "LNMC", "LLPL", "LDEN", "TRIG", "TRIT", "ISPT", "WSTG", "WSTD",
+];
+
+/// For a group scheduled by something other than a rate over samples, the
+/// parent group its entry needs, if it has one, and why the entry has no
+/// `units` or `rate`: TRIT goes with its TRIG, WSTG is decided by the water
+/// table, WSTD goes with its WSTG.
+fn unscheduled(group: &str) -> Option<(Option<&'static str>, &'static str)> {
+    match group {
+        "TRIT" => Some((Some("TRIG"), "TRIT is scheduled with TRIG")),
+        "WSTG" => Some((None, "WSTG follows the water table")),
+        "WSTD" => Some((Some("WSTG"), "WSTD is scheduled with WSTG")),
+        _ => None,
+    }
+}
 
 /// Constraints for the unit's description. The site layer checks the terms
 /// against the BS 5930 vocabulary, not the loader.
@@ -1020,19 +1036,18 @@ fn read_suite(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<SuiteEntry>> {
                 group_ok = true;
             }
         }
-        let trit = group.as_deref() == Some("TRIT");
-        if trit && !groups_written.contains(&Some("TRIG")) {
-            errs.push(format!("{}: TRIT needs a TRIG entry", e.path));
+        let unsched = group.as_deref().and_then(unscheduled);
+        if let (Some(g), Some((Some(parent), _))) = (&group, unsched)
+            && !groups_written.contains(&Some(parent))
+        {
+            errs.push(format!("{}: {g} needs a {parent} entry", e.path));
         }
         let headings =
             read_suite_headings(&mut e, group.as_deref().filter(|_| group_ok), &dict, errs);
-        let (units, rate) = if trit {
+        let (units, rate) = if let Some((_, why)) = unsched {
             for key in ["units", "rate"] {
                 if e.table.contains_key(key) {
-                    errs.push(format!(
-                        "{}: TRIT is scheduled with TRIG and has no {key} of its own",
-                        e.at(key)
-                    ));
+                    errs.push(format!("{}: {why} and has no {key} of its own", e.at(key)));
                 }
             }
             e.get("units");
@@ -2000,6 +2015,25 @@ rate = { min = 1, max = 1, basis = "test fixture" }
         ));
         assert!(
             e.contains("suite[2].rate: TRIT is scheduled with TRIG and has no rate of its own"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn a_wstd_entry_needs_wstg_and_the_water_groups_have_no_rate_or_units() {
+        let wstg = "[[suite]]\ngroup = \"WSTG\"\nheadings = []\n";
+        let wstd = "[[suite]]\ngroup = \"WSTD\"\nheadings = []\n";
+        let e = suite_errors(&format!("{}\n{wstd}", with_suite()));
+        assert!(e.contains("WSTD needs a WSTG entry"), "{e}");
+        let ok = format!("{}\n{wstg}\n{wstd}", with_suite());
+        assert!(Preset::from_toml(&ok).is_ok());
+        let e = suite_errors(&format!(
+            "{}\n{}\nunits = [\"RTD\"]\n\n{wstd}",
+            with_suite(),
+            wstg.trim_end()
+        ));
+        assert!(
+            e.contains("WSTG follows the water table and has no units of its own"),
             "{e}"
         );
     }
