@@ -93,9 +93,20 @@
 # refusals are 17%, 20%, 21%, 28% and 50% at 0-3, 3-6, 6-10, 10-15 and over
 # 15 m against the crawl's 8%, 15%, 19%, 32% and 55%: the shallow bands cannot
 # fall below the grey till's strength refusals (18%, with no depth trend in cu).
+#
+# v3 (#58): cover layer. A [cover] block gives each hole topsoil with
+# probability 47% (370 of 787 holes logged from the surface in the NE crawl
+# listed above) and no surfacing. The topsoil takes its thickness off the top
+# of the hole's first stratum, so every other boundary, sample, test and strike
+# is where v2 put it; only the first GEOL row's top moves and one row is added.
+# It is worded "<colour> <minor fractions> TOPSOIL with rootlets.", a format
+# that is forge judgement following Norbury 2010's Made Ground convention
+# (ch. 14, pp.208-214). Nothing is sampled or tested in the topsoil, and a
+# sample that would start in it moves to its base or is dropped
+# (src/site/cover.rs).
 schema = 1
 name = "tyneside-till"
-version = 2
+version = 3
 summary = "Weathered, red and grey glacial till with a glaciofluvial sand and gravel lens, Tyneside, NE England."
 
 [site]
@@ -221,3 +232,23 @@ headings = []
 [[suite]]
 group = "WSTD"
 headings = []
+
+[cover.topsoil]
+share = { min = 0.47, max = 0.47, basis = "BGS NGDC AGS accessions of the NE England crawl listed above: topsoil is the first stratum of 370 of 787 holes logged from the surface (47.0%), forge analysis. Contains data supplied by UKRI, OGL v3." }
+thickness_m = { min = 0.06, max = 0.56, basis = "BGS NGDC AGS accessions of the NE England crawl listed above: topsoil thickness P10 0.10 m, P50 0.30 m, P90 0.50 m (n = 370), a linear range fitted to these (forge analysis; docs/research/tyneside-till-sources.md). Contains data supplied by UKRI, OGL v3." }
+
+[cover.topsoil.description]
+colours = [
+    { colour = "dark brown", weight = 83 },
+    { colour = "brown", weight = 68 },
+    { colour = "light brown", weight = 17 },
+    { colour = "dark grey", weight = 7 },
+    { colour = "dark greyish brown", weight = 6 },
+]
+secondaries = [
+    { fraction = "sand", share = 0.86 },
+    { fraction = "gravel", share = 0.64 },
+    { fraction = "clay", share = 0.55 },
+    { fraction = "silt", share = 0.15 },
+]
+basis = "BGS NGDC AGS accessions of the NE England crawl listed above: of 196 first-stratum topsoil descriptions with a colour, dark brown 83, brown 68, light brown 17, dark grey 7, dark greyish brown 6 (greyish brown 4, black 4, brownish grey 3, grey 2 and blackish brown 2 left out); of the 170 with a soil description, sandy 146, gravelly 108, clayey 93, silty 26 (forge analysis). The clause with rootlets is forge judgement (78 of 370 descriptions name rootlets). Contains data supplied by UKRI, OGL v3."

@@ -544,3 +544,115 @@ description). Aggregates only.
 - **MG** takes no share (forge judgement): it is fill, and the crawl was not
   read for its refusals.
 - File rates are pooled over 100,000 seeds of the default hole counts.
+
+
+## Cover layer (v6, #58)
+
+v6 adds a `[cover]` block: each hole draws hard surfacing (25.2%), topsoil
+(12.8%) or nothing, and the cover takes its thickness off the top of the
+hole's first stratum (ADR 0001, "Cover layer"). The data are the Made Ground
+(v4) crawls above: the 80 accessions of the two crawls, 663 holes from 126
+projects, with the strata classified as in the Made Ground method (codes
+first, then descriptions). Contains data supplied by UKRI, OGL v3. Aggregates
+only.
+
+### Method
+
+For each hole the first stratum after any leading gap (core loss, no
+recovery) is taken. It is surfacing when it is Made Ground whose description
+opens (after "MADE GROUND:" or "(MADE GROUND)") with concrete, tarmac,
+asphalt, macadam, bitumen, paving, setts, floor slab or screed. It is topsoil
+when its code is TS, TOP, TPS or TOPSOIL, or its description names topsoil,
+soil, turf or grass and the stratum is not natural. Surfacing thickness is
+taken from the surfacing strata that name no soil principal (n = 196, any
+position in the surface sequence), topsoil thickness from the 40 holes with
+topsoil and no Made Ground below. Kinds are counted on the first-stratum
+surfacing descriptions, with tarmac, asphalt, macadam and bitumen as one kind,
+concrete, floor slab and screed as one, paving and setts as one. Topsoil
+colours and fractions are read from the first-stratum topsoil descriptions
+(85): 32 name a colour and 21 name a soil with minor fractions, the rest being
+drillers' "TOPSOIL" or "Grass and TOPSOIL".
+
+### Targets and the fit
+
+| Quantity | Crawl | File (7,401 holes, seeds 0-1499) |
+|---|---|---|
+| Holes starting with surfacing | 167 of 663 (25.2%) | 1,748 (23.6%) |
+| Holes starting with topsoil | 85 of 663 (12.8%) | 1,008 (13.6%) |
+| Topsoil over Made Ground | 6.8% of holes | arises where a topsoil hole has Made Ground below |
+| Surfacing thickness P10 / P50 / P90 | 0.07 / 0.20 / 0.60 m | 0.07 / 0.19 / 0.59 m |
+| Topsoil thickness P10 / P50 / P90 | 0.20 / 0.43 / 1.11 m | 0.20 / 0.43 / 1.10 m |
+
+The file's shares are 1.6 percentage points below and 0.8 above the crawl's,
+about two standard deviations of a binomial over 7,401 holes in each case
+(the draw is unbiased: 200,000 seeds at each of holes 0 to 6 give 25.0% and
+12.8%). A cover cut back to leave the first stratum 0.05 m removes 1.1% of
+surfacing and 0.7% of topsoil draws.
+
+The thickness is `min + (max - min) x v^skew` for a uniform `v` and was fitted
+by simulating the files, cap included (forge analysis):
+
+| Layer | min | max | skew | Uncapped P10 / P50 / P90 | File P10 / P50 / P90 |
+|---|---|---|---|---|---|
+| Surfacing | 0.065 | 0.75 | 2.3 | 0.07 / 0.20 / 0.60 | 0.07 / 0.19 / 0.59 |
+| Topsoil | 0.20 | 1.50 | 2.0 | 0.21 / 0.53 / 1.25 | 0.20 / 0.43 / 1.10 |
+
+The topsoil range is wider than the crawl's percentiles alone give because
+the first stratum caps it (uncapped, the range gives a median of 0.53 m): the uncapped fit (0.19 to 1.35 at skew 2.3, which
+matches 0.20 / 0.43 / 1.11) gives 0.19 / 0.36 / 0.96 m in the file, where
+Made Ground is often thin. The fit was found by sweeping range and skew over
+1,200 seeds; neighbours (0.2 to 1.55 at 2.1, 0.2 to 1.6 at 2.3) give a median
+of 0.40 to 0.43 and a P90 of 1.09 to 1.12 m.
+
+Surfacing kinds, as a share of surfacing holes:
+
+| Kind | Crawl (167) | Weight | File (1,748) |
+|---|---|---|---|
+| Tarmacadam (tarmac, asphalt, macadam, bitumen) | 77 (46.1%) | 77 | 839 (48.0%) |
+| Concrete (concrete, floor slab, screed) | 72 (43.1%) | 72 | 748 (42.8%) |
+| Paving slabs (paving, setts) | 18 (10.8%) | 18 | 161 (9.2%) |
+
+The crawl words paving as "Paving stones" (5) and "paving slab" or "slabs"
+(5), and once as blocks or cobble sets; "Paving slabs" is the one wording
+the file uses.
+
+Topsoil colours (of the 32 with a colour; orange and red, once each, are left
+out as not topsoil colours, so the weights are 30 of 32):
+
+| Colour | Crawl | File (1,008) |
+|---|---|---|
+| dark brown | 14 (46.7%) | 46% |
+| brown | 9 (30.0%) | 31% |
+| grey | 3 (10.0%) | 10% |
+| light brown | 2 (6.7%) | 7% |
+| dark grey | 1 (3.3%) | 3% |
+| black | 1 (3.3%) | 3% |
+
+Minor fractions, as the chance each is named in a description (of the 21 with
+a soil description):
+
+| Fraction | Crawl | File |
+|---|---|---|
+| gravelly | 16 (76%) | 75% |
+| sandy | 10 (48%) | 49% |
+| clayey | 9 (43%) | 43% |
+| silty | 3 (14%) | 13% |
+
+### Caveats
+
+- The qualifier (slightly, plain, very) is a forge draw (a percentage of 1 to
+  70, shared 80%, banded as BS 5930 Table 17's fine-soil column), not a
+  measure: the crawl's wording splits about evenly between "slightly" and
+  plain.
+- "With rootlets" is on every topsoil. The crawl names rootlets in 19 of 85
+  (22%), so this is forge judgement (a topsoil is described with them).
+- The Made Ground unit's thickness fit is unchanged. The crawl's Made Ground
+  thickness includes surfacing, so a hole that draws surfacing has its Made
+  Ground (as written) thinner by the surfacing.
+- Combined surfaces in the crawl ("Tarmac overlying concrete", "paving
+  slabs over sand over asphalt") are counted as one kind, tested in the order
+  tarmac, asphalt, macadam or bitumen; then paving or setts; then concrete,
+  floor slab or screed, wherever the word falls in the description.
+- The description format follows Norbury 2010's Made Ground convention (ch.
+  14, pp.208-214) and is forge judgement; the crawl was read for its wording,
+  not for a standard's.

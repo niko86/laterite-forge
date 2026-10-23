@@ -257,6 +257,49 @@ consumer can replace.
   without a made-ground unit. `pottery` and `coal` join the vocabulary but not
   the default draw's candidates.
 
+## Cover layer
+
+(Added 2026-10-23, #58; the decisions are the owner's Q1-Q5 on that issue.)
+
+- **Cover layer.** A preset may carry a `[cover]` block with a `surfacing`
+  layer, a `topsoil` layer, or both. Each layer has a `share` (`{ min, max,
+  basis }`, drawn once per site from a stream of its own), a `thickness_m`
+  (`{ min, max, skew?, basis }`, above 0) and, for surfacing, weighted `kinds`
+  with a `kinds_basis`, for topsoil a `description` (weighted `colours`, the
+  `secondaries` with the chance each is named, and a `basis`). Each hole makes
+  one keyed draw `u` in 0 to 1: surfacing when `u` is under the surfacing
+  share, topsoil when `u` is at least one less the topsoil share, else
+  nothing. The loader refuses shares whose maxima sum above 1, so a hole has
+  at most one layer and a share moves only its own layer's holes. Thickness is
+  `min + (max - min) x v^skew` for a uniform `v` from a third stream, rounded
+  to 2 decimal places. A preset without `[cover]` draws nothing and keeps its
+  bytes.
+- **Where the cover goes.** The cover takes its thickness off the top of the
+  hole's first stratum. In the file the cover is a GEOL row from 0 to its
+  base and the first stratum is written from that base; every other boundary,
+  every sample, test and strike below the base, and the first stratum's own
+  description, are where they were without the cover. The first stratum keeps
+  at least 0.05 m: a thicker cover is cut back to leave that, and one with no
+  room is absent (the alternative, eating into the next stratum, would move a
+  boundary the decision keeps fixed). The loader holds each layer's thickness
+  maximum below the shallowest water table the site allows, so a strike is
+  never inside the cover; a water-bearing first stratum strikes at the cover
+  base.
+- **Descriptions.** Surfacing is `MADE GROUND: <kind>.` with the kind drawn
+  by weight from Tarmacadam, Concrete and Paving slabs. Topsoil is its own
+  small lane, `<Colour> <fractions> TOPSOIL with rootlets.`, with the minor
+  fractions in the BS 5930 engine's fine-soil banding (slightly, plain, very;
+  least first), sharing an 80% budget; the `describe` command does not gain
+  it and the default draw is unchanged. The format follows Norbury 2010's
+  Made Ground convention (ch. 14, pp.208-214) and is forge judgement.
+- **Testing.** Nothing is sampled or tested in the cover. A sample whose top
+  would fall in it moves to the cover base if it then ends inside the stratum
+  and before the next sample starts (only the first such sample can move), and
+  is dropped otherwise. A sample keeps its place in the hole's sampling
+  schedule (`rank`) whatever is removed above it, so `SAMP_REF` has a gap
+  where one was dropped and every test and result below the cover keeps its
+  keyed draw. london-basin v6 and tyneside-till v3 adopt the layer.
+
 ## Presets
 
 `london-basin` comes first, starting in natural ground: River Terrace

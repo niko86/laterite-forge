@@ -392,3 +392,61 @@ own test depths, which are not the crawl's):
   26, 34 and 34 for GF with till above). Non-refusal means are WT 20.0, RT
   20.3 and GT 29.9 against the crawl's 22.6, 22.9 and 26.6; the f1 ranges were
   not refitted.
+
+
+## Cover layer (v3, #58)
+
+v3 adds a `[cover]` block with topsoil only (47% of holes) and no surfacing,
+taken off the top of the hole's first stratum (ADR 0001, "Cover layer"). The
+data are the NE crawl above (787 holes logged from the surface, 38 projects),
+classified as in the Classification section (stratum code first, then
+description; a "MADE GROUND (Grass over ... topsoil)" stratum within 0.05 m of
+the surface counts as topsoil). Contains data supplied by UKRI, OGL v3.
+Aggregates only.
+
+### Targets and the fit
+
+| Quantity | Crawl | File (7,401 holes, seeds 0-1499) |
+|---|---|---|
+| Holes starting with topsoil | 370 of 787 (47.0%) | 3,555 (48.0%) |
+| Topsoil thickness P10 / P50 / P90 | 0.10 / 0.30 / 0.50 m (mean 0.30, SD 0.18, min 0.05, max 1.20) | 0.10 / 0.30 / 0.50 m (mean 0.30) |
+
+The thickness range is linear, 0.06 to 0.56 m (no skew), fitted by simulating
+the files, cap included; 0.05 to 0.55 gave 0.09 / 0.29 / 0.49. The file's
+share is 1.0 point above the crawl's, within a binomial's two standard
+deviations.
+
+Colours (of the 196 first-stratum topsoil descriptions with a colour; greyish
+brown 4, black 4, brownish grey 3, grey 2 and blackish brown 2 are left out,
+so the weights are 181 of 196):
+
+| Colour | Crawl | File (3,555) |
+|---|---|---|
+| dark brown | 83 (45.9%) | 47.0% |
+| brown | 68 (37.6%) | 37.5% |
+| light brown | 17 (9.4%) | 8.4% |
+| dark grey | 7 (3.9%) | 3.8% |
+| dark greyish brown | 6 (3.3%) | 3.3% |
+
+Minor fractions, as the chance each is named (of the 170 with a soil
+description):
+
+| Fraction | Crawl | File |
+|---|---|---|
+| sandy | 146 (85.9%) | 85.9% |
+| gravelly | 108 (63.5%) | 64.9% |
+| clayey | 93 (54.7%) | 54.5% |
+| silty | 26 (15.3%) | 14.6% |
+
+### Caveats
+
+- The crawl logs Made Ground in 64% of holes and the preset has no Made
+  Ground unit, so the topsoil sits on the weathered till or the red till
+  directly; the crawl's topsoil over Made Ground is not represented.
+- Many crawl topsoils open "Grass over ..." or "Grass and TOPSOIL"; the file
+  words the topsoil alone.
+- "With rootlets" is on every topsoil; the crawl names rootlets in 78 of 370
+  (21%), so this is forge judgement.
+- The qualifier (slightly, plain, very) is a forge draw, as for london-basin.
+- The format follows Norbury 2010's Made Ground convention (ch. 14,
+  pp.208-214) and is forge judgement.

@@ -117,9 +117,27 @@
 # the file, inside that interval, so the crawl shows no obstruction refusals
 # beyond the strength ones. MG: none (forge judgement; fill, and the crawl was
 # not read for its refusals). WLC: strength only (0.5%).
+#
+# v6 (#58): cover layer. A [cover] block gives each hole one draw: hard
+# surfacing (25.2% of holes), topsoil (12.8%) or nothing, from the London
+# crawls (Made Ground (v4): the 80 accessions of the two crawls listed above,
+# 663 holes from 126 projects). The cover takes its thickness off the top of
+# the hole's first stratum, so every other boundary, sample, test and strike is
+# where v5 put it; only the first GEOL row's top moves and one row is added.
+# Surfacing is a Made Ground stratum worded "MADE GROUND: Tarmacadam.",
+# "MADE GROUND: Concrete." or "MADE GROUND: Paving slabs."; topsoil is worded
+# "<colour> <minor fractions> TOPSOIL with rootlets.". Nothing is sampled or
+# tested in the cover, and a sample that would start in it moves to the cover
+# base or is dropped (src/site/cover.rs). The description format follows
+# Norbury 2010's Made Ground convention (ch. 14, pp.208-214) and is forge
+# judgement. The Made Ground unit's own thickness fit is unchanged: the
+# crawl's Made Ground thickness includes surfacing, so a hole that draws both
+# has its Made Ground (as written) thinner by the surfacing. Topsoil over Made
+# Ground (6.8% of holes in the crawl) arises here wherever a topsoil hole has
+# Made Ground below it.
 schema = 1
 name = "london-basin"
-version = 5
+version = 6
 summary = "Made Ground over River Terrace Deposits over weathered and unweathered London Clay, London Basin."
 
 [site]
@@ -257,3 +275,34 @@ headings = []
 [[suite]]
 group = "WSTD"
 headings = []
+
+[cover.surfacing]
+share = { min = 0.25, max = 0.25, basis = "BGS NGDC AGS accessions of the Made Ground (v4) crawls listed above: 167 of 663 holes (25.2%) begin with hard surfacing (a first Made Ground stratum of concrete, tarmac, asphalt, macadam, paving, setts, floor slab or screed), forge analysis. Contains data supplied by UKRI, OGL v3." }
+thickness_m = { min = 0.065, max = 0.75, skew = 2.3, basis = "BGS NGDC AGS accessions of the Made Ground (v4) crawls listed above: surfacing strata of no soil principal, P10 0.07 m, P50 0.20 m, P90 0.60 m (n = 196), range and skew fitted to these (forge analysis; docs/research/london-basin-sources.md). Contains data supplied by UKRI, OGL v3." }
+kinds = [
+    { name = "Tarmacadam", weight = 77 },
+    { name = "Concrete", weight = 72 },
+    { name = "Paving slabs", weight = 18 },
+]
+kinds_basis = "BGS NGDC AGS accessions of the Made Ground (v4) crawls listed above: of the 167 holes that begin with surfacing, 77 with tarmac, asphalt, macadam or bitumen, 72 with concrete, floor slab or screed and 18 with paving or setts (paving stones or slabs), forge analysis. Contains data supplied by UKRI, OGL v3."
+
+[cover.topsoil]
+share = { min = 0.128, max = 0.128, basis = "BGS NGDC AGS accessions of the Made Ground (v4) crawls listed above: 85 of 663 holes (12.8%) begin with topsoil; 6.8% of holes have topsoil over Made Ground, forge analysis. Contains data supplied by UKRI, OGL v3." }
+thickness_m = { min = 0.2, max = 1.5, skew = 2.0, basis = "BGS NGDC AGS accessions of the Made Ground (v4) crawls listed above: topsoil thickness P10 0.20 m, P50 0.43 m, P90 1.11 m (n = 40 holes with no Made Ground below), range and skew fitted to these (forge analysis; docs/research/london-basin-sources.md). Contains data supplied by UKRI, OGL v3." }
+
+[cover.topsoil.description]
+colours = [
+    { colour = "dark brown", weight = 14 },
+    { colour = "brown", weight = 9 },
+    { colour = "grey", weight = 3 },
+    { colour = "light brown", weight = 2 },
+    { colour = "dark grey", weight = 1 },
+    { colour = "black", weight = 1 },
+]
+secondaries = [
+    { fraction = "gravel", share = 0.76 },
+    { fraction = "sand", share = 0.48 },
+    { fraction = "clay", share = 0.43 },
+    { fraction = "silt", share = 0.14 },
+]
+basis = "BGS NGDC AGS accessions of the Made Ground (v4) crawls listed above: of 32 first-stratum topsoil descriptions with a colour, dark brown 14, brown 9, grey 3, light brown 2, dark grey 1, black 1 (orange and red once each, left out as not a topsoil colour); of the 21 with a soil description, gravelly 16, sandy 10, clayey 9, silty 3 (forge analysis). The clause with rootlets is forge judgement (19 of 85 descriptions name rootlets). Contains data supplied by UKRI, OGL v3."

@@ -12,10 +12,11 @@ use laterite_ags4_validator::{DictVersion, Dictionary};
 use toml::Table;
 use toml::Value;
 
+use super::cover;
 use super::properties::{self as props, Domain};
 use super::results;
 use super::suite;
-use crate::synth::bs5930::{Content, VeryCoarse};
+use crate::synth::bs5930::{Content, TopsoilSpec, VeryCoarse};
 use crate::synth::made_ground;
 
 /// The only schema this forge reads.
@@ -47,6 +48,47 @@ pub struct Preset {
     /// The lab and in-situ test groups the file carries; empty when the preset
     /// has none.
     pub suite: Vec<SuiteEntry>,
+    /// The topsoil and hard surfacing that can cap a hole; `None` when the
+    /// preset has none (ADR 0001, "Cover layer").
+    pub cover: Option<Cover>,
+}
+
+/// The cover layer: what lies on the ground before the first stratum. Each
+/// hole draws surfacing, topsoil or nothing, and the cover takes its thickness
+/// off the top of the hole's first stratum, so nothing below it moves.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Cover {
+    pub surfacing: Option<Surfacing>,
+    pub topsoil: Option<Topsoil>,
+}
+
+/// Hard surfacing: a `MADE GROUND: <kind>.` stratum with no samples.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Surfacing {
+    /// The share of holes that start with surfacing, drawn once per site.
+    pub share: Range,
+    /// Per-hole thickness: `min + (max - min) * u^skew` for a uniform `u`.
+    pub thickness_m: Range,
+    /// Each kind is one of [`cover::KINDS`], with its relative weight.
+    pub kinds: Vec<SurfacingKind>,
+    pub kinds_basis: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SurfacingKind {
+    pub name: String,
+    pub weight: f64,
+}
+
+/// Topsoil: a `<colour> <fractions> TOPSOIL with rootlets` stratum with no
+/// samples.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Topsoil {
+    /// The share of holes that start with topsoil, drawn once per site.
+    pub share: Range,
+    pub thickness_m: Range,
+    pub description: TopsoilSpec,
+    pub description_basis: String,
 }
 
 // Every field carries its unit as the TOML key does (`_m`).
@@ -992,6 +1034,7 @@ fn read_preset(root: &Table, errs: &mut Vec<String>) -> Option<Preset> {
     let units = read_units(&mut n, errs);
     let lenses = read_lenses(&mut n, errs);
     let suite = read_suite(&mut n, errs);
+    let cover = read_cover(&mut n, errs);
     n.finish(errs);
 
     let preset = Preset {
@@ -1003,13 +1046,302 @@ fn read_preset(root: &Table, errs: &mut Vec<String>) -> Option<Preset> {
         units: units?,
         lenses: lenses?,
         suite: suite?,
+        cover: cover?,
     };
+    check_cover_depth(&preset, errs);
     // Entries that failed to load are missing from the suite, which would
     // shift the indices the checks name.
     if errs.is_empty() {
         check_suite_values(&preset, errs);
     }
     Some(preset)
+}
+
+/// The cover must end above the water table: a strike inside the cover would
+/// have no stratum to belong to. Each thickness maximum is held below the
+/// shallowest water table the site allows.
+fn check_cover_depth(preset: &Preset, errs: &mut Vec<String>) {
+    let Some(cover) = &preset.cover else { return };
+    let table = preset.site.groundwater_depth_m.min;
+    let layers = [
+        (
+            "surfacing",
+            cover.surfacing.as_ref().map(|s| &s.thickness_m),
+        ),
+        ("topsoil", cover.topsoil.as_ref().map(|t| &t.thickness_m)),
+    ];
+    for (name, thickness) in layers {
+        if let Some(t) = thickness
+            && t.max >= table
+        {
+            errs.push(format!(
+                "cover.{name}.thickness_m: max {} is not above the shallowest water table \
+                 (site.groundwater_depth_m min {table})",
+                t.max
+            ));
+        }
+    }
+}
+
+/// The optional `[cover]`: `None` inside when absent. The two layers are
+/// mutually exclusive per hole, so their share maxima must sum to at most 1.
+/// The outer `None` is a problem already reported.
+// Outer `None` is a reported problem; inner `None` is "not written".
+#[allow(clippy::option_option)]
+fn read_cover(n: &mut Node, errs: &mut Vec<String>) -> Option<Option<Cover>> {
+    if !n.table.contains_key("cover") {
+        n.get("cover");
+        return Some(None);
+    }
+    let mut c = req_table(n, "cover", errs)?;
+    let surfacing =
+        optional_table(&mut c, "surfacing", errs).map(|s| s.and_then(|s| read_surfacing(s, errs)));
+    let topsoil =
+        optional_table(&mut c, "topsoil", errs).map(|t| t.and_then(|t| read_topsoil(t, errs)));
+    if !c.table.contains_key("surfacing") && !c.table.contains_key("topsoil") {
+        errs.push(format!("{}: names neither surfacing nor topsoil", c.path));
+    }
+    c.finish(errs);
+    let (surfacing, topsoil) = (surfacing?, topsoil?);
+    if let (Some(s), Some(t)) = (&surfacing, &topsoil)
+        && s.share.max + t.share.max > 1.0
+    {
+        errs.push(format!(
+            "cover: surfacing share max {} plus topsoil share max {} is above 1 \
+             (a hole has at most one cover layer)",
+            s.share.max, t.share.max
+        ));
+    }
+    Some(Some(Cover { surfacing, topsoil }))
+}
+
+/// `key` as a table node when written. Outer `None`: written but not a
+/// table (reported). Inner `None`: not written.
+// Outer `None` is a reported problem; inner `None` is "not written".
+#[allow(clippy::option_option)]
+fn optional_table<'a>(
+    n: &mut Node<'a>,
+    key: &'static str,
+    errs: &mut Vec<String>,
+) -> Option<Option<Node<'a>>> {
+    if n.table.contains_key(key) {
+        req_table(n, key, errs).map(Some)
+    } else {
+        n.get(key);
+        Some(None)
+    }
+}
+
+/// A cover layer's thickness: a cited range with an optional skew, positive
+/// throughout (a layer of no thickness is absent, not drawn).
+fn read_cover_thickness(n: &mut Node, errs: &mut Vec<String>) -> Option<Range> {
+    let r = read_thickness(n, "thickness_m", errs)?;
+    if r.min <= 0.0 {
+        errs.push(format!(
+            "{}: min {} must be > 0",
+            n.at("thickness_m"),
+            r.min
+        ));
+        return None;
+    }
+    Some(r)
+}
+
+/// A non-empty string under `key` (a basis), reported by name.
+fn nonempty_str(n: &mut Node, key: &'static str, errs: &mut Vec<String>) -> Option<String> {
+    let at = n.at(key);
+    match req_str(n, key, errs) {
+        Some(s) if s.trim().is_empty() => {
+            errs.push(format!("{at}: empty"));
+            None
+        }
+        other => other,
+    }
+}
+
+/// The inline tables of the array under `key`, each as a node; the array is
+/// required and not empty.
+fn table_list<'a>(
+    n: &mut Node<'a>,
+    key: &'static str,
+    errs: &mut Vec<String>,
+) -> Option<Vec<Node<'a>>> {
+    let at = n.at(key);
+    match n.get(key) {
+        None => {
+            errs.push(format!("{at}: missing"));
+            None
+        }
+        Some(Value::Array(a)) if a.is_empty() => {
+            errs.push(format!("{at}: must not be empty"));
+            None
+        }
+        Some(Value::Array(a)) => {
+            let mut out = Vec::new();
+            let mut ok = true;
+            for (i, v) in a.iter().enumerate() {
+                if let Value::Table(t) = v {
+                    out.push(Node::new(t, format!("{at}[{i}]")));
+                } else {
+                    errs.push(format!("{at}[{i}]: must be a table"));
+                    ok = false;
+                }
+            }
+            ok.then_some(out)
+        }
+        Some(_) => {
+            errs.push(format!("{at}: must be an array of tables"));
+            None
+        }
+    }
+}
+
+/// A weight: a finite, non-negative number.
+fn weight(n: &mut Node, key: &'static str, errs: &mut Vec<String>) -> Option<f64> {
+    let at = n.at(key);
+    let w = num(n.get(key), &at, errs)?;
+    if w < 0.0 {
+        errs.push(format!("{at}: {w} is negative"));
+        return None;
+    }
+    Some(w)
+}
+
+fn read_surfacing(mut s: Node, errs: &mut Vec<String>) -> Option<Surfacing> {
+    let share = read_share(&mut s, errs);
+    let thickness = read_cover_thickness(&mut s, errs);
+    let mut kinds = Vec::new();
+    let mut kinds_ok = true;
+    match table_list(&mut s, "kinds", errs) {
+        None => kinds_ok = false,
+        Some(list) => {
+            for mut k in list {
+                let name_at = k.at("name");
+                let name = req_str(&mut k, "name", errs);
+                let w = weight(&mut k, "weight", errs);
+                k.finish(errs);
+                match (name, w) {
+                    (Some(name), Some(weight)) => {
+                        if !cover::KINDS.contains(&name.as_str()) {
+                            errs.push(format!(
+                                "{}: unknown kind \"{name}\" (known: {})",
+                                name_at,
+                                cover::KINDS.join(", ")
+                            ));
+                            kinds_ok = false;
+                        } else if kinds.iter().any(|x: &SurfacingKind| x.name == name) {
+                            errs.push(format!("{name_at}: \"{name}\" is listed twice"));
+                            kinds_ok = false;
+                        } else {
+                            kinds.push(SurfacingKind { name, weight });
+                        }
+                    }
+                    _ => kinds_ok = false,
+                }
+            }
+            if kinds_ok && kinds.iter().map(|k| k.weight).sum::<f64>() <= 0.0 {
+                errs.push(format!("{}: weights sum to zero", s.at("kinds")));
+                kinds_ok = false;
+            }
+        }
+    }
+    let kinds_basis = nonempty_str(&mut s, "kinds_basis", errs);
+    s.finish(errs);
+    kinds_ok.then_some(())?;
+    Some(Surfacing {
+        share: share?,
+        thickness_m: thickness?,
+        kinds,
+        kinds_basis: kinds_basis?,
+    })
+}
+
+fn read_topsoil(mut t: Node, errs: &mut Vec<String>) -> Option<Topsoil> {
+    let share = read_share(&mut t, errs);
+    let thickness = read_cover_thickness(&mut t, errs);
+    let d = req_table(&mut t, "description", errs);
+    let spec = d.and_then(|mut d| {
+        let colours = read_topsoil_colours(&mut d, errs);
+        let secondaries = read_topsoil_secondaries(&mut d, errs);
+        let basis = nonempty_str(&mut d, "basis", errs);
+        d.finish(errs);
+        Some((
+            TopsoilSpec {
+                colours: colours?,
+                secondaries: secondaries?,
+            },
+            basis?,
+        ))
+    });
+    t.finish(errs);
+    let (description, description_basis) = spec?;
+    Some(Topsoil {
+        share: share?,
+        thickness_m: thickness?,
+        description,
+        description_basis,
+    })
+}
+
+fn read_topsoil_colours(d: &mut Node, errs: &mut Vec<String>) -> Option<Vec<(String, f64)>> {
+    let list = table_list(d, "colours", errs)?;
+    let mut out = Vec::new();
+    let mut ok = true;
+    for mut c in list {
+        let colour = req_str(&mut c, "colour", errs);
+        let w = weight(&mut c, "weight", errs);
+        c.finish(errs);
+        match (colour, w) {
+            (Some(colour), Some(w)) => out.push((colour, w)),
+            _ => ok = false,
+        }
+    }
+    if ok && out.iter().map(|c| c.1).sum::<f64>() <= 0.0 {
+        errs.push(format!("{}: weights sum to zero", d.at("colours")));
+        ok = false;
+    }
+    ok.then_some(out)
+}
+
+fn read_topsoil_secondaries(d: &mut Node, errs: &mut Vec<String>) -> Option<Vec<(String, f64)>> {
+    let at = d.at("secondaries");
+    // An empty list is allowed: a topsoil with no minor fractions.
+    let Some(Value::Array(items)) = d.get("secondaries") else {
+        errs.push(format!("{at}: must be an array of tables"));
+        return None;
+    };
+    let mut out: Vec<(String, f64)> = Vec::new();
+    let mut ok = true;
+    for (i, v) in items.iter().enumerate() {
+        let Value::Table(t) = v else {
+            errs.push(format!("{at}[{i}]: must be a table"));
+            ok = false;
+            continue;
+        };
+        let mut s = Node::new(t, format!("{at}[{i}]"));
+        let fraction = req_str(&mut s, "fraction", errs);
+        let share = num(s.get("share"), &format!("{at}[{i}].share"), errs);
+        let (share_at, fraction_at) = (s.at("share"), s.at("fraction"));
+        s.finish(errs);
+        if let Some(sh) = share
+            && !(0.0..=1.0).contains(&sh)
+        {
+            errs.push(format!("{share_at}: {sh} is outside 0 to 1"));
+            ok = false;
+        }
+        match (fraction, share) {
+            (Some(f), Some(sh)) if (0.0..=1.0).contains(&sh) => {
+                if out.iter().any(|(g, _)| *g == f) {
+                    errs.push(format!("{fraction_at}: \"{f}\" is listed twice"));
+                    ok = false;
+                } else {
+                    out.push((f, sh));
+                }
+            }
+            _ => ok = false,
+        }
+    }
+    ok.then_some(out)
 }
 
 /// The suite headings whose values a unit can only supply if its properties
@@ -2451,7 +2783,7 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
     #[test]
     fn tyneside_till_loads_with_its_tills_and_lens() {
         let p = resolve("tyneside-till").unwrap();
-        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 2));
+        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 3));
         let units: Vec<&str> = p.units.iter().map(|u| u.id.as_str()).collect();
         assert_eq!(units, ["WT", "RT", "GT"]);
         assert!(p.units.last().unwrap().thickness_m.is_none());

@@ -9,6 +9,7 @@
 use laterite_ags4_parity::Rng;
 use laterite_ags4_validator::{DictVersion, Dictionary};
 
+use super::cover::{CoverLayer, SiteCover};
 use super::draw::{Key, uniform};
 use super::ground::Field;
 use super::preset::{DescriptionSpec, Extent, Lens, MadeGroundSpec, Preset, Sampling};
@@ -50,8 +51,24 @@ pub struct Hole {
     pub ground_level: f64,
     /// Final depth, rounded to the 2 decimal places it is written with.
     pub final_depth: f64,
-    /// Top-down, contiguous from 0 to `final_depth`.
+    /// Top-down, contiguous from 0 to `final_depth`. With a cover the first
+    /// stratum keeps its model top of 0 (its property trends and description
+    /// are those it would have without the cover) but is written from the
+    /// cover base: see [`Hole::written_top`].
     pub strata: Vec<Stratum>,
+    /// The topsoil or surfacing on the first stratum, if the hole has one.
+    pub cover: Option<CoverLayer>,
+}
+
+impl Hole {
+    /// Where stratum `i` starts in the file: its top, except that a cover
+    /// pushes the first stratum's top down to the cover base.
+    pub fn written_top(&self, i: usize) -> f64 {
+        match (&self.cover, i) {
+            (Some(c), 0) => c.base,
+            _ => self.strata[i].top,
+        }
+    }
 }
 
 /// The part of one unit met in one hole.
@@ -72,6 +89,12 @@ pub struct Sample {
     pub base: f64,
     /// Its `SAMP_TYPE` code.
     pub code: String,
+    /// Its place in the hole's sampling schedule, counting from 0 top-down
+    /// before any cover took samples off the top of the first stratum. It
+    /// numbers the sample (`SAMP_REF` is `rank + 1`) and keys its draws, so a
+    /// cover that removes samples leaves every other sample's number, test
+    /// and result where they were; the removed ranks are simply unused.
+    pub rank: usize,
 }
 
 /// The length of every sample, metres: 0.45 m is the usual UK driven-sample
@@ -105,7 +128,18 @@ pub fn problems(preset: &Preset) -> Vec<String> {
             .into_iter()
             .map(move |p| format!("lenses[{i}] ({}).description: {p}", l.id))
     });
-    units.chain(lenses).collect()
+    let topsoil = preset
+        .cover
+        .as_ref()
+        .and_then(|c| c.topsoil.as_ref())
+        .into_iter()
+        .flat_map(|t| {
+            t.description
+                .problems(vocab)
+                .into_iter()
+                .map(|p| format!("cover.topsoil.description: {p}"))
+        });
+    units.chain(lenses).chain(topsoil).collect()
 }
 
 fn unit_description(d: &DescriptionSpec) -> UnitDescription {
@@ -232,6 +266,7 @@ pub fn build(preset: &Preset, seed: u64, holes: usize) -> Site {
         mixes,
     };
     let properties = PropertyModel::new(preset, seed);
+    let site_cover = preset.cover.as_ref().map(|c| SiteCover::new(c, seed));
     let total_weight: u64 = preset.hole_types.iter().map(|t| u64::from(t.weight)).sum();
 
     let holes = (0..holes)
@@ -255,6 +290,10 @@ pub fn build(preset: &Preset, seed: u64, holes: usize) -> Site {
                 .expect("pick < total weight");
             let r = &hole_type.final_depth_m;
             let final_depth = round2(uniform(&mut rng, r.min, r.max));
+            let mut strata = strata(preset, &layers, &properties, seed, (k, x, y), final_depth);
+            let cover = site_cover
+                .as_ref()
+                .and_then(|c| c.apply(k, seed, &mut strata));
             Hole {
                 id: format!("BH{}", k + 1),
                 loca_type: hole_type.code.clone(),
@@ -262,7 +301,8 @@ pub fn build(preset: &Preset, seed: u64, holes: usize) -> Site {
                 y,
                 ground_level: round2(ground.in_range(&preset.site.ground_level_m, x, y)),
                 final_depth,
-                strata: strata(preset, &layers, &properties, seed, (k, x, y), final_depth),
+                strata,
+                cover,
             }
         })
         .collect();
@@ -409,6 +449,14 @@ fn strata(
         }
         top = base;
     }
+    // Number the schedule top-down, before any cover removes samples.
+    for (rank, sample) in out
+        .iter_mut()
+        .flat_map(|s| s.samples.iter_mut())
+        .enumerate()
+    {
+        sample.rank = rank;
+    }
     out
 }
 
@@ -475,6 +523,7 @@ fn samples(sampling: &Sampling, mut rng: Rng, top: f64, base: f64) -> Vec<Sample
             top: at,
             base: sample_base,
             code: sampling.types[pick].clone(),
+            rank: 0,
         });
         let step = uniform(&mut rng, range.min, range.max);
         at = round2(at + step).max(sample_base);
@@ -612,14 +661,23 @@ fn geol(site: &Site) -> Group {
         .holes
         .iter()
         .flat_map(|h| {
-            h.strata.iter().map(|s| {
+            let cover = h.cover.iter().map(|c| {
                 Row::owned(vec![
                     h.id.clone(),
-                    m2(s.top),
+                    m2(0.0),
+                    m2(c.base),
+                    c.description.clone(),
+                ])
+            });
+            let strata = h.strata.iter().enumerate().map(|(i, s)| {
+                Row::owned(vec![
+                    h.id.clone(),
+                    m2(h.written_top(i)),
                     m2(s.base),
                     s.description.clone(),
                 ])
-            })
+            });
+            cover.chain(strata)
         })
         .collect();
     group(
@@ -636,7 +694,8 @@ fn geol(site: &Site) -> Group {
 
 /// A hole's sample with its `SAMP_REF`.
 pub(super) struct Numbered<'a> {
-    /// The hole's 1-based count of samples top-down.
+    /// The sample's 1-based schedule rank (`rank + 1`): a count of the hole's
+    /// samples top-down, with gaps where a cover removed some.
     pub reference: String,
     pub stratum: &'a Stratum,
     pub sample: &'a Sample,
@@ -648,9 +707,8 @@ pub(super) fn numbered(hole: &Hole) -> impl Iterator<Item = Numbered<'_>> {
     hole.strata
         .iter()
         .flat_map(|st| st.samples.iter().map(move |sample| (st, sample)))
-        .enumerate()
-        .map(|(n, (stratum, sample))| Numbered {
-            reference: (n + 1).to_string(),
+        .map(|(stratum, sample)| Numbered {
+            reference: (sample.rank + 1).to_string(),
             stratum,
             sample,
         })
@@ -1699,7 +1757,11 @@ mod shipped_pins {
     /// tyneside-till (#13) ships at v1, under the promise from the start.
     /// Re-taken for london-basin v5 and tyneside-till v2 (#63), which add SPT
     /// refusals: every N of 50 or more is written as a refusal and the ISPT
-    /// suite lists `ISPT_MAIN`, `ISPT_NPEN` and `ISPT_REP`.
+    /// suite lists `ISPT_MAIN`, `ISPT_NPEN` and `ISPT_REP`. Re-taken for
+    /// london-basin v6 and tyneside-till v3 (#58), which add the cover layer:
+    /// the version in the marker moves every file, and a hole with a cover
+    /// gains a GEOL row (`a_preset_without_its_cover_writes_the_previous_versions_bytes`
+    /// holds the rest of the file to the v5 and v2 pins).
     #[test]
     fn shipped_preset_output_bytes_are_pinned() {
         use sha2::{Digest, Sha256};
@@ -1707,38 +1769,38 @@ mod shipped_pins {
             (
                 "london-basin",
                 0u64,
-                "49e93f1fc529556ef5c06a2bbeedc0b9a81cc2f3e5c06b9905a72bd9c2ccde2b",
+                "de3114e4cb7bfc1cb9d144e6f119d59790fae69d4968da0b0dbfd50e3a0991ad",
                 20115usize,
             ),
             (
                 "london-basin",
                 1,
-                "0a04448b3b53eb7b0a5969a1b0acb32d0a8d8fe95b2a209424c1c4ca4a855c50",
+                "6e8a903ab5ddb8988c11533cc916247d711264b9a2ed019c9567afb38660be58",
                 15378,
             ),
             (
                 "london-basin",
                 2,
-                "1c26c8428b1f1216f1dd876ab174e1d6f642d7abaddde6bd66b8535f7e458251",
-                28109,
+                "b8fd1d966322a8d6b5c807b0a6992ee8d276d6ae8aa4c926059c5cbdbe48a26c",
+                28219,
             ),
             (
                 "tyneside-till",
                 0,
-                "46bce99b86cc02884b1546a446154d1488115cf5d26ba9571b0e4a4faa3ec157",
-                18263,
+                "9ae909eac05da60bad542a1ecebdc5064e218e16fd2074c26f250f9b0b591797",
+                18513,
             ),
             (
                 "tyneside-till",
                 1,
-                "dd0abb7db5afe612229bfde54edbd29599acad5b45178c30972037867d27dc66",
-                13395,
+                "9f15e5da333b532635b4348d17d89222390cf2c0b6845c738a75e3b20e994f51",
+                13490,
             ),
             (
                 "tyneside-till",
                 2,
-                "ea6251e4496bcdbe3bff37b4615faf3ab8d6e3890e6d0d5a2ff744f3dc7f7728",
-                24087,
+                "175e1369315d67e9dd8404509fe01b8f80f5de20f8acbafcffb3c772cd0e0119",
+                24157,
             ),
         ] {
             let text = shipped(name, seed);
@@ -1752,6 +1814,71 @@ mod shipped_pins {
             shipped_names, pinned,
             "every shipped preset needs a byte pin"
         );
+    }
+
+    /// A preset without its `[cover]` block, at the version before it, writes
+    /// the bytes that version pinned (london-basin v5, tyneside-till v2): the
+    /// cover layer, the sample ranks it added and the suite's draw order move
+    /// nothing in a preset that has no cover.
+    #[test]
+    fn a_preset_without_its_cover_writes_the_previous_versions_bytes() {
+        use sha2::{Digest, Sha256};
+        for (name, version, seed, sha, len) in [
+            (
+                "london-basin",
+                5,
+                0u64,
+                "49e93f1fc529556ef5c06a2bbeedc0b9a81cc2f3e5c06b9905a72bd9c2ccde2b",
+                20115usize,
+            ),
+            (
+                "london-basin",
+                5,
+                1,
+                "0a04448b3b53eb7b0a5969a1b0acb32d0a8d8fe95b2a209424c1c4ca4a855c50",
+                15378,
+            ),
+            (
+                "london-basin",
+                5,
+                2,
+                "1c26c8428b1f1216f1dd876ab174e1d6f642d7abaddde6bd66b8535f7e458251",
+                28109,
+            ),
+            (
+                "tyneside-till",
+                2,
+                0,
+                "46bce99b86cc02884b1546a446154d1488115cf5d26ba9571b0e4a4faa3ec157",
+                18263,
+            ),
+            (
+                "tyneside-till",
+                2,
+                1,
+                "dd0abb7db5afe612229bfde54edbd29599acad5b45178c30972037867d27dc66",
+                13395,
+            ),
+            (
+                "tyneside-till",
+                2,
+                2,
+                "ea6251e4496bcdbe3bff37b4615faf3ab8d6e3890e6d0d5a2ff744f3dc7f7728",
+                24087,
+            ),
+        ] {
+            let mut preset = resolve(name).expect("shipped preset loads");
+            preset.cover = None;
+            preset.version = version;
+            let site = build(&preset, seed, default_hole_count(seed));
+            let text = emit_to_string(&lower(&site, &preset, seed, Grid::Local));
+            let got = crate::synth::hex(&Sha256::digest(text.as_bytes()));
+            assert_eq!(
+                (got.as_str(), text.len()),
+                (sha, len),
+                "{name} v{version} seed {seed}"
+            );
+        }
     }
 
     /// The AGS TYPEs each shipped preset's files declare, across seeds. v3's

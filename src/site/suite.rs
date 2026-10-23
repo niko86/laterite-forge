@@ -132,21 +132,49 @@ fn schedule<'a>(
     let rate = site_rate(entry, seed);
     let mut out = Vec::new();
     for (hi, hole) in site.holes.iter().enumerate() {
-        let mut streams: BTreeMap<&str, Rng> = BTreeMap::new();
-        for n in numbered(hole) {
+        // Per unit: its stream and the draws taken from it so far.
+        let mut streams: BTreeMap<&str, (Rng, usize)> = BTreeMap::new();
+        // The samples of other units met so far, to find a sample's place
+        // among its own unit's samples.
+        let mut seen: BTreeMap<&str, usize> = BTreeMap::new();
+        let first_unit = hole.strata.first().map_or("", |s| s.unit.as_str());
+        for (total, n) in numbered(hole).enumerate() {
             let unit = n.stratum.unit.as_str();
+            let own = seen.entry(unit).or_default();
+            // The sample's place among its unit's samples as scheduled
+            // before any cover took some off the top of the first stratum,
+            // so a cover leaves the draws of the samples below it where
+            // they were. Only the first stratum's unit lost samples: its
+            // schedule rank, less the samples of other units before it (none
+            // were lost), is that place; any other unit's samples all remain.
+            let ordinal = if unit == first_unit {
+                n.sample.rank - (total - *own)
+            } else {
+                *own
+            };
+            *own += 1;
             if !entry.units.iter().any(|u| u == unit) {
                 continue;
             }
-            let rng = streams.entry(unit).or_insert_with(|| {
-                Key {
-                    tag: "suite",
-                    hole: hi as u64,
-                    unit,
-                    test: group_index as u64,
-                }
-                .rng(seed)
+            let (rng, drawn) = streams.entry(unit).or_insert_with(|| {
+                (
+                    Key {
+                        tag: "suite",
+                        hole: hi as u64,
+                        unit,
+                        test: group_index as u64,
+                    }
+                    .rng(seed),
+                    0,
+                )
             });
+            // One draw per sample of the unit, whether or not it is eligible;
+            // a removed sample's draw is taken and unused.
+            while *drawn < ordinal {
+                uniform(rng, 0.0, 1.0);
+                *drawn += 1;
+            }
+            *drawn += 1;
             let draw = uniform(rng, 0.0, 1.0);
             if eligible(n.sample) && draw < rate {
                 out.push((hi, n));
