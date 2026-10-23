@@ -211,6 +211,10 @@ pub struct Range {
     pub min: f64,
     pub max: f64,
     pub basis: String,
+    /// Only a unit's `thickness_m` carries one: a positive exponent applied to
+    /// the field value before it is placed on the range (ADR 0001). `None`
+    /// is the plain linear mapping.
+    pub skew: Option<f64>,
 }
 
 /// A cited range with an optional depth gradient: the value at depth `z`
@@ -535,7 +539,34 @@ fn range_in(r: &mut Node, errs: &mut Vec<String>) -> Option<Range> {
         min: min?,
         max: max?,
         basis: basis?,
+        skew: None,
     })
+}
+
+/// Reads a unit's `{ min, max, basis, skew? }` under `key`. The skew belongs
+/// to the range, so it needs no basis of its own.
+fn read_thickness(n: &mut Node, key: &'static str, errs: &mut Vec<String>) -> Option<Range> {
+    let mut r = req_table(n, key, errs)?;
+    let range = range_in(&mut r, errs);
+    let skew = if r.table.contains_key("skew") {
+        let at = r.at("skew");
+        match num(r.get("skew"), &at, errs) {
+            Some(k) if k > 0.0 => Some(k),
+            Some(k) => {
+                errs.push(format!("{at}: {k} must be > 0"));
+                None
+            }
+            None => None,
+        }
+    } else {
+        None
+    };
+    let bad_skew = r.table.contains_key("skew") && skew.is_none();
+    r.finish(errs);
+    if bad_skew {
+        return None;
+    }
+    range.map(|range| Range { skew, ..range })
 }
 
 /// A range that must lie inside `domain`, each bound checked and named.
@@ -1074,7 +1105,7 @@ fn read_units(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Unit>> {
                 ));
                 None
             } else {
-                read_range(&mut u, "thickness_m", errs)
+                read_thickness(&mut u, "thickness_m", errs)
             }
         } else {
             if i != last {
@@ -1514,6 +1545,7 @@ fn read_share(c: &mut Node, errs: &mut Vec<String>) -> Option<Range> {
                 min: share?,
                 max: share?,
                 basis: basis?,
+                skew: None,
             }
         }
     };
@@ -1738,7 +1770,8 @@ sampling = { types = ["U"], interval_m = { min = 1.5, max = 3.0, basis = "test f
             Range {
                 min: 8.0,
                 max: 22.0,
-                basis: "test fixture".into()
+                basis: "test fixture".into(),
+                skew: None
             }
         );
         assert_eq!(p.hole_types.len(), 1);
@@ -1939,6 +1972,54 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
         assert_refused(
             &text,
             "units[1] (LC).thickness_m: forbidden on the last unit (it runs to final depth)",
+        );
+    }
+
+    const RTD_THICKNESS: &str = "thickness_m = { min = -2.0, max = 6.0, basis = \"test fixture\" }";
+
+    fn skew_text(skew: &str) -> String {
+        with(
+            RTD_THICKNESS,
+            &format!(
+                "thickness_m = {{ min = -2.0, max = 6.0, skew = {skew}, basis = \"test fixture\" }}"
+            ),
+        )
+    }
+
+    #[test]
+    fn a_unit_thickness_may_carry_a_skew() {
+        for (text, want) in [("2.0", 2.0), ("3", 3.0), ("0.5", 0.5)] {
+            let p = Preset::from_toml(&skew_text(text)).expect("valid");
+            assert_eq!(p.units[0].thickness_m.as_ref().unwrap().skew, Some(want));
+        }
+        let p = Preset::from_toml(&valid()).expect("valid");
+        assert_eq!(p.units[0].thickness_m.as_ref().unwrap().skew, None);
+    }
+
+    #[test]
+    fn a_skew_that_is_not_a_positive_number_is_refused() {
+        assert_refused(
+            &skew_text("0"),
+            "units[0] (RTD).thickness_m.skew: 0 must be > 0",
+        );
+        assert_refused(
+            &skew_text("-1.5"),
+            "units[0] (RTD).thickness_m.skew: -1.5 must be > 0",
+        );
+        assert_refused(
+            &skew_text("\"2\""),
+            "units[0] (RTD).thickness_m.skew: must be a number",
+        );
+    }
+
+    #[test]
+    fn a_skew_is_refused_off_unit_thickness() {
+        assert_refused(
+            &with(
+                "ground_level_m = { min = 8.0, max = 22.0,",
+                "ground_level_m = { min = 8.0, max = 22.0, skew = 2.0,",
+            ),
+            "site.ground_level_m: unknown key \"skew\"",
         );
     }
 

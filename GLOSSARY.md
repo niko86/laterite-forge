@@ -25,6 +25,10 @@ _Avoid_: site file, template
 The cited source for a range or parameter in a preset.
 _Avoid_: reference, provenance
 
+**Skew**:
+An optional exponent on a unit's thickness range. The smooth field value is raised to it before being placed on the range, so a skew above 1 makes thin ground common and thick ground a long tail.
+_Avoid_: bias, curve
+
 **Suite**:
 The groups a preset generates, and for each group the result headings it fills.
 _Avoid_: test schedule
