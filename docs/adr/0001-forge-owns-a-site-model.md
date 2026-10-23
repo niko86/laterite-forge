@@ -90,8 +90,10 @@ consumer can replace.
   groundwater level. Stress history is deferred and will be per unit.
   Groundwater stays internal until values depend on it. Water strikes are a
   suite addition: `WSTG` and `WSTD` rows (no dates, the model has no clock)
-  where a hole's water table falls in a coarse stratum, the strike a drilling
-  lag of 0-0.5 m below the table, rising to the table over 20 minutes.
+  where a hole's water table falls in a coarse stratum, the strike a strike
+  rise (the drilling lag) below the table, rising to the table over 20
+  minutes. The preset may give the rise as `site.strike_rise_m`; without it
+  the default is 0-0.5 m (`forge judgement`).
 - Coordinates are on a local grid by default. `--grid bng --origin <E>,<N>`
   adds national-grid coordinates for tools that only plot BNG, at an origin the
   consumer chooses and is responsible for. No shipped preset carries a real
