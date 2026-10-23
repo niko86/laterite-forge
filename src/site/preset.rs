@@ -783,9 +783,10 @@ fn read_preset(root: &Table, errs: &mut Vec<String>) -> Option<Preset> {
 }
 
 /// The suite headings whose values a unit can only supply if its properties
-/// say how: a TRIT strength heading needs `strength`, and `ISPT_NVAL` needs
-/// `strength` and `spt` (a fine unit) or `spt_n` (a coarse one). Each
-/// refusal names the suite entry and the unit.
+/// say how: a TRIT strength heading needs `strength`, `ISPT_NVAL` needs
+/// `strength` and `spt` (a fine unit) or `spt_n` (a coarse one), and an LLPL
+/// heading needs the fine properties. Each refusal names the suite entry and
+/// the unit.
 fn check_suite_values(preset: &Preset, errs: &mut Vec<String>) {
     let properties = |id: &str| {
         preset
@@ -811,6 +812,14 @@ fn check_suite_values(preset: &Preset, errs: &mut Vec<String>) {
                     if properties(u).is_some_and(|p| p.strength.is_none()) {
                         errs.push(format!(
                             "{at}: {h} needs undrained strength, but unit \"{u}\" (in suite[{t}], TRIG) has no strength"
+                        ));
+                    }
+                }
+            } else if entry.group == "LLPL" && results::LLPL_HEADINGS.contains(&h.as_str()) {
+                for u in &entry.units {
+                    if properties(u).is_some_and(|p| p.fine.is_none()) {
+                        errs.push(format!(
+                            "{at}: {h} needs fine properties (liquid and plastic limits), but unit \"{u}\" has none"
                         ));
                     }
                 }
@@ -2353,6 +2362,29 @@ rate = { min = 1, max = 1, basis = "test fixture" }
         // Headings that do not need strength are fine, and so is strength.
         Preset::from_toml(&text("", "\"TRIT_CELL\", \"TRIT_BDEN\", \"TRIT_IMC\"")).expect("valid");
         Preset::from_toml(&text(STRENGTH, "\"TRIT_CU\", \"TRIT_DEVF\"")).expect("valid");
+    }
+
+    #[test]
+    fn a_suite_listing_an_llpl_heading_over_a_unit_without_fine_properties_is_refused() {
+        let text = |headings: &str, unit: &str| {
+            let suite = SUITE.replacen(
+                "group = \"LLPL\"\nheadings = []\nunits = [\"LC\"]",
+                &format!("group = \"LLPL\"\nheadings = [{headings}]\nunits = [\"{unit}\"]"),
+                1,
+            );
+            format!("{}{suite}", lc_with(""))
+        };
+        // RTD is a coarse unit with no fine properties.
+        let e = suite_errors(&text("\"LLPL_LL\", \"LLPL_PL\", \"LLPL_PI\"", "RTD"));
+        for (j, h) in ["LLPL_LL", "LLPL_PL", "LLPL_PI"].iter().enumerate() {
+            let want = format!(
+                "suite[0].headings[{j}]: {h} needs fine properties (liquid and plastic limits), but unit \"RTD\" has none"
+            );
+            assert!(e.contains(&want), "{e}");
+        }
+        // No headings, or a fine unit, is fine.
+        Preset::from_toml(&text("", "RTD")).expect("valid");
+        Preset::from_toml(&text("\"LLPL_LL\", \"LLPL_PL\", \"LLPL_PI\"", "LC")).expect("valid");
     }
 
     #[test]

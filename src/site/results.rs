@@ -54,6 +54,8 @@ pub const STRENGTH_COV: f64 = 0.30;
 pub const SPT_COV: f64 = 0.30;
 /// The TRIT headings that need the unit to have a `strength`.
 pub const TRIT_STRENGTH_HEADINGS: &[&str] = &["TRIT_CU", "TRIT_DEVF"];
+/// The LLPL headings that need the unit to have `fine` properties.
+pub const LLPL_HEADINGS: &[&str] = &["LLPL_LL", "LLPL_PL", "LLPL_PI"];
 /// The chance a result is an outlier. Basis: forge judgement.
 pub const RESULT_OUTLIER_RATE: f64 = 0.02;
 /// Scatter is a standard normal truncated at this many standard deviations.
@@ -390,9 +392,10 @@ fn text<T: std::fmt::Display>(v: Option<T>) -> String {
     v.map(|v| v.to_string()).unwrap_or_default()
 }
 
-/// The producers this module registers (see [`super::suite::PRODUCERS`]). A
-/// heading the specimen's unit has no value for (LL, PL and PI in a unit with
-/// no fine properties) is written blank.
+/// The producers this module registers (see [`super::suite::PRODUCERS`]). The
+/// loader refuses a suite entry whose unit cannot supply a listed heading
+/// (LL, PL and PI need fine properties), so a blank cell only arises for a
+/// sample that has no specimen.
 pub(super) const PRODUCERS: &[Producer] = &[
     Producer {
         group: "LNMC",
@@ -478,9 +481,15 @@ mod tests {
         let mut out = String::new();
         for (group, hs) in headings {
             let list: Vec<String> = hs.iter().map(|h| format!("\"{h}\"")).collect();
+            // LL, PL and PI need fine properties, which RTD lacks.
+            let units = if *group == "LLPL" {
+                "\"WLC\", \"LC\""
+            } else {
+                "\"RTD\", \"WLC\", \"LC\""
+            };
             let _ = write!(
                 out,
-                "\n[[suite]]\ngroup = \"{group}\"\nheadings = [{}]\nunits = [\"RTD\", \"WLC\", \"LC\"]\nrate = {{ min = 1.0, max = 1.0, basis = \"test fixture\" }}\n",
+                "\n[[suite]]\ngroup = \"{group}\"\nheadings = [{}]\nunits = [{units}]\nrate = {{ min = 1.0, max = 1.0, basis = \"test fixture\" }}\n",
                 list.join(", ")
             );
         }
@@ -528,11 +537,6 @@ mod tests {
                 cells(&m, "LLPL", "LLPL_PI"),
             );
             for i in 0..ll.len() {
-                if ll[i].is_empty() {
-                    // A unit with no fine properties has no limits.
-                    assert!(pl[i].is_empty() && pi[i].is_empty());
-                    continue;
-                }
                 let (l, p, i_) = (int(&ll[i]), int(&pl[i]), int(&pi[i]));
                 assert!(p < l, "seed {seed}: PL {p} !< LL {l}");
                 assert_eq!(i_, l - p, "seed {seed}");
@@ -800,10 +804,6 @@ mod tests {
                 ("LDEN", "LDEN_MC", 0),
             ] {
                 for c in cells(&m, g, h) {
-                    if c.is_empty() {
-                        assert_eq!(g, "LLPL", "{h} blank at seed {seed}");
-                        continue;
-                    }
                     let v: f64 = c.parse().unwrap_or_else(|_| panic!("{h} {c:?}"));
                     assert!(v >= 0.0);
                     let places = c.split_once('.').map_or(0, |(_, f)| f.len());
