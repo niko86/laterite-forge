@@ -16,13 +16,24 @@
 //! the suite lists and whichever is computed first. LNMC and LDEN are separate
 //! tests, so their moisture contents scatter independently.
 //!
+//! Strength results follow the same pattern. TRIT's undrained strength is the
+//! model's cu at the specimen scattered with the strength COV, and the deviator
+//! stress at failure is twice the written value. The cell pressure is the
+//! total overburden at the specimen. TRIT's density and moisture content scatter
+//! under TRIT keys of their own. An SPT N is cu at the test's top (scattered
+//! under an ISPT key) over f1 in a unit with the `spt.stroud_butler` relation,
+//! and otherwise the model's N scattered.
+//!
 //! Written precision follows each heading's TYPE in the bundled dictionary:
-//! LL, PL, PI, and both MC headings (X, written as a whole number, the usual
-//! reporting) are whole numbers; BDEN and DDEN are 2DP, in Mg/m3.
+//! LL, PL, PI, both MC headings (X, written as a whole number, the usual
+//! reporting), the strengths, cell pressure and N are whole numbers; BDEN and
+//! DDEN are 2DP, in Mg/m3.
 
 use super::build::{Hole, Sample, Site};
 use super::draw::{Key, uniform};
-use super::properties::{Band, Evaluated, IndexQuantity, OUTLIER_OVERSHOOT, beyond_range};
+use super::properties::{
+    Band, Evaluated, IndexQuantity, OUTLIER_OVERSHOOT, UNDRAINED_STRENGTH_KPA, beyond_range,
+};
 use super::suite::Producer;
 
 /// Coefficient of variation of a density result: the midpoint of 1-10 %
@@ -35,6 +46,14 @@ pub const MOISTURE_COV: f64 = 0.075;
 /// Coefficient of variation of a liquid or plastic limit result. Basis: forge
 /// judgement.
 pub const LIMIT_COV: f64 = 0.075;
+/// Coefficient of variation of an undrained strength result: the midpoint of
+/// 20-40 % (Decoding Eurocode 7, Bond and Harris, 2008, ch. 5, s5.3.1, p.136).
+pub const STRENGTH_COV: f64 = 0.30;
+/// Coefficient of variation of an SPT N result in a unit with its own N. Basis:
+/// forge judgement.
+pub const SPT_COV: f64 = 0.30;
+/// The TRIT headings that need the unit to have a `strength`.
+pub const TRIT_STRENGTH_HEADINGS: &[&str] = &["TRIT_CU", "TRIT_DEVF"];
 /// The chance a result is an outlier. Basis: forge judgement.
 pub const RESULT_OUTLIER_RATE: f64 = 0.02;
 /// Scatter is a standard normal truncated at this many standard deviations.
@@ -59,6 +78,8 @@ pub(super) fn truncated_normal(rng: &mut laterite_ags4_parity::Rng) -> f64 {
 /// One specimen: where it is and what the property model says there.
 pub(super) struct Specimen<'a> {
     pub hole_index: usize,
+    /// Metres below ground, as written.
+    pub depth: f64,
     pub unit: &'a str,
     /// The sample's position among all the hole's samples, top-down.
     pub sample_index: u64,
@@ -69,14 +90,26 @@ pub(super) struct Specimen<'a> {
 /// the mid-depth `SPEC_DPTH` is written with. `None` when the hole has no such
 /// sample or the unit has no properties.
 pub(super) fn specimen<'a>(site: &'a Site, hole: &Hole, sample: &Sample) -> Option<Specimen<'a>> {
+    specimen_at(site, hole, sample, f64::midpoint(sample.top, sample.base))
+}
+
+/// The specimen of `sample` at `depth`, rounded to the centimetre it is
+/// written with.
+fn specimen_at<'a>(
+    site: &'a Site,
+    hole: &Hole,
+    sample: &Sample,
+    depth: f64,
+) -> Option<Specimen<'a>> {
     let hole_index = site.holes.iter().position(|h| h.id == hole.id)?;
     let mut index = 0u64;
     for stratum in &site.holes[hole_index].strata {
         for x in &stratum.samples {
             if std::ptr::eq(x, sample) {
-                let depth = (f64::midpoint(sample.top, sample.base) * 100.0).round() / 100.0;
+                let depth = (depth * 100.0).round() / 100.0;
                 return Some(Specimen {
                     hole_index,
+                    depth,
                     unit: stratum.unit.as_str(),
                     sample_index: index,
                     model: site.properties_at(hole_index, depth)?,
@@ -268,6 +301,91 @@ pub(super) fn lden(site: &Site, hole: &Hole, sample: &Sample) -> Option<Lden> {
     })
 }
 
+/// The band cu spans at the specimen, for its outliers.
+fn strength_band(range: (f64, f64)) -> Band {
+    Band {
+        lo: range.0,
+        hi: range.1,
+        domain: UNDRAINED_STRENGTH_KPA,
+    }
+}
+
+/// The scattered cu of the specimen, kPa, under `group`'s own keys.
+fn scattered_cu(site: &Site, spec: &Specimen<'_>, group: &str) -> Option<f64> {
+    let cu = spec.model.strength?;
+    Some(
+        scatter(
+            site.properties.seed(),
+            spec,
+            (group, "undrained_strength"),
+            Some(strength_band(cu.range_kpa)),
+            cu.cu_kpa,
+            STRENGTH_COV,
+        )
+        .value,
+    )
+}
+
+/// The written TRIT undrained strength, kPa, whole and at least 1.
+pub(super) fn trit_cu(site: &Site, hole: &Hole, sample: &Sample) -> Option<i64> {
+    let spec = specimen(site, hole, sample)?;
+    Some(whole(scattered_cu(site, &spec, "TRIT")?).max(1))
+}
+
+/// The written TRIT cell pressure, kPa, whole: the total vertical stress at
+/// the specimen.
+fn trit_cell(site: &Site, hole: &Hole, sample: &Sample) -> Option<i64> {
+    let spec = specimen(site, hole, sample)?;
+    let stress = site.stress_at(spec.hole_index, spec.depth)?;
+    Some(whole(stress.total_kpa).max(0))
+}
+
+/// The written TRIT initial bulk density (hundredths of Mg/m3) and moisture
+/// content (whole percent), each scattered under a TRIT key.
+fn trit_density(site: &Site, hole: &Hole, sample: &Sample) -> Option<(i64, i64)> {
+    let spec = specimen(site, hole, sample)?;
+    let m = &spec.model;
+    let bden = quantity(
+        site,
+        &spec,
+        "TRIT",
+        ("bulk_density", IndexQuantity::BulkDensity, DENSITY_COV),
+        m.bulk_density_kg_m3,
+    );
+    let mc = quantity(
+        site,
+        &spec,
+        "TRIT",
+        (
+            "moisture_content",
+            IndexQuantity::MoistureContent,
+            MOISTURE_COV,
+        ),
+        m.moisture_content_percent,
+    );
+    Some((whole(bden / 10.0).max(1), whole(mc).max(0)))
+}
+
+/// The written SPT N at the top of `sample`, whole and at least 0. In a unit
+/// with `spt.stroud_butler` it is cu there (scattered under an ISPT key) over
+/// f1; otherwise the model's N scattered.
+pub(super) fn ispt_nval(site: &Site, hole: &Hole, sample: &Sample) -> Option<i64> {
+    let spec = specimen_at(site, hole, sample, sample.top)?;
+    let n = if let Some(f1) = spec.model.spt_f1 {
+        scattered_cu(site, &spec, "ISPT")? / f1
+    } else {
+        let n = f64::from(spec.model.spt_n?);
+        quantity(
+            site,
+            &spec,
+            "ISPT",
+            ("spt_n", IndexQuantity::SptN, SPT_COV),
+            n,
+        )
+    };
+    Some(whole(n).max(0))
+}
+
 fn text<T: std::fmt::Display>(v: Option<T>) -> String {
     v.map(|v| v.to_string()).unwrap_or_default()
 }
@@ -310,6 +428,38 @@ pub(super) const PRODUCERS: &[Producer] = &[
         group: "LDEN",
         heading: "LDEN_MC",
         value: |s, h, x| text(lden(s, h, x).map(|r| r.mc)),
+    },
+    Producer {
+        group: "TRIT",
+        heading: "TRIT_CU",
+        value: |s, h, x| text(trit_cu(s, h, x)),
+    },
+    Producer {
+        group: "TRIT",
+        heading: "TRIT_DEVF",
+        value: |s, h, x| text(trit_cu(s, h, x).map(|cu| 2 * cu)),
+    },
+    Producer {
+        group: "TRIT",
+        heading: "TRIT_CELL",
+        value: |s, h, x| text(trit_cell(s, h, x)),
+    },
+    Producer {
+        group: "TRIT",
+        heading: "TRIT_BDEN",
+        value: |s, h, x| {
+            text(trit_density(s, h, x).map(|(b, _)| format!("{:.2}", b as f64 / 100.0)))
+        },
+    },
+    Producer {
+        group: "TRIT",
+        heading: "TRIT_IMC",
+        value: |s, h, x| text(trit_density(s, h, x).map(|(_, mc)| mc)),
+    },
+    Producer {
+        group: "ISPT",
+        heading: "ISPT_NVAL",
+        value: |s, h, x| text(ispt_nval(s, h, x)),
     },
 ];
 
@@ -668,5 +818,336 @@ mod tests {
         let p = preset(ALL);
         let a = emit_to_string(&file(&p, 4, 5));
         assert_eq!(a, emit_to_string(&file(&p, 4, 5)));
+    }
+
+    // Strength results. The fine units (WLC, LC) carry cu = 60-120 kPa + 4-8
+    // kPa/m and f1 = 4-6; the coarse unit (RTD) keeps its own N.
+
+    const GS: &str =
+        "particle_density_ratio = { min = 2.6, max = 2.7, basis = \"test fixture\" }\n";
+    const STRENGTH_LINES: &str = "strength = { relation = \"cu.linear_with_depth\", cu_top_kpa = { min = 60, max = 120, basis = \"test fixture\" }, per_m = { min = 4, max = 8, basis = \"test fixture\" } }\nspt = { relation = \"spt.stroud_butler\", f1 = { min = 4, max = 6, basis = \"test fixture\" } }\n";
+
+    /// [`FIXTURE`] with strength on its two fine units.
+    fn strong_fixture() -> String {
+        let mut parts = FIXTURE.split(GS);
+        let mut out = String::from(parts.next().unwrap());
+        for (i, part) in parts.enumerate() {
+            out.push_str(GS);
+            if i > 0 {
+                out.push_str(STRENGTH_LINES);
+            }
+            out.push_str(part);
+        }
+        out
+    }
+
+    const TRIT_ALL: &[&str] = &["TRIT_CU", "TRIT_DEVF", "TRIT_CELL", "TRIT_BDEN", "TRIT_IMC"];
+
+    /// A suite of TRIG over the fine units with the given TRIT headings, and
+    /// ISPT over every unit with `ISPT_NVAL`.
+    fn strength_suite(trit: &[&str]) -> String {
+        let list: Vec<String> = trit.iter().map(|h| format!("\"{h}\"")).collect();
+        format!(
+            r#"
+[[suite]]
+group = "TRIG"
+headings = []
+units = ["WLC", "LC"]
+rate = {{ min = 1.0, max = 1.0, basis = "test fixture" }}
+
+[[suite]]
+group = "TRIT"
+headings = [{}]
+
+[[suite]]
+group = "ISPT"
+headings = ["ISPT_NVAL"]
+units = ["RTD", "WLC", "LC"]
+rate = {{ min = 1.0, max = 1.0, basis = "test fixture" }}
+"#,
+            list.join(", ")
+        )
+    }
+
+    fn strong(trit: &[&str]) -> Preset {
+        let text = format!("{}{}", strong_fixture(), strength_suite(trit));
+        Preset::from_toml(&text).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    fn num(s: &str) -> f64 {
+        s.parse()
+            .unwrap_or_else(|_| panic!("{s:?} is not a number"))
+    }
+
+    #[test]
+    fn trit_devf_is_twice_the_written_cu_whichever_headings_are_listed() {
+        let both = strong(TRIT_ALL);
+        let devf_only = strong(&["TRIT_DEVF"]);
+        let mut rows = 0;
+        for seed in 0..60 {
+            let m = file(&both, seed, 6);
+            let (cu, devf) = (cells(&m, "TRIT", "TRIT_CU"), cells(&m, "TRIT", "TRIT_DEVF"));
+            for (c, d) in cu.iter().zip(&devf) {
+                assert_eq!(int(d), 2 * int(c), "seed {seed}");
+                rows += 1;
+            }
+            let alone = file(&devf_only, seed, 6);
+            assert_eq!(cells(&alone, "TRIT", "TRIT_DEVF"), devf, "seed {seed}");
+        }
+        assert!(rows > 1000, "{rows} TRIT rows is too few");
+    }
+
+    #[test]
+    fn trit_cell_is_the_rounded_total_stress_at_the_specimen() {
+        let p = strong(TRIT_ALL);
+        let mut rows = 0;
+        for seed in 0..30 {
+            let site = build::build(&p, seed, 6);
+            let m = build::lower(&site, &p, seed, Grid::Local);
+            let (loca, depth, cell) = (
+                cells(&m, "TRIT", "LOCA_ID"),
+                cells(&m, "TRIT", "SPEC_DPTH"),
+                cells(&m, "TRIT", "TRIT_CELL"),
+            );
+            for i in 0..cell.len() {
+                let hole = site.holes.iter().position(|h| h.id == loca[i]).unwrap();
+                let total = site.stress_at(hole, num(&depth[i])).unwrap().total_kpa;
+                assert_eq!(int(&cell[i]), whole(total), "seed {seed}");
+                assert!(total > 0.0);
+                rows += 1;
+            }
+        }
+        assert!(rows > 300, "{rows} TRIT rows is too few");
+    }
+
+    /// (ratio to the model value, outlier?) of every strength-family result
+    /// over many sites, with the COV each is scattered with.
+    fn strength_ratios() -> Ratios {
+        let p = strong(TRIT_ALL);
+        let mut out: Ratios = vec![
+            ("TRIT cu", STRENGTH_COV, Vec::new()),
+            ("ISPT cu", STRENGTH_COV, Vec::new()),
+            ("ISPT N (coarse)", SPT_COV, Vec::new()),
+            ("TRIT BDEN", DENSITY_COV, Vec::new()),
+            ("TRIT IMC", MOISTURE_COV, Vec::new()),
+        ];
+        for seed in 0..250 {
+            let site = build::build(&p, seed, 8);
+            let props = &site.properties;
+            for h in &site.holes {
+                for s in h.strata.iter().flat_map(|s| s.samples.iter()) {
+                    let Some(spec) = specimen(&site, h, s) else {
+                        continue;
+                    };
+                    let mut put = |i: usize, spec: &Specimen<'_>, key: (&str, &str), q, v: f64| {
+                        let band = match q {
+                            None => {
+                                let r = spec.model.strength.unwrap().range_kpa;
+                                Some(strength_band(r))
+                            }
+                            Some(q) => props.band(spec.unit, q),
+                        };
+                        let r = scatter(props.seed(), spec, key, band, v, out[i].1);
+                        out[i].2.push((r.value / v, r.outlier));
+                    };
+                    let m = &spec.model;
+                    if let Some(st) = m.strength {
+                        put(0, &spec, ("TRIT", "undrained_strength"), None, st.cu_kpa);
+                    }
+                    put(
+                        3,
+                        &spec,
+                        ("TRIT", "bulk_density"),
+                        Some(IndexQuantity::BulkDensity),
+                        m.bulk_density_kg_m3,
+                    );
+                    put(
+                        4,
+                        &spec,
+                        ("TRIT", "moisture_content"),
+                        Some(IndexQuantity::MoistureContent),
+                        m.moisture_content_percent,
+                    );
+                    let at_top = specimen_at(&site, h, s, s.top).unwrap();
+                    if let Some(st) = at_top.model.strength {
+                        put(1, &at_top, ("ISPT", "undrained_strength"), None, st.cu_kpa);
+                    }
+                    // A model N of zero (a stratum outlier) has no ratio.
+                    if let Some(n) = at_top.model.spt_n.filter(|&n| n > 0) {
+                        put(
+                            2,
+                            &at_top,
+                            ("ISPT", "spt_n"),
+                            Some(IndexQuantity::SptN),
+                            f64::from(n),
+                        );
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn strength_scatter_has_the_default_mean_and_cov_and_outliers_the_default_rate() {
+        for (name, cov, rs) in strength_ratios() {
+            assert!(rs.len() > 1500, "{name}: {} results is too few", rs.len());
+            let ok: Vec<f64> = rs.iter().filter(|r| !r.1).map(|r| r.0).collect();
+            let n = ok.len() as f64;
+            let mean = ok.iter().sum::<f64>() / n;
+            let var = ok.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (n - 1.0);
+            // A standard normal truncated at +-3 has sd 0.9866.
+            let want = cov * 0.9866;
+            assert!((mean - 1.0).abs() < 0.015, "{name}: mean {mean}");
+            assert!(
+                (var.sqrt() - want).abs() < 0.08 * want,
+                "{name}: COV {} vs {want}",
+                var.sqrt()
+            );
+            let rate = rs.iter().filter(|r| r.1).count() as f64 / rs.len() as f64;
+            assert!(
+                (rate - RESULT_OUTLIER_RATE).abs() < 0.008,
+                "{name}: outlier rate {rate}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_strength_cov_is_the_midpoint_of_twenty_to_forty_percent() {
+        assert!((STRENGTH_COV - f64::midpoint(0.20, 0.40)).abs() < 1e-12);
+    }
+
+    /// In a fine unit N x f1 / cu is 1 before scatter, so its median over many
+    /// tests is about 1 (rounding to whole blows is unbiased).
+    #[test]
+    fn a_fine_units_n_times_f1_over_the_model_cu_has_median_one() {
+        let p = strong(TRIT_ALL);
+        let mut ratios = Vec::new();
+        for seed in 0..60 {
+            let site = build::build(&p, seed, 8);
+            let m = build::lower(&site, &p, seed, Grid::Local);
+            let (loca, top, n) = (
+                cells(&m, "ISPT", "LOCA_ID"),
+                cells(&m, "ISPT", "ISPT_TOP"),
+                cells(&m, "ISPT", "ISPT_NVAL"),
+            );
+            for i in 0..n.len() {
+                let hole = site.holes.iter().position(|h| h.id == loca[i]).unwrap();
+                let e = site.properties_at(hole, num(&top[i])).unwrap();
+                let (Some(st), Some(f1)) = (e.strength, e.spt_f1) else {
+                    continue;
+                };
+                ratios.push(num(&n[i]) * f1 / st.cu_kpa);
+            }
+        }
+        assert!(ratios.len() > 800, "{} fine tests is too few", ratios.len());
+        ratios.sort_by(f64::total_cmp);
+        let median = ratios[ratios.len() / 2];
+        assert!((median - 1.0).abs() < 0.03, "median {median}");
+    }
+
+    #[test]
+    fn a_coarse_units_n_scatters_around_its_own_model() {
+        let p = strong(TRIT_ALL);
+        let mut ratios = Vec::new();
+        for seed in 0..60 {
+            let site = build::build(&p, seed, 8);
+            let m = build::lower(&site, &p, seed, Grid::Local);
+            let (loca, top, n) = (
+                cells(&m, "ISPT", "LOCA_ID"),
+                cells(&m, "ISPT", "ISPT_TOP"),
+                cells(&m, "ISPT", "ISPT_NVAL"),
+            );
+            for i in 0..n.len() {
+                let hole = site.holes.iter().position(|h| h.id == loca[i]).unwrap();
+                let e = site.properties_at(hole, num(&top[i])).unwrap();
+                if let Some(model) = e.spt_n {
+                    ratios.push(num(&n[i]) / f64::from(model));
+                }
+            }
+        }
+        assert!(
+            ratios.len() > 200,
+            "{} coarse tests is too few",
+            ratios.len()
+        );
+        ratios.sort_by(f64::total_cmp);
+        let median = ratios[ratios.len() / 2];
+        assert!((median - 1.0).abs() < 0.05, "median {median}");
+    }
+
+    #[test]
+    fn a_file_with_every_strength_heading_is_rust_clean_and_parses_as_its_types() {
+        let p = strong(TRIT_ALL);
+        let dir = tempfile::tempdir().unwrap();
+        for seed in 0..25 {
+            let m = file(&p, seed, 6);
+            let path = dir.path().join("site.ags");
+            std::fs::write(&path, emit_to_string(&m)).unwrap();
+            assert_eq!(rust_check(&path).0, RustResult::Clean, "seed {seed}");
+            for (g, h, dp) in [
+                ("TRIT", "TRIT_CU", 0),
+                ("TRIT", "TRIT_DEVF", 0),
+                ("TRIT", "TRIT_CELL", 0),
+                ("TRIT", "TRIT_BDEN", 2),
+                ("TRIT", "TRIT_IMC", 0),
+                ("ISPT", "ISPT_NVAL", 0),
+            ] {
+                let c = cells(&m, g, h);
+                assert!(!c.is_empty(), "{h} has no rows at seed {seed}");
+                for c in c {
+                    let v: f64 = c.parse().unwrap_or_else(|_| panic!("{h} {c:?}"));
+                    assert!(v >= 0.0);
+                    let places = c.split_once('.').map_or(0, |(_, f)| f.len());
+                    assert_eq!(places, dp, "{h} {c}");
+                }
+            }
+        }
+    }
+
+    /// A preset with strength but no new heading listed writes the bytes it
+    /// wrote without strength.
+    #[test]
+    fn strength_in_a_preset_moves_no_byte_until_a_heading_asks_for_it() {
+        let listed = format!("{}{}", strong_fixture(), suite(ALL));
+        let bare = format!("{FIXTURE}{}", suite(ALL));
+        let (a, b) = (
+            Preset::from_toml(&listed).unwrap(),
+            Preset::from_toml(&bare).unwrap(),
+        );
+        for seed in 0..10 {
+            assert_eq!(
+                emit_to_string(&file(&a, seed, 5)),
+                emit_to_string(&file(&b, seed, 5)),
+                "seed {seed}"
+            );
+        }
+    }
+
+    #[test]
+    fn listing_the_strength_headings_moves_no_other_cell() {
+        let with = strong(TRIT_ALL);
+        let without = strong(&[]);
+        let cu_only = strong(&["TRIT_CU"]);
+        for seed in 0..10 {
+            let (a, b, c) = (
+                file(&with, seed, 5),
+                file(&without, seed, 5),
+                file(&cu_only, seed, 5),
+            );
+            for g in ["PROJ", "LOCA", "GEOL", "SAMP", "TRIG"] {
+                let rows = |m: &ProjectModel| {
+                    m.groups
+                        .iter()
+                        .find(|x| x.code == g)
+                        .map(|x| x.rows.iter().map(|r| r.values.clone()).collect::<Vec<_>>())
+                };
+                assert_eq!(rows(&a), rows(&b), "{g}, seed {seed}");
+            }
+            assert_eq!(
+                cells(&a, "ISPT", "ISPT_NVAL"),
+                cells(&c, "ISPT", "ISPT_NVAL")
+            );
+        }
     }
 }

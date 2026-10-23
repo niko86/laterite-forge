@@ -275,3 +275,62 @@ fn a_preset_without_properties_or_groundwater_exits_5_naming_the_field() {
     assert!(err.contains("units[0] (TOP).properties: missing"), "{err}");
     assert!(err.contains("units[1] (BASE).properties: missing"), "{err}");
 }
+
+const STRENGTH: &str = r#"strength = { relation = "cu.linear_with_depth", cu_top_kpa = { min = 60, max = 120, basis = "test fixture" }, per_m = { min = 4, max = 8, basis = "test fixture" } }
+spt = { relation = "spt.stroud_butler", f1 = { min = 4, max = 6, basis = "test fixture" } }
+"#;
+
+/// `PRESET` (its last unit, BASE, takes `props`) with a suite on top.
+fn with_strength(props: &str, suite: &str) -> String {
+    format!("{PRESET}{props}{suite}")
+}
+
+/// An unknown relation, a missing parameter, a missing basis, and a suite
+/// heading the unit's relations cannot make all exit 5 naming the field, the
+/// suite entry and the unit.
+#[test]
+fn strength_and_spt_problems_exit_5_naming_the_field() {
+    let dir = tempfile::tempdir().unwrap();
+    let trit = "\n[[suite]]\ngroup = \"TRIG\"\nheadings = []\nunits = [\"BASE\"]\nrate = { min = 1, max = 1, basis = \"test fixture\" }\n\n[[suite]]\ngroup = \"TRIT\"\nheadings = [\"TRIT_CU\"]\n";
+    let ispt = "\n[[suite]]\ngroup = \"ISPT\"\nheadings = [\"ISPT_NVAL\"]\nunits = [\"BASE\"]\nrate = { min = 1, max = 1, basis = \"test fixture\" }\n";
+    let cases = [
+        (
+            STRENGTH.replace("cu.linear_with_depth", "cu.ocr"),
+            "",
+            "units[1] (BASE).properties.strength.relation",
+        ),
+        (
+            STRENGTH.replace(
+                ", per_m = { min = 4, max = 8, basis = \"test fixture\" }",
+                "",
+            ),
+            "",
+            "units[1] (BASE).properties.strength.per_m: missing",
+        ),
+        (
+            STRENGTH.replace("max = 120, basis = \"test fixture\"", "max = 120"),
+            "",
+            "units[1] (BASE).properties.strength.cu_top_kpa: no basis",
+        ),
+        (
+            String::new(),
+            trit,
+            "suite[1].headings[0]: TRIT_CU needs undrained strength, but unit \"BASE\"",
+        ),
+        (
+            String::new(),
+            ispt,
+            "suite[0].headings[0]: ISPT_NVAL needs strength and spt (a fine unit), but unit \"BASE\"",
+        ),
+    ];
+    for (props, suite, expected) in cases {
+        let p = preset(dir.path(), &with_strength(&props, suite));
+        let out = gen_site(dir.path(), &p, &[]);
+        assert_eq!(out.status.code(), Some(5), "{expected}: {}", stderr(&out));
+        assert!(
+            stderr(&out).contains(expected),
+            "{expected}: {}",
+            stderr(&out)
+        );
+    }
+}

@@ -118,10 +118,14 @@ consumer can replace.
   takes an outlier on a drawn quantity, beyond its range by 25–75% of the
   range's width. Outliers come from their own keyed stream and never break
   the couplings, because the derived quantities are derived after them.
-- In schema v1 a preset names catalogue parameters, not catalogue relations:
-  each job has one relation so far. Choosing a relation by name starts with
-  the first real alternative, the undrained-strength correlations (#1).
-  (Amended 2026-10-22, #9.)
+- In schema v1 a preset names catalogue parameters, not catalogue relations,
+  wherever a job has one relation. Where it has alternatives, the preset
+  picks one by name: a unit's properties may carry `strength = { relation =
+  "cu.linear_with_depth", ... }` and `spt = { relation = "spt.stroud_butler",
+  ... }`, each with that relation's cited parameters. The loader refuses an
+  unknown name, listing the known ones. Only the linear-with-depth cu relation
+  is registered; the EC7 OCR form waits until a preset has a cited removed
+  overburden. (Amended 2026-10-22, #9; amended #51.)
 
 ## Presets
 
