@@ -65,9 +65,9 @@ pub(super) struct Specimen<'a> {
     pub model: Evaluated,
 }
 
-/// The specimen of `sample` (a reference into `hole`, which is in `site`), at the mid-depth `SPEC_DPTH` is written
-/// with. `None` when the hole has no such sample or the unit has no
-/// properties.
+/// The specimen of `sample` (a reference into `hole`, which is in `site`), at
+/// the mid-depth `SPEC_DPTH` is written with. `None` when the hole has no such
+/// sample or the unit has no properties.
 pub(super) fn specimen<'a>(site: &'a Site, hole: &Hole, sample: &Sample) -> Option<Specimen<'a>> {
     let hole_index = site.holes.iter().position(|h| h.id == hole.id)?;
     let mut index = 0u64;

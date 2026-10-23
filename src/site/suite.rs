@@ -2,8 +2,9 @@
 //! samples (ADR 0001, "Output and determinism").
 //!
 //! A preset's suite writes KEY and REQUIRED headings, plus the headings it
-//! lists; their values come from [`PRODUCERS`] (index results: `results`). Everything here draws from its own
-//! keyed streams, so a suite moves no LOCA, GEOL or SAMP byte.
+//! lists, whose values come from [`PRODUCERS`] (index results live in
+//! `results`). Everything here draws from its own keyed streams, so a suite
+//! moves no LOCA, GEOL or SAMP byte.
 //!
 //! Scheduling:
 //! - `SAMP`-child groups (LNMC, LLPL, LDEN, TRIG) test a sample when its
@@ -42,8 +43,8 @@ pub struct Producer {
 
 /// Every heading beyond KEY and REQUIRED the forge can produce. The loader
 /// refuses a suite heading not listed here; lowering calls `value`. Later
-/// slices add entries (TRIG and TRIT results, ISPT N values)
-/// without touching the loader.
+/// slices add entries (TRIG and TRIT results, ISPT N values) without touching
+/// the loader.
 pub const PRODUCERS: &[Producer] = super::results::PRODUCERS;
 
 /// The producer for `heading` of `group`, if one is registered.
