@@ -194,6 +194,28 @@ consumer can replace.
   unknown name, listing the known ones. Only the linear-with-depth cu relation
   is registered; the EC7 OCR form waits until a preset has a cited removed
   overburden. (Amended 2026-10-22, #9; amended #51.)
+- **SPT refusals** (#63). A test that reaches 50 blows before the 300 mm main
+  drive is a refusal, not an N. The ISPT suite may list `ISPT_MAIN`,
+  `ISPT_NPEN` and `ISPT_REP` (only with `ISPT_NVAL`, which the loader
+  enforces). An ordinary test writes `ISPT_MAIN` = N, `ISPT_NPEN` = 450 and
+  `ISPT_REP` = "N=<N>". A refusal writes `ISPT_NVAL` = 50, not extrapolated,
+  `ISPT_MAIN` = 50, `ISPT_NPEN` = 150 mm of seating plus the main-drive
+  penetration p reached, and `ISPT_REP` = "50/<p>". That convention is forge
+  judgement (owner decision, #63). Two causes: any drawn N of 50 or more is a
+  refusal, always, with p = 300 x 50 / N (at least 1, under 300); and a unit
+  or lens may carry `spt.refusal_share` (`{ min, max, basis }` or `{ share,
+  basis }`), the share of its tests stopped by a cobble or boulder strike
+  whatever the strength, with p uniform in 25 to 275 mm. The share is drawn
+  once per site from a stream keyed by the unit, and each test then has its
+  own keyed draw, so a share moves only ISPT rows. The share may instead rise
+  linearly with depth, `{ top = { min, max, basis }, per_m = { min, max, basis
+  } }`: share(z) = clamp(top + per_m x z, 0, 1), z metres below ground, `top`
+  and `per_m` each drawn once per site from their own keyed streams (a `top`
+  below 0 keeps the share at 0 near the surface). It is allowed on a coarse
+  unit or one whose description has `very_coarse`, and the loader refuses it
+  elsewhere, naming the field. No N above 50 is ever
+  written, so the change moved every shipped preset (london-basin v5,
+  tyneside-till v2).
 
 ## Made-ground units
 

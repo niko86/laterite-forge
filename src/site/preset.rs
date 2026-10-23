@@ -262,6 +262,23 @@ pub struct Properties {
     pub strength: Option<Strength>,
     /// SPT N from undrained strength, by named relation. Needs `strength`.
     pub spt: Option<SptFromStrength>,
+    /// `spt.refusal_share`: the share of this unit's SPTs, drawn once per
+    /// site, stopped by an obstruction (a cobble or boulder strike) whatever
+    /// the strength. Allowed only on a coarse unit or one whose description
+    /// has `very_coarse`. Refusals from strength (N of 50 or more) need
+    /// nothing here.
+    pub spt_refusal_share: Option<RefusalShare>,
+}
+
+/// How the obstruction share of a unit's SPTs is given.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RefusalShare {
+    /// One share, drawn once per site in the range, at every depth.
+    Share(Range),
+    /// share(z) = clamp(`top` + `per_m` x z, 0, 1), z metres below ground,
+    /// `top` and `per_m` each drawn once per site in their ranges (as
+    /// `cu.linear_with_depth` takes `cu_top_kpa` and `per_m`).
+    Linear { top: Range, per_m: Range },
 }
 
 /// The relations a preset may name for undrained strength. A preset picks one
@@ -666,6 +683,7 @@ fn set_quantity(
 fn read_properties(
     u: &mut Node,
     principals: &[String],
+    very_coarse: bool,
     errs: &mut Vec<String>,
 ) -> Option<Properties> {
     let has = |names: [&str; 2]| principals.iter().any(|p| names.contains(&p.as_str()));
@@ -737,7 +755,8 @@ fn read_properties(
         None
     };
     let strength = read_strength(&mut p, errs);
-    let spt_relation = read_spt(&mut p, errs);
+    let (spt_relation, refusal_share) =
+        read_spt(&mut p, coarse || very_coarse, errs).unwrap_or((None, None));
     // A strength table with problems has reported them already.
     if spt_relation.is_some() && !p.table.contains_key("strength") {
         errs.push(format!(
@@ -769,6 +788,7 @@ fn read_properties(
         outlier_rate: rate,
         strength,
         spt: spt_relation,
+        spt_refusal_share: refusal_share,
     })
 }
 
@@ -809,24 +829,111 @@ fn read_strength(p: &mut Node, errs: &mut Vec<String>) -> Option<Strength> {
     })
 }
 
-/// The optional `spt` table: `relation` plus that relation's parameters.
-fn read_spt(p: &mut Node, errs: &mut Vec<String>) -> Option<SptFromStrength> {
+/// What an `spt` table gives: the strength relation and/or the obstruction
+/// share. Outer `None` is a reported problem; each inner `None` is "not
+/// written".
+type SptTable = (Option<SptFromStrength>, Option<RefusalShare>);
+
+/// The optional `spt` table: `relation` plus that relation's parameters,
+/// and/or `refusal_share`. A table of `refusal_share` alone is allowed (a
+/// coarse unit has its N already). `refusal_ok` says whether the unit may
+/// carry a share (coarse, or `very_coarse` in its description).
+#[allow(clippy::option_option)]
+fn read_spt(p: &mut Node, refusal_ok: bool, errs: &mut Vec<String>) -> Option<SptTable> {
     if !p.table.contains_key("spt") {
         p.get("spt");
-        return None;
+        return Some((None, None));
     }
     let mut t = req_table(p, "spt", errs)?;
-    let relation = read_relation(&mut t, SPT_RELATIONS, errs);
-    let f1 = read_range(&mut t, "f1", errs);
-    if let Some(r) = &f1 {
-        check_domain(r, &t.at("f1"), &props::SPT_F1_KPA, errs);
-    }
+    let has_share = t.table.contains_key("refusal_share");
+    let has_relation = t.table.contains_key("relation") || t.table.contains_key("f1");
+    let mut ok = true;
+    let relation = if has_relation || !has_share {
+        let relation = read_relation(&mut t, SPT_RELATIONS, errs);
+        let f1 = read_range(&mut t, "f1", errs);
+        if let Some(r) = &f1 {
+            check_domain(r, &t.at("f1"), &props::SPT_F1_KPA, errs);
+        }
+        if let (Some(_), Some(f1)) = (relation, f1) {
+            Some(SptFromStrength {
+                relation: SptRelation::StroudButler,
+                f1,
+            })
+        } else {
+            ok = false;
+            None
+        }
+    } else {
+        None
+    };
+    let share = if has_share {
+        let at = t.at("refusal_share");
+        if refusal_ok {
+            read_refusal_share(&mut t, errs)
+        } else {
+            t.get("refusal_share");
+            errs.push(format!(
+                "{at}: the unit is neither coarse (SAND, GRAVEL) nor described with very_coarse, so no cobble or boulder strike can stop its SPTs"
+            ));
+            ok = false;
+            None
+        }
+    } else {
+        None
+    };
+    ok &= !(has_share && refusal_ok && share.is_none());
     t.finish(errs);
-    relation?;
-    Some(SptFromStrength {
-        relation: SptRelation::StroudButler,
-        f1: f1?,
-    })
+    ok.then_some((relation, share))
+}
+
+/// `refusal_share = { min, max, basis }`, or `{ share = x, basis }` as
+/// `water_bearing` takes, a fraction in `[0, 1]`; or the linear form
+/// `{ top = { min, max, basis }, per_m = { min, max, basis } }`, both in
+/// `[-1, 1]` (a `top` below 0 keeps the share at 0 near the surface).
+fn read_refusal_share(t: &mut Node, errs: &mut Vec<String>) -> Option<RefusalShare> {
+    let at = t.at("refusal_share");
+    let Some(Value::Table(tbl)) = t.get("refusal_share") else {
+        errs.push(format!("{at}: must be a table with a share"));
+        return None;
+    };
+    let mut r = Node::new(tbl, at.clone());
+    if tbl.contains_key("top") || tbl.contains_key("per_m") {
+        let top = read_range(&mut r, "top", errs);
+        let per_m = read_range(&mut r, "per_m", errs);
+        let mut fine = true;
+        for (key, rg) in [("top", &top), ("per_m", &per_m)] {
+            if let Some(rg) = rg {
+                for (which, v) in [("min", rg.min), ("max", rg.max)] {
+                    if !(-1.0..=1.0).contains(&v) {
+                        errs.push(format!("{at}.{key}: {which} {v} is outside -1 to 1"));
+                        fine = false;
+                    }
+                }
+            }
+        }
+        r.finish(errs);
+        return match (top, per_m) {
+            (Some(top), Some(per_m)) if fine => Some(RefusalShare::Linear { top, per_m }),
+            _ => None,
+        };
+    }
+    let range = if tbl.contains_key("share") {
+        read_share(&mut r, errs)
+    } else {
+        let range = range_in(&mut r, errs);
+        let mut fine = true;
+        if let Some(rg) = &range {
+            for (which, v) in [("min", rg.min), ("max", rg.max)] {
+                if !(0.0..=1.0).contains(&v) {
+                    errs.push(format!("{at}: {which} {v} is outside 0 to 1"));
+                    fine = false;
+                }
+            }
+        }
+        range.filter(|_| fine)
+    };
+    r.finish(errs);
+    range.map(RefusalShare::Share)
 }
 
 /// The unit or lens's `properties`, which are required. They depend on the
@@ -840,7 +947,7 @@ fn required_properties(
     if let Some(d) = description
         && !d.principals.is_empty()
     {
-        read_properties(n, &d.principals, errs)
+        read_properties(n, &d.principals, d.very_coarse.is_some(), errs)
     } else {
         n.get("properties");
         None
@@ -938,6 +1045,14 @@ fn check_suite_values(preset: &Preset, errs: &mut Vec<String>) {
         }
         for (j, h) in entry.headings.iter().enumerate() {
             let at = format!("suite[{i}].headings[{j}]");
+            if entry.group == "ISPT"
+                && results::ISPT_DEPENDENT_HEADINGS.contains(&h.as_str())
+                && !entry.headings.iter().any(|x| x == "ISPT_NVAL")
+            {
+                errs.push(format!(
+                    "{at}: {h} describes the test that ISPT_NVAL counts, so ISPT_NVAL must be listed too"
+                ));
+            }
             if entry.group == "TRIT" && results::TRIT_STRENGTH_HEADINGS.contains(&h.as_str()) {
                 // TRIT is scheduled with TRIG, so it tests TRIG's units.
                 let Some((t, units)) = trig else { continue };
@@ -2336,7 +2451,7 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
     #[test]
     fn tyneside_till_loads_with_its_tills_and_lens() {
         let p = resolve("tyneside-till").unwrap();
-        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 1));
+        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 2));
         let units: Vec<&str> = p.units.iter().map(|u| u.id.as_str()).collect();
         assert_eq!(units, ["WT", "RT", "GT"]);
         assert!(p.units.last().unwrap().thickness_m.is_none());
@@ -3024,6 +3139,152 @@ rate = { min = 1, max = 1, basis = "test fixture" }
         Preset::from_toml(&text(&format!("{STRENGTH}{SPT}"), "LC")).expect("valid");
         // A coarse unit has its own N.
         Preset::from_toml(&text("", "RTD")).expect("valid");
+    }
+
+    /// The suite with ISPT listing `headings` over RTD.
+    fn ispt_suite(headings: &str) -> String {
+        let suite = SUITE.replace(
+            "group = \"ISPT\"\nheadings = []",
+            &format!("group = \"ISPT\"\nheadings = [{headings}]"),
+        );
+        format!("{}{suite}", valid())
+    }
+
+    #[test]
+    fn ispt_main_npen_and_rep_are_refused_without_nval_naming_the_field() {
+        for h in ["ISPT_MAIN", "ISPT_NPEN", "ISPT_REP"] {
+            let e = suite_errors(&ispt_suite(&format!("\"{h}\"")));
+            assert!(
+                e.contains(&format!(
+                    "suite[3].headings[0]: {h} describes the test that ISPT_NVAL counts, so ISPT_NVAL must be listed too"
+                )),
+                "{e}"
+            );
+            Preset::from_toml(&ispt_suite(&format!("\"ISPT_NVAL\", \"{h}\""))).expect("valid");
+        }
+        Preset::from_toml(&ispt_suite(
+            "\"ISPT_NVAL\", \"ISPT_MAIN\", \"ISPT_NPEN\", \"ISPT_REP\"",
+        ))
+        .expect("valid");
+    }
+
+    const REFUSAL: &str =
+        "spt = { refusal_share = { min = 0.1, max = 0.3, basis = \"test fixture\" } }\n";
+
+    /// The fixture with `extra` added to RTD's properties.
+    fn rtd_with(extra: &str) -> String {
+        with_props(&format!("{RTD_PROPS}{extra}"), LC_PROPS)
+    }
+
+    #[test]
+    fn a_coarse_unit_takes_a_refusal_share_as_a_range_or_a_plain_share() {
+        let p = Preset::from_toml(&rtd_with(REFUSAL)).expect("valid");
+        let Some(RefusalShare::Share(r)) = p.units[0].properties.spt_refusal_share.as_ref() else {
+            panic!("a plain range");
+        };
+        assert_eq!((r.min, r.max), (0.1, 0.3));
+        assert!(p.units[0].properties.spt.is_none(), "no relation was given");
+        let plain = "spt = { refusal_share = { share = 0.2, basis = \"test fixture\" } }\n";
+        let p = Preset::from_toml(&rtd_with(plain)).expect("valid");
+        let Some(RefusalShare::Share(r)) = p.units[0].properties.spt_refusal_share.as_ref() else {
+            panic!("a plain range");
+        };
+        assert_eq!((r.min, r.max), (0.2, 0.2));
+        assert_eq!(r.basis, "test fixture");
+        let none = Preset::from_toml(&valid()).unwrap();
+        assert!(none.units[0].properties.spt_refusal_share.is_none());
+    }
+
+    const LINEAR: &str = "spt = { refusal_share = { top = { min = -0.1, max = 0.05, basis = \"test fixture\" }, per_m = { min = 0.01, max = 0.03, basis = \"test fixture\" } } }\n";
+
+    #[test]
+    fn a_refusal_share_may_rise_linearly_with_depth() {
+        let p = Preset::from_toml(&rtd_with(LINEAR)).expect("valid");
+        let Some(RefusalShare::Linear { top, per_m }) =
+            p.units[0].properties.spt_refusal_share.as_ref()
+        else {
+            panic!("the linear form");
+        };
+        assert_eq!(
+            (top.min, top.max, per_m.min, per_m.max),
+            (-0.1, 0.05, 0.01, 0.03)
+        );
+    }
+
+    #[test]
+    fn a_bad_linear_refusal_share_is_refused_naming_the_field() {
+        let e = errors_of(&rtd_with(&LINEAR.replace("max = 0.03", "max = 2")));
+        assert_eq!(
+            e,
+            ["units[0] (RTD).properties.spt.refusal_share.per_m: max 2 is outside -1 to 1"]
+        );
+        let e = errors_of(&rtd_with(&LINEAR.replace(
+            ", per_m = { min = 0.01, max = 0.03, basis = \"test fixture\" }",
+            "",
+        )));
+        assert_eq!(
+            e,
+            ["units[0] (RTD).properties.spt.refusal_share.per_m: missing"]
+        );
+        let e = errors_of(&rtd_with(&LINEAR.replace(
+            "min = -0.1, max = 0.05, basis = \"test fixture\"",
+            "min = -0.1, max = 0.05",
+        )));
+        assert_eq!(
+            e,
+            ["units[0] (RTD).properties.spt.refusal_share.top: no basis"]
+        );
+        let e = errors_of(&rtd_with(&LINEAR.replace("top = ", "share = 0.2, top = ")));
+        assert_eq!(
+            e,
+            ["units[0] (RTD).properties.spt.refusal_share: unknown key \"share\""]
+        );
+    }
+
+    #[test]
+    fn a_fine_unit_takes_a_refusal_share_only_with_very_coarse() {
+        let e = errors_of(&lc_with(REFUSAL));
+        assert_eq!(e.len(), 1, "{e:?}");
+        assert!(
+            e[0].starts_with(
+                "units[1] (LC).properties.spt.refusal_share: the unit is neither coarse"
+            ),
+            "{e:?}"
+        );
+        let coarse_clay = valid().replacen(
+            r#"description = { principals = ["CLAY"], secondaries = [], colours = ["grey"] }"#,
+            r#"description = { principals = ["CLAY"], secondaries = [], colours = ["grey"], very_coarse = { cobbles = "low" } }"#,
+            1,
+        );
+        let text = format!("{coarse_clay}{STRENGTH}{SPT}").replace(
+            "spt = { relation = \"spt.stroud_butler\", f1 = { min = 4, max = 6, basis = \"test fixture\" } }",
+            "spt = { relation = \"spt.stroud_butler\", f1 = { min = 4, max = 6, basis = \"test fixture\" }, refusal_share = { min = 0.1, max = 0.3, basis = \"test fixture\" } }",
+        );
+        let p = Preset::from_toml(&text).expect("valid");
+        let props = &p.units[1].properties;
+        assert!(props.spt.is_some() && props.spt_refusal_share.is_some());
+    }
+
+    #[test]
+    fn a_bad_refusal_share_is_refused_naming_the_field() {
+        let out_of_range = REFUSAL.replace("max = 0.3", "max = 1.5");
+        assert_eq!(
+            errors_of(&rtd_with(&out_of_range)),
+            ["units[0] (RTD).properties.spt.refusal_share: max 1.5 is outside 0 to 1"]
+        );
+        let no_basis = REFUSAL.replace(", basis = \"test fixture\"", "");
+        assert_eq!(
+            errors_of(&rtd_with(&no_basis)),
+            ["units[0] (RTD).properties.spt.refusal_share: no basis"]
+        );
+        // An spt table with neither a relation nor a share is still refused.
+        assert_eq!(
+            errors_of(&rtd_with("spt = {}\n")),
+            [
+                "units[0] (RTD).properties.spt.relation: missing",
+                "units[0] (RTD).properties.spt.f1: missing"
+            ]
+        );
     }
 
     const RTD_DESC: &str = r#"description = { principals = ["SAND", "GRAVEL"], secondaries = ["gravel"], colours = ["brown"] }"#;

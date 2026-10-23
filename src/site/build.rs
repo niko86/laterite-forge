@@ -1697,6 +1697,9 @@ mod shipped_pins {
     /// calibrated ranges, and for v4 (#42), which adds Made Ground on top.
     /// The versioning promise starts at v3, so v4 is the first bump under it.
     /// tyneside-till (#13) ships at v1, under the promise from the start.
+    /// Re-taken for london-basin v5 and tyneside-till v2 (#63), which add SPT
+    /// refusals: every N of 50 or more is written as a refusal and the ISPT
+    /// suite lists `ISPT_MAIN`, `ISPT_NPEN` and `ISPT_REP`.
     #[test]
     fn shipped_preset_output_bytes_are_pinned() {
         use sha2::{Digest, Sha256};
@@ -1704,38 +1707,38 @@ mod shipped_pins {
             (
                 "london-basin",
                 0u64,
-                "1712a12a8df85b5fb5c122fd8fb6502ec6ac14e2d2c309c953c2c575e3dde291",
-                19315usize,
+                "49e93f1fc529556ef5c06a2bbeedc0b9a81cc2f3e5c06b9905a72bd9c2ccde2b",
+                20115usize,
             ),
             (
                 "london-basin",
                 1,
-                "3f0b29229b75f2e51bfeeed1bc117e4f6162a7466a8084ecdc00aa44af4d0ebd",
-                14712,
+                "0a04448b3b53eb7b0a5969a1b0acb32d0a8d8fe95b2a209424c1c4ca4a855c50",
+                15378,
             ),
             (
                 "london-basin",
                 2,
-                "4abd6a32010d34195ba225db071071267e41a0a65f8e4b089a26af8c359d230a",
-                26781,
+                "1c26c8428b1f1216f1dd876ab174e1d6f642d7abaddde6bd66b8535f7e458251",
+                28109,
             ),
             (
                 "tyneside-till",
                 0,
-                "0293b2d5040db6da3ee98275ecd6d0410096f87dead19cbda764b1905c5f6514",
-                17619,
+                "46bce99b86cc02884b1546a446154d1488115cf5d26ba9571b0e4a4faa3ec157",
+                18263,
             ),
             (
                 "tyneside-till",
                 1,
-                "e8bd9f0e3a32f4a8e17d4aeb2d0adfd82308681f2b87a77efe71183169dc188b",
-                12817,
+                "dd0abb7db5afe612229bfde54edbd29599acad5b45178c30972037867d27dc66",
+                13395,
             ),
             (
                 "tyneside-till",
                 2,
-                "5bd78747e80d6ac1a3be2e32d024df2f22373929919805d1597458091b9845e8",
-                22855,
+                "ea6251e4496bcdbe3bff37b4615faf3ab8d6e3890e6d0d5a2ff744f3dc7f7728",
+                24087,
             ),
         ] {
             let text = shipped(name, seed);

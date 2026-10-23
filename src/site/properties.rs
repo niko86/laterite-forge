@@ -15,7 +15,7 @@
 use super::build::{Hole, Site};
 use super::draw::{Key, uniform};
 use super::ground::Field;
-use super::preset::{Extent, Preset, Properties, Quantity, Range};
+use super::preset::{Extent, Preset, Properties, Quantity, Range, RefusalShare};
 use crate::catalogue;
 
 /// What values a quantity can physically take. The loader refuses a range
@@ -286,6 +286,11 @@ struct UnitModel {
     strength: Option<StrengthDrawn>,
     /// f1 of `spt.stroud_butler`, smooth over the site.
     f1: Option<(Range, Field)>,
+    /// The share of this unit's SPTs stopped by an obstruction as
+    /// (`top`, `per_m`), drawn once per site from the preset: share(z) =
+    /// clamp(`top` + `per_m` z, 0, 1), z metres below ground. A plain share
+    /// has `per_m` 0.
+    refusal_share: Option<(f64, f64)>,
     /// The outlier rate over the site, when the preset gives one.
     rate: Option<(Range, Field)>,
 }
@@ -357,6 +362,17 @@ impl UnitModel {
                     s.f1.clone(),
                     Field::new(&mut Key::unit("property:spt_f1", id).rng(seed), extent),
                 )
+            }),
+            refusal_share: p.spt_refusal_share.as_ref().map(|s| {
+                let draw =
+                    |tag: &str, r: &Range| uniform(&mut Key::unit(tag, id).rng(seed), r.min, r.max);
+                match s {
+                    RefusalShare::Share(r) => (draw("spt-refusal-share", r), 0.0),
+                    RefusalShare::Linear { top, per_m } => (
+                        draw("spt-refusal-top", top),
+                        draw("spt-refusal-per-m", per_m),
+                    ),
+                }
             }),
             rate: p.outlier_rate.as_ref().map(|r| {
                 let field = Field::new(
@@ -430,6 +446,9 @@ pub struct Evaluated {
     pub strength: Option<StrengthValues>,
     /// f1 of N = cu / f1, kPa per blow, where the unit has an `spt` relation.
     pub spt_f1: Option<f64>,
+    /// The share of SPTs in this unit stopped by an obstruction at this depth,
+    /// this site.
+    pub spt_refusal_share: Option<f64>,
 }
 
 /// Undrained strength at a depth, kPa: cu = `cu_top` + `per_m` x z, z metres
@@ -726,6 +745,9 @@ impl PropertyModel {
             unit_weight_kn_m3: weight,
             strength,
             spt_f1,
+            spt_refusal_share: model
+                .refusal_share
+                .map(|(top, per_m)| (top + per_m * depth).clamp(0.0, 1.0)),
         })
     }
 }

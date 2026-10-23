@@ -306,3 +306,89 @@ Sample descriptions:
   still strikes where the water table falls inside it.
 - The synthetic rise is smaller than BGS's: a perched lens (table below the
   lens top) settles at the strike depth, with no rise.
+
+
+## SPT refusals (v2, #63)
+
+v2 writes a refusal when a test reaches 50 blows before the 300 mm main drive:
+`ISPT_NVAL` 50 (not extrapolated), `ISPT_MAIN` 50, `ISPT_NPEN` 150 plus the
+penetration p reached, `ISPT_REP` "50/p"; an ordinary test writes MAIN = N,
+NPEN 450 and REP "N=<N>". The convention is forge judgement (owner decision,
+#63). Two causes add up: strength (any drawn N of 50 or more, p = 300 x 50 / N,
+at least 1 and under 300), and a per-unit `spt.refusal_share` for cobble and
+boulder strikes (p uniform 25-275 mm). Every N above 50 that v1 wrote is now
+50.
+
+### Targets
+
+From the NE crawl (`analyse_ne`, as above; a refusal is an N of 50 or more, a
+`*` in `ISPT_REP`, or a main drive under 300 mm):
+
+| Unit | Crawl tests | Projects | Crawl refusal rate | Per-project range |
+|---|---|---|---|---|
+| WT | 167 | 24 | 12% | 0.00-0.40 |
+| RT (red and brown) | 709 | 26 | 25% | 0.00-0.57 |
+| GT | 419 | 17 | 33% | 0.00-0.62 |
+| GFSG (granular with till above) | 207 | 20 | 28% | 0.00-0.42 |
+
+Refusal-aware N (refusal = 50) has P50 23 (WT), 26 (red and brown) and 34
+(grey). Refusals rise with depth in the crawl: 8% at 0-3 m, 15% at 3-6 m, 19%
+at 6-10 m, 32% at 10-15 m and 55% below 15 m (1,305 till tests).
+
+### Crawl by unit and depth
+
+Refusals/tests (rate) by depth below ground, from the same crawl (forge analysis,
+over the 1,295 WT, RT and GT tests and 207 GFSG tests):
+
+| Unit | 0-3 m | 3-6 m | 6-10 m | 10-15 m | over 15 m |
+|---|---|---|---|---|---|
+| WT | 3/44 (0.07) | 3/49 (0.06) | 2/35 (0.06) | 3/22 (0.14) | 9/17 (0.53) |
+| RT | 5/78 (0.06) | 22/155 (0.14) | 33/176 (0.19) | 50/150 (0.33) | 70/150 (0.47) |
+| GT | 5/42 (0.12) | 22/102 (0.22) | 24/94 (0.26) | 32/95 (0.34) | 57/86 (0.66) |
+| GFSG | 0/5 | 9/45 (0.20) | 17/57 (0.30) | 9/38 (0.24) | 22/62 (0.35) |
+| Tills pooled | 13/164 (0.08) | 47/306 (0.15) | 59/305 (0.19) | 85/267 (0.32) | 136/253 (0.54) |
+
+### Fit
+
+The shares were fitted over 150,000 seeds. Strength refusals do not depend on
+the share, so the fit takes the model's own test counts and strength-refusal
+counts per 0.5 m of depth and solves for `top` and `per_m` of each unit
+(weighted least squares against the crawl's per-unit bands, with the unit
+totals and the pooled till bands as heavy terms), then the fit is checked by
+generating files. The weathered till takes a plain share (its tests are almost
+all above 6 m), and the red till's `very_coarse` clause (low cobbles and
+boulders), which a share needs; this is forge judgement (the weathered till is
+the red till's top). GFSG's `spt_n` range was raised from 5-46 to 6-53 so the
+non-refusal mean stays at the crawl's 24.9 now that N of 50 or more are
+refusals (file: mean 25.0, SD 11.2, P10-P50-P90 11-24-41 against 24.9, 12.8
+and 8-23.5-42).
+
+| Unit | Share | Fitted (range) | Strength only | Total target | Total achieved |
+|---|---|---|---|---|---|
+| WT | plain | 0.11 (0.055-0.165) | 1.1% | 12% | 12.0% |
+| RT | top, per_m | 0.146 (0.117-0.175), 0.0207 (0.0145-0.027) | 0.8% | 25% | 25.2% |
+| GT | top, per_m | -0.375 (-0.425 to -0.325), 0.0385 (0.027-0.05) | 18.5% | 33% | 33.1% |
+| GFSG | top, per_m | 0.030 (0.021-0.039), 0.015 (0.0105-0.0195) | 12.3% | 28% | 28.1% |
+
+Refusal rate by depth, crawl against file (the file's bands use the model's
+own test depths, which are not the crawl's):
+
+| Unit | 0-3 m | 3-6 m | 6-10 m | 10-15 m | over 15 m |
+|---|---|---|---|---|---|
+| WT crawl / file | 0.07 / 0.12 | 0.06 / 0.12 | 0.06 / - | 0.14 / - | 0.53 / - |
+| RT crawl / file | 0.06 / 0.18 | 0.14 / 0.24 | 0.19 / 0.31 | 0.33 / 0.40 | 0.47 / 0.49 |
+| GT crawl / file | 0.12 / 0.19 | 0.22 / 0.19 | 0.26 / 0.19 | 0.34 / 0.28 | 0.66 / 0.50 |
+| GFSG crawl / file | 0.00 / 0.17 | 0.20 / 0.21 | 0.30 / 0.25 | 0.24 / 0.31 | 0.35 / 0.38 |
+| Pooled tills target / file | 0.08 / 0.17 | 0.15 / 0.20 | 0.19 / 0.21 | 0.32 / 0.28 | 0.55 / 0.50 |
+
+- The pooled bands fit less closely than the totals. The model's units sit
+  differently in depth from the crawl's (file tests: WT 85% above 3 m, RT 68%
+  above 6 m, GT 38% below 15 m; the crawl's red and brown till is far deeper),
+  so a per-unit total of 25% on mostly shallow red till and a rising crawl
+  profile cannot both hold. Totals were given priority. The shallow bands
+  also cannot fall below the grey till's strength refusals (18.5% at every
+  depth, as cu has no depth trend there).
+- Refusal-aware P50 N in the file: WT 20, RT 23, GT 38, GFSG 31 (targets 23,
+  26, 34 and 34 for GF with till above). Non-refusal means are WT 20.0, RT
+  20.3 and GT 29.9 against the crawl's 22.6, 22.9 and 26.6; the f1 ranges were
+  not refitted.
