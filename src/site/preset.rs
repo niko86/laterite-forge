@@ -84,6 +84,9 @@ pub struct Unit {
     /// `MADE GROUND: ` + matrix + constituents, and it never yields a water
     /// strike or takes a lab test.
     pub made_ground: Option<MadeGroundSpec>,
+    /// A hole that meets this unit strikes water at its top (ADR 0001,
+    /// "Water-bearing strata"). Never set on a made-ground unit.
+    pub water_bearing: bool,
     pub sampling: Sampling,
     /// Index properties (required).
     pub properties: Properties,
@@ -146,6 +149,8 @@ pub struct Lens {
     /// hole, within `[0, 1]`.
     pub depth_in_host: Range,
     pub description: DescriptionSpec,
+    /// A hole that meets this lens strikes water at its top.
+    pub water_bearing: bool,
     pub sampling: Sampling,
     /// Index properties (required).
     pub properties: Properties,
@@ -358,6 +363,15 @@ impl Preset {
         self.units
             .iter()
             .any(|u| u.id == unit && u.made_ground.is_some())
+    }
+
+    /// Whether `unit`, a unit or lens id, is water-bearing.
+    pub fn is_water_bearing(&self, unit: &str) -> bool {
+        self.units
+            .iter()
+            .map(|u| (&u.id, u.water_bearing))
+            .chain(self.lenses.iter().map(|l| (&l.id, l.water_bearing)))
+            .any(|(id, wb)| id == unit && wb)
     }
 
     pub fn from_toml(text: &str) -> Result<Preset, PresetErrors> {
@@ -1124,6 +1138,11 @@ fn read_units(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Unit>> {
 
         let description = read_description(&mut u, errs);
         let made_ground = read_made_ground(&mut u, errs);
+        let water_bearing = read_water_bearing(
+            &mut u,
+            made_ground.as_ref().is_some_and(Option::is_some),
+            errs,
+        );
         let sampling = read_sampling(&mut u, &samp, errs);
         let properties = required_properties(&mut u, description.as_ref(), errs);
         u.finish(errs);
@@ -1132,10 +1151,18 @@ fn read_units(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Unit>> {
             Some(name),
             Some(description),
             Some(made_ground),
+            Some(water_bearing),
             Some(sampling),
             Some(properties),
-        ) = (id, name, description, made_ground, sampling, properties)
-            && (i == last || thickness.is_some())
+        ) = (
+            id,
+            name,
+            description,
+            made_ground,
+            water_bearing,
+            sampling,
+            properties,
+        ) && (i == last || thickness.is_some())
         {
             out.push(Unit {
                 id,
@@ -1143,6 +1170,7 @@ fn read_units(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Unit>> {
                 thickness_m: thickness,
                 description,
                 made_ground,
+                water_bearing,
                 sampling,
                 properties,
             });
@@ -1242,6 +1270,7 @@ fn read_lenses(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Lens>> {
             }
         }
         let description = read_description(&mut l, errs);
+        let water_bearing = read_water_bearing(&mut l, false, errs);
         let sampling = read_sampling(&mut l, &samp, errs);
         let properties = required_properties(&mut l, description.as_ref(), errs);
         l.finish(errs);
@@ -1253,6 +1282,7 @@ fn read_lenses(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Lens>> {
             Some(thickness_m),
             Some(depth_in_host),
             Some(description),
+            Some(water_bearing),
             Some(sampling),
             Some(properties),
         ) = (
@@ -1263,6 +1293,7 @@ fn read_lenses(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Lens>> {
             thickness,
             depth,
             description,
+            water_bearing,
             sampling,
             properties,
         ) {
@@ -1274,6 +1305,7 @@ fn read_lenses(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Lens>> {
                 thickness_m,
                 depth_in_host,
                 description,
+                water_bearing,
                 sampling,
                 properties,
             });
@@ -1426,6 +1458,30 @@ fn read_suite_rate(e: &mut Node, errs: &mut Vec<String>) -> Option<Range> {
         }
     }
     Some(r)
+}
+
+/// Reads the optional `water_bearing` of a unit or lens: a boolean, false when
+/// absent. `made_ground` is whether the unit is made ground, which never
+/// yields water. The outer `None` is a problem already reported.
+fn read_water_bearing(n: &mut Node, made_ground: bool, errs: &mut Vec<String>) -> Option<bool> {
+    let at = n.at("water_bearing");
+    match n.get("water_bearing") {
+        None => Some(false),
+        Some(Value::Boolean(b)) => {
+            if *b && made_ground {
+                errs.push(format!(
+                    "{at}: not allowed on a made-ground unit (Made Ground never yields a water strike)"
+                ));
+                None
+            } else {
+                Some(*b)
+            }
+        }
+        Some(_) => {
+            errs.push(format!("{at}: must be true or false"));
+            None
+        }
+    }
 }
 
 /// Reads a unit's optional `made_ground`: `true` for the lane's default
@@ -3096,6 +3152,46 @@ rate = { min = 1, max = 1, basis = "test fixture" }
             mg_errors(&format!("{{ colour = 1, count = {MG_COUNT} }}")),
             "units[0] (RTD).made_ground: unknown key \"colour\""
         );
+    }
+
+    #[test]
+    fn water_bearing_loads_on_a_unit_and_a_lens_and_defaults_to_false() {
+        let p = Preset::from_toml(&valid()).unwrap();
+        assert!(p.units.iter().all(|u| !u.water_bearing));
+        let on = rtd_made_ground(&valid(), "false")
+            .replace("made_ground = false", "water_bearing = true");
+        let p = Preset::from_toml(&on).expect("valid");
+        assert!(p.units[0].water_bearing && p.is_water_bearing("RTD"));
+        assert!(!p.is_water_bearing("LC"));
+        let lens = lens_with("host = \"LC\"", "host = \"LC\"\nwater_bearing = true");
+        let p = Preset::from_toml(&lens).expect("valid");
+        assert!(p.lenses[0].water_bearing && p.is_water_bearing(&p.lenses[0].id));
+    }
+
+    #[test]
+    fn water_bearing_is_refused_on_a_made_ground_unit_naming_the_field() {
+        let text = rtd_made_ground(&valid(), "true").replace(
+            "made_ground = true",
+            "made_ground = true\nwater_bearing = true",
+        );
+        let e = errors_of(&text).join("\n");
+        assert!(
+            e.contains("units[0] (RTD).water_bearing: not allowed on a made-ground unit"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn water_bearing_must_be_a_boolean() {
+        let text = rtd_made_ground(&valid(), "false")
+            .replace("made_ground = false", "water_bearing = \"yes\"");
+        assert_eq!(
+            errors_of(&text).join("\n"),
+            "units[0] (RTD).water_bearing: must be true or false"
+        );
+        let lens = lens_with("host = \"LC\"", "host = \"LC\"\nwater_bearing = 1");
+        let e = errors_of(&lens).join("\n");
+        assert!(e.contains(".water_bearing: must be true or false"), "{e}");
     }
 
     #[test]
