@@ -1696,6 +1696,7 @@ mod shipped_pins {
     /// leading terms come from, for v3 (#48), which adds the suite and the
     /// calibrated ranges, and for v4 (#42), which adds Made Ground on top.
     /// The versioning promise starts at v3, so v4 is the first bump under it.
+    /// tyneside-till (#13) ships at v1, under the promise from the start.
     #[test]
     fn shipped_preset_output_bytes_are_pinned() {
         use sha2::{Digest, Sha256};
@@ -1718,12 +1719,30 @@ mod shipped_pins {
                 "4abd6a32010d34195ba225db071071267e41a0a65f8e4b089a26af8c359d230a",
                 26781,
             ),
+            (
+                "tyneside-till",
+                0,
+                "0293b2d5040db6da3ee98275ecd6d0410096f87dead19cbda764b1905c5f6514",
+                17619,
+            ),
+            (
+                "tyneside-till",
+                1,
+                "e8bd9f0e3a32f4a8e17d4aeb2d0adfd82308681f2b87a77efe71183169dc188b",
+                12817,
+            ),
+            (
+                "tyneside-till",
+                2,
+                "5bd78747e80d6ac1a3be2e32d024df2f22373929919805d1597458091b9845e8",
+                22855,
+            ),
         ] {
             let text = shipped(name, seed);
             let got = crate::synth::hex(&Sha256::digest(text.as_bytes()));
             assert_eq!((got.as_str(), text.len()), (sha, len), "{name} seed {seed}");
         }
-        let pinned: std::collections::BTreeSet<&str> = ["london-basin"].into();
+        let pinned: std::collections::BTreeSet<&str> = ["london-basin", "tyneside-till"].into();
         let shipped_names: std::collections::BTreeSet<&str> =
             SHIPPED.iter().map(|(n, _)| *n).collect();
         assert_eq!(
@@ -1735,21 +1754,45 @@ mod shipped_pins {
     /// The AGS TYPEs each shipped preset's files declare, across seeds. v3's
     /// suite adds 0DP (`LLPL_LL`, `LLPL_PI`, `TRIT_CU`, `TRIT_DEVF`, `TRIT_CELL`,
     /// `ISPT_NVAL`) and XN (`LLPL_PL`). v4's Made Ground adds none: its rows are
-    /// GEOL, SAMP and ISPT, whose TYPEs v3 already declares.
+    /// GEOL, SAMP and ISPT, whose TYPEs v3 already declares. tyneside-till
+    /// (#13) writes the same groups, so it declares the same TYPEs.
     #[test]
     fn shipped_presets_reach_a_pinned_set_of_ags_types() {
-        let mut types = std::collections::BTreeSet::new();
-        for seed in 0..10 {
-            let text = shipped("london-basin", seed);
-            for line in text.lines().filter_map(|l| l.strip_prefix("\"TYPE\",")) {
-                types.extend(line.split(',').map(|f| f.trim_matches('"').to_string()));
+        for (name, expected) in [
+            ("london-basin", ["0DP", "2DP", "DT", "ID", "PA", "X", "XN"]),
+            ("tyneside-till", ["0DP", "2DP", "DT", "ID", "PA", "X", "XN"]),
+        ] {
+            let mut types = std::collections::BTreeSet::new();
+            for seed in 0..10 {
+                let text = shipped(name, seed);
+                for line in text.lines().filter_map(|l| l.strip_prefix("\"TYPE\",")) {
+                    types.extend(line.split(',').map(|f| f.trim_matches('"').to_string()));
+                }
             }
+            let expected: std::collections::BTreeSet<String> = expected.map(String::from).into();
+            assert_eq!(types, expected, "{name}");
         }
-        let expected: std::collections::BTreeSet<String> =
-            ["0DP", "2DP", "DT", "ID", "PA", "X", "XN"]
-                .map(String::from)
-                .into();
-        assert_eq!(types, expected);
+    }
+
+    /// tyneside-till over more seeds than the shared check below: clean by
+    /// construction, with a lens stratum and a water strike in some files.
+    #[test]
+    fn tyneside_till_is_rust_clean_across_seeds() {
+        let (mut lens, mut struck) = (0, 0);
+        for seed in 0..40 {
+            let text = shipped("tyneside-till", seed);
+            // Only the lens has a coarse principal; the tills' are CLAY.
+            lens += usize::from(text.contains(" SAND") || text.contains(" GRAVEL"));
+            struck += usize::from(text.contains("\"GROUP\",\"WSTG\""));
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("site.ags");
+            std::fs::write(&path, text).unwrap();
+            assert_eq!(rust_check(&path).0, RustResult::Clean, "seed {seed}");
+        }
+        assert!(
+            lens > 5 && struck > 5,
+            "{lens} files with a lens, {struck} with a strike"
+        );
     }
 
     /// Clean by construction across seeds.

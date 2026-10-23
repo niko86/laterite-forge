@@ -91,12 +91,17 @@ sources: []
 > is ~314k Rule-16 findings on a 25 MB file.
 > `gen --site <preset>` and `scale --site <preset>` replace the scaffold with
 > the **site model** (ADR 0001, `docs/adr/0001-forge-owns-a-site-model.md` in
-> this repo): a preset, either the shipped `london-basin` or a TOML path,
+> this repo): a preset, either a shipped one (`london-basin`, `tyneside-till`) or a TOML path,
 > describes believable synthetic ground, and forge builds holes, strata,
 > samples and the preset's test suite from it. `london-basin` v4 writes PROJ,
 > TRAN, LOCA, GEOL, SAMP, LNMC, LLPL, LDEN, TRIG/TRIT, ISPT and WSTG/WSTD,
 > with every value from the property model and every range cited in the
 > preset (`docs/research/london-basin-sources.md` gives the calibration).
+> `tyneside-till` v1 writes the same groups for NE England glacial till:
+> weathered, red and grey till with a glaciofluvial sand and gravel lens in
+> the grey till, water-bearing in a 0.36 share of the holes it reaches,
+> calibrated to Clarke et al. 2008 and a BGS NGDC crawl
+> (`docs/research/tyneside-till-sources.md`).
 > `--site` and `--scaffold` are mutually exclusive, and the loader refuses a
 > preset with a missing basis, an unknown key, or a suite heading no producer
 > can make, naming the field (exit 5). Every file carries a SYNTHETIC marker in

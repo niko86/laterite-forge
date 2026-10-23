@@ -1,0 +1,198 @@
+# tyneside-till: weathered till over red till over grey till, with a
+# glaciofluvial sand and gravel lens, in the Late Devensian lowland till of
+# NE England (Tyneside, Northumberland, Durham) (ADR 0001, #13). Every range
+# carries its basis. A basis names the source as found (paper, volume, printed
+# page, table or figure). "forge judgement" marks a value that describes the
+# synthetic site or a modelling choice, not the ground. "forge calibration to
+# <source>" marks a range tuned so that the values the file writes, pooled
+# over many seeds, match the named source's mean and spread or percentiles
+# (docs/research/tyneside-till-sources.md has the method and results).
+#
+# Versioning: from v1, any change to what this preset generates bumps
+# `version`, and consumers are told and re-baseline (ADR 0001).
+#
+# Units. The till is tripartite (Clarke, Hughes & Hashemi 2008, Fig. 3, p.68;
+# Hughes, Clarke & Money 1998, Fig. 7, p.224, both after Robertson et al.
+# 1994): a weathered, mottled upper till (WT), a dark reddish brown till (RT)
+# and a dark grey lower till (GT), which runs to final depth here (the site
+# model has no bedrock). Eyles & Sladen 1981 (pp.134-135) read the red till as
+# the weathered top of one grey lodgement till; the preset keeps the three
+# units the engineering papers tabulate. The till holds intraformational
+# sands and gravels (Eyles & Sladen 1981, summary, p.129), as ribbons under
+# 200 m across and "frequently water-bearing" (p.134), mostly under 1 m thick
+# (Hughes et al. 1998, p.223): the GFSG lens, placed in the grey till.
+#
+# Description constraints (not ranges, so they carry no basis field) follow
+# these sources:
+# - Red till: "stiff dark reddish brown sandy silty CLAY with some fine to
+#   coarse gravel, occasional cobbles and boulders"; grey till: "stiff and
+#   very stiff dark grey sandy silty CLAY with some to much fine to coarse
+#   gravel, some cobbles and occasional boulders" (Hughes et al. 1998, Fig. 7,
+#   p.224). Colours 5YR 3/3 and 2.5Y 4/1 (Eyles & Sladen 1981, p.134).
+# - Weathered till: mottled orange, brown and grey upper till (Clarke et al.
+#   2008, Fig. 3, p.68; Hughes et al. 1998, Fig. 7, p.224).
+# - Cobbles and boulders: "low" content in the red and grey tills, the modern
+#   wording (Norbury, Soil and Rock Description in Engineering Practice, 2010,
+#   Table 8.4, p.112: cobbles low < 10%, boulders low < 5%) for the papers'
+#   "occasional" and "some"; that mapping is forge judgement.
+# - Lens: "dense silty SAND and GRAVEL with thickly laminated CLAY" (Hughes et
+#   al. 1998, Fig. 7, p.224); "light brown or grey, silty SAND, SAND and
+#   GRAVEL" (Culshaw et al. 2017, Appendix 6.1, Wear Till Formation).
+#
+# Sources (each range names the ones it uses):
+# - Clarke, Hughes & Hashemi (2008), Physical characteristics of subglacial
+#   tills, Geotechnique 58(1):67-76, doi:10.1680/geot.2008.58.1.67. Table 1,
+#   p.71: unit means and SDs of cu, w, PL, LL and bulk density from 15
+#   Northumberland investigations (over 5,500 samples).
+# - Hughes, Clarke & Money (1998), The glacial succession in lowland Northern
+#   England, QJEG 31:211-234.
+# - Eyles & Sladen (1981), Stratigraphy and geotechnical properties of
+#   weathered lodgement till in Northumberland, England, QJEG 14:129-141.
+# - Trenter (1999), Engineering in glacial tills, CIRIA C504.
+# - ICE Manual of Geotechnical Engineering Vol. 1 and Vol. 2, 2012.
+# - Culshaw et al. (2017), Material properties and geohazards, Geol. Soc.
+#   London Eng. Geol. Spec. Publ. 28, ch. 6, doi:10.1144/EGSP28.6.
+# - Norbury (2010), Soil and Rock Description in Engineering Practice.
+# - Bond and Harris (2008), Decoding Eurocode 7, ch. 4, s4.5.4, Figs 4.14 and
+#   4.15, p.108, and Example 4.3, p.124 (minimum tests per stratum).
+# - BGS National Geotechnical Data Centre AGS accessions, forge analysis of a
+#   crawl of NE England (793 holes, 38 projects; Tyne and Wear 399 holes,
+#   Co. Durham 207, Teesside 105, Northumberland 81): 42158, 121869, 125313,
+#   126770, 128125, 138587, 163546, 163565, 163688, 163846, 164065, 165950,
+#   165951, 167411, 169655, 169656, 169657, 169722, 173968, 173969, 173970,
+#   173971, 174053, 174059, 174066, 186779, 186814, 188500, 188659, 191205,
+#   192051. Lab data from 174059, 163846, 169655, 186814, 174053, 186779,
+#   165950. Units were classed from descriptions and colour words
+#   (docs/research/tyneside-till-sources.md). Open Government Licence v3.
+#   Contains data supplied by UKRI.
+#
+# Water: a hole whose lens yields water (the lens's share below) strikes at
+# the lens top; a dry lens can still give a strike where the water table falls
+# inside it (src/site/water.rs). The tills give no strike.
+schema = 1
+name = "tyneside-till"
+version = 1
+summary = "Weathered, red and grey glacial till with a glaciofluvial sand and gravel lens, Tyneside, NE England."
+
+[site]
+extent_m = { x = 300.0, y = 200.0 }
+ground_level_m = { min = 10.0, max = 60.0, basis = "forge judgement: a synthetic local datum, not a real elevation" }
+groundwater_depth_m = { min = 2.9, max = 14.4, basis = "BGS NGDC AGS accessions 174059, 121869, 186814, 128125, 169655-7, 165950, 42158, 126770, 174053, 173968-71, 163688, 186779, 191205, 163846, 163546, 163565 and others (793 holes, 38 projects, NE England): depth to water 20 minutes after a strike in granular strata, P10-P90 2.9-14.4 m (n = 74), forge analysis. Contains data supplied by UKRI, OGL v3." }
+strike_rise_m = { min = 0.2, max = 6.8, basis = "BGS NGDC AGS accessions 174059, 121869, 186814, 128125, 169655-7, 165950, 42158, 126770, 174053, 173968-71, 163688, 186779, 191205, 163846, 163546, 163565 and others (793 holes, 38 projects, NE England): strike depth minus the 20-minute level in granular strata, P10-P90 0.23-6.8 m (mean 2.5), forge analysis. Contains data supplied by UKRI, OGL v3." }
+
+[[hole_types]]
+code = "CP"
+weight = 1
+final_depth_m = { min = 15.0, max = 30.0, basis = "forge judgement: an investigation choice that passes through the weathered and red tills into the grey till, which is up to 40 m thick (Hughes et al. 1998, p.223); the site model has no bedrock. Cross-check: rockhead depth P10-P50-P90 3.5-10.9-27.8 m in BGS NGDC AGS accessions 174059, 121869, 186814, 128125, 169655-7, 165950, 42158, 126770, 174053, 173968-71, 163688, 186779, 191205, 163846, 163546, 163565 and others (200 holes reaching rock, 21 projects, NE England), forge analysis. Contains data supplied by UKRI, OGL v3." }
+
+[[units]]
+id = "WT"
+name = "Weathered till"
+thickness_m = { min = -8.8, max = 6.5, basis = "forge calibration to BGS NGDC AGS accessions 174059, 121869, 186814, 128125, 169655-7, 165950, 42158, 126770, 174053, 173968-71, 163688, 186779, 191205, 163846, 163546, 163565 and others (200 holes reaching rock, 21 projects, NE England), forge analysis: weathered till absent in 65% of holes, P10-P50-P90 0.75-1.8-3.9 m where present; range fitted to the absent share and P50 (the file gives 63% absent, 0.33-1.79-4.52 m). Contains data supplied by UKRI, OGL v3. Cross-check: weathering zones III-IV to 8 m at most (Eyles & Sladen 1981, Table 2, p.137); 'rarely exceeding 8 m' (Hughes et al. 1998, p.224)" }
+description = { principals = ["CLAY"], secondaries = ["sand", "gravel", "silt"], colours = ["orangeish brown", "greyish brown", "brown"] }
+sampling = { types = ["U", "D"], interval_m = { min = 1.0, max = 1.5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 53, s53.7.2, p.791: sampling typically every 1.5 m" } }
+
+[units.properties]
+plastic_limit_percent = { min = 16.47, max = 24.02, basis = "forge calibration to Clarke et al. 2008 Table 1 p.71: upper red till PL mean 20.3, SD 2.8 (taken as the weathered till, forge judgement), under the LIMIT_COV scatter (the file gives mean 20.4, SD 2.9). Cross-check: BGS NGDC AGS accessions 174059, 163846, 169655, 186814, 174053, 186779, 165950 (till w n = 666, LL/PL n = 559), weathered till PL mean 19.8, forge analysis. Contains data supplied by UKRI, OGL v3." }
+plasticity_index_percent = { min = 17.72, max = 34.52, basis = "forge calibration to Clarke et al. 2008 Table 1 p.71: upper red till LL mean 46.5, SD 6.6 (PI 26.2 derived from LL less PL), under the LIMIT_COV scatter (the file gives LL mean 46.5, SD 7.1). Cross-check: BGS NGDC AGS accessions 174059, 163846, 169655, 186814, 174053, 186779, 165950 (till w n = 666, LL/PL n = 559), weathered till LL mean 41.9, forge analysis. Contains data supplied by UKRI, OGL v3." }
+liquidity_index = { min = -0.011, max = 0.109, basis = "forge calibration to Clarke et al. 2008 Table 1 p.71: upper red till w mean 21.5, SD 3.5 (LI 0.05 derived), under the MOISTURE_COV scatter (the file gives mean 21.5, SD 3.7). Cross-check: BGS NGDC AGS accessions 174059, 163846, 169655, 186814, 174053, 186779, 165950 (till w n = 666, LL/PL n = 559), weathered till w mean 20.6, forge analysis. Contains data supplied by UKRI, OGL v3. Context: Eyles & Sladen 1981 Table 3 p.138, zones III-IV, LI -0.15 to +0.30" }
+particle_density_ratio = { min = 2.60, max = 2.70, basis = "Culshaw et al. 2017, doi:10.1144/EGSP28.6, Table 6.7 (Oadby Till Member, BGS Geotechnical Properties Database, n = 152: P10 2.60, P50 2.65, P90 2.70); CIRIA C504 (Trenter 1999), p.97 (typical 2.67). No NE England statistics were found; their use for the NE tills is forge judgement" }
+strength = { relation = "cu.linear_with_depth", cu_top_kpa = { min = 39.9, max = 155.7, basis = "forge calibration to Clarke et al. 2008 Table 1 p.71: upper red till cu mean 99 kPa, SD 45 (n = 526; taken as the weathered till, forge judgement), under the STRENGTH_COV lognormal scatter (the file gives mean 98, SD 47). Cross-check: BGS NGDC AGS accessions 174059, 163846, 169655, 186814, 174053, 186779, 165950, weathered till cu mean 109 kPa (n = 20), forge analysis. Contains data supplied by UKRI, OGL v3." }, per_m = { min = 0, max = 0, basis = "Clarke et al. 2008 p.73: no trend of cu with depth; p.74: the characteristic strength profile is vertical" } }
+spt = { relation = "spt.stroud_butler", f1 = { min = 4.4, max = 5.2, basis = "CIRIA C504 (Trenter 1999), p.82: Stroud and Butler 1975, f1 5.2 for tills of PI 25 or less; p.83 and Table 4.5: Northern Ireland, Case Study 13, average 4.4; ICE Manual of Geotechnical Engineering Vol. 1, 2012, ch. 31, Fig. 31.14, p.378: 4.9 for northern England. C504 finds f1 site-specific. Cross-check: SPT N in weathered till, refusals excluded, mean 22.6 (167 tests, 24 projects) in BGS NGDC AGS accessions 174059, 121869, 186814, 128125, 169655-7, 165950, 42158, 126770, 174053, 173968-71, 163688, 186779, 191205, 163846, 163546, 163565 and others (793 holes, 38 projects, NE England), forge analysis. Contains data supplied by UKRI, OGL v3." } }
+
+[[units]]
+id = "RT"
+name = "Red till"
+thickness_m = { min = -1.85, max = 19.25, skew = 3.1, basis = "forge calibration to BGS NGDC AGS accessions 174059, 121869, 186814, 128125, 169655-7, 165950, 42158, 126770, 174053, 173968-71, 163688, 186779, 191205, 163846, 163546, 163565 and others (200 holes reaching rock, 21 projects, NE England), forge analysis: red and brown till absent in 42% of holes, P10-P50-P90 0.67-3.3-11.0 m where present; range and skew fitted to these (the file gives 43% absent, 0.47-3.15-10.2 m). Contains data supplied by UKRI, OGL v3. Cross-check: reddened profile 3-8 m (Eyles & Sladen 1981, pp.134-136)" }
+description = { principals = ["CLAY"], secondaries = ["sand", "gravel", "silt"], colours = ["dark reddish brown", "reddish brown"], very_coarse = { cobbles = "low", boulders = "low" } }
+sampling = { types = ["U", "D"], interval_m = { min = 1.0, max = 1.5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 53, s53.7.2, p.791: sampling typically every 1.5 m" } }
+
+[units.properties]
+plastic_limit_percent = { min = 14.41, max = 20.97, basis = "forge calibration to Clarke et al. 2008 Table 1 p.71: lower red till PL mean 17.6, SD 2.4, under the LIMIT_COV scatter (the file gives mean 17.6, SD 2.4). Cross-check: BGS NGDC AGS accessions 174059, 163846, 169655, 186814, 174053, 186779, 165950 (till w n = 666, LL/PL n = 559), red and brown till PL mean 17.1, forge analysis. Contains data supplied by UKRI, OGL v3." }
+plasticity_index_percent = { min = 14.97, max = 27.17, basis = "forge calibration to Clarke et al. 2008 Table 1 p.71: lower red till LL mean 38.7, SD 5.3 (PI 21.1 derived from LL less PL), under the LIMIT_COV scatter (the file gives LL mean 38.8, SD 5.5). Cross-check: BGS NGDC AGS accessions 174059, 163846, 169655, 186814, 174053, 186779, 165950 (till w n = 666, LL/PL n = 559), red and brown till LL mean 34.6, forge analysis. Contains data supplied by UKRI, OGL v3." }
+liquidity_index = { min = -0.068, max = 0.102, basis = "forge calibration to Clarke et al. 2008 Table 1 p.71: lower red till w mean 18.1, SD 3.2 (LI 0.02 derived), under the MOISTURE_COV scatter (the file gives mean 18.1, SD 3.2). Cross-check: BGS NGDC AGS accessions 174059, 163846, 169655, 186814, 174053, 186779, 165950 (till w n = 666, LL/PL n = 559), red and brown till w mean 18.1, forge analysis. Contains data supplied by UKRI, OGL v3." }
+particle_density_ratio = { min = 2.60, max = 2.62, basis = "Culshaw et al. 2017, doi:10.1144/EGSP28.6, Table 6.7 (Oadby Till Member, BGS Geotechnical Properties Database, n = 152: P10 2.60, P50 2.65, P90 2.70), held to its low end by forge calibration to Clarke et al. 2008 Table 1 p.71: lower red till bulk density mean 2.06 Mg/m3. Saturated phase relations at the Table 1 water content cannot reach it with Gs of 2.60 or more (the file gives 2.09)" }
+strength = { relation = "cu.linear_with_depth", cu_top_kpa = { min = 49.4, max = 147.8, basis = "forge calibration to Clarke et al. 2008 Table 1 p.71: lower red till cu mean 100 kPa, SD 45 (n = 1,879), under the STRENGTH_COV lognormal scatter (the file gives mean 99, SD 44). Cross-check: BGS NGDC AGS accessions 174059, 163846, 169655, 186814, 174053, 186779, 165950, red and brown till cu mean 110 kPa, median 81 (n = 22), forge analysis. Contains data supplied by UKRI, OGL v3." }, per_m = { min = 0, max = 0, basis = "Clarke et al. 2008 p.73: no trend of cu with depth; p.74: the characteristic strength profile is vertical" } }
+spt = { relation = "spt.stroud_butler", f1 = { min = 4.4, max = 5.2, basis = "CIRIA C504 (Trenter 1999), p.82: Stroud and Butler 1975, f1 5.2 for tills of PI 25 or less; p.83 and Table 4.5: Northern Ireland, Case Study 13, average 4.4; ICE Manual of Geotechnical Engineering Vol. 1, 2012, ch. 31, Fig. 31.14, p.378: 4.9 for northern England. C504 finds f1 site-specific. Cross-check: SPT N in red and brown till, refusals excluded, mean 22.9 (709 tests, 26 projects) in BGS NGDC AGS accessions 174059, 121869, 186814, 128125, 169655-7, 165950, 42158, 126770, 174053, 173968-71, 163688, 186779, 191205, 163846, 163546, 163565 and others (793 holes, 38 projects, NE England), forge analysis. Contains data supplied by UKRI, OGL v3." } }
+
+[[units]]
+id = "GT"
+name = "Grey till"
+description = { principals = ["CLAY"], secondaries = ["sand", "gravel", "silt"], colours = ["dark grey"], very_coarse = { cobbles = "low", boulders = "low" } }
+sampling = { types = ["U", "D"], interval_m = { min = 1.0, max = 1.5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 53, s53.7.2, p.791: sampling typically every 1.5 m" } }
+
+[units.properties]
+plastic_limit_percent = { min = 13.8, max = 16.0, basis = "forge calibration to Clarke et al. 2008 Table 1 p.71: lower grey till PL mean 14.9, SD 1.6, under the LIMIT_COV scatter (the file gives mean 14.9, SD 1.4). The BGS lab data are not used here: their grey class is probably mixed with misclassified red till (docs/research/tyneside-till-sources.md)" }
+plasticity_index_percent = { min = 15.06, max = 17.76, basis = "forge calibration to Clarke et al. 2008 Table 1 p.71: lower grey till LL mean 31.3, SD 3.0 (PI 16.4 derived from LL less PL), under the LIMIT_COV scatter (the file gives LL mean 31.3, SD 2.9)" }
+liquidity_index = { min = -0.16, max = -0.13, basis = "forge calibration to Clarke et al. 2008 Table 1 p.71: lower grey till w mean 12.5, SD 1.5 (LI -0.15 derived), under the MOISTURE_COV scatter (the file gives mean 12.5, SD 1.6). Context: Eyles & Sladen 1981 Table 3 p.138, zone I (unweathered), LI -0.20 to -0.05" }
+particle_density_ratio = { min = 2.60, max = 2.62, basis = "Culshaw et al. 2017, doi:10.1144/EGSP28.6, Table 6.7 (Oadby Till Member, BGS Geotechnical Properties Database, n = 152: P10 2.60, P50 2.65, P90 2.70), held to its low end by forge calibration to Clarke et al. 2008 Table 1 p.71: lower grey till bulk density mean 2.18 Mg/m3. Saturated phase relations at the Table 1 water content cannot reach it with Gs of 2.60 or more (the file gives 2.21)" }
+strength = { relation = "cu.linear_with_depth", cu_top_kpa = { min = 66.1, max = 279.7, basis = "forge calibration to Clarke et al. 2008 Table 1 p.71: lower grey till cu mean 172 kPa, SD 83 (n = 1,121), under the STRENGTH_COV lognormal scatter (the file gives mean 173, SD 84)" }, per_m = { min = 0, max = 0, basis = "Clarke et al. 2008 p.73: no trend of cu with depth; p.74: the characteristic strength profile is vertical" } }
+spt = { relation = "spt.stroud_butler", f1 = { min = 4.4, max = 5.2, basis = "CIRIA C504 (Trenter 1999), p.82: Stroud and Butler 1975, f1 5.2 for tills of PI 25 or less; p.83 and Table 4.5: Northern Ireland, Case Study 13, average 4.4; ICE Manual of Geotechnical Engineering Vol. 1, 2012, ch. 31, Fig. 31.14, p.378: 4.9 for northern England. C504 finds f1 site-specific. Cross-check: SPT N in grey till, refusals excluded, mean 26.6 (419 tests, 17 projects; 33% refusals) in BGS NGDC AGS accessions 174059, 121869, 186814, 128125, 169655-7, 165950, 42158, 126770, 174053, 173968-71, 163688, 186779, 191205, 163846, 163546, 163565 and others (793 holes, 38 projects, NE England), forge analysis. Contains data supplied by UKRI, OGL v3." } }
+
+[[lenses]]
+id = "GFSG"
+name = "Glaciofluvial sand and gravel"
+host = "GT"
+radius_m = { min = 50.0, max = 83.0, basis = "forge calibration to BGS NGDC AGS accessions 174059, 121869, 186814, 128125, 169655-7, 165950, 42158, 126770, 174053, 173968-71, 163688, 186779, 191205, 163846, 163546, 163565 and others (793 holes, 38 projects, NE England), forge analysis: a glaciofluvial layer with till above and below in 16% of till holes (18% of holes reaching rock); the file gives a lens in 18% of holes. Contains data supplied by UKRI, OGL v3. Cross-check: ribbons less than 200 m across (Eyles & Sladen 1981, p.134)" }
+thickness_m = { min = 0.3, max = 3.6, basis = "BGS NGDC AGS accessions 174059, 121869, 186814, 128125, 169655-7, 165950, 42158, 126770, 174053, 173968-71, 163688, 186779, 191205, 163846, 163546, 163565 and others (793 holes, 38 projects, NE England): glaciofluvial layers within till, P10-P90 0.30-3.6 m (n = 169, 28 projects), forge analysis, taken as the range of the centre thickness (forge judgement; the taper thins the written strata to P10-P50-P90 about 0.16-0.84-2.24 m). Contains data supplied by UKRI, OGL v3. Cross-check: mostly under 1 m (Hughes et al. 1998, p.223); usually under 1.5 m, at most 12 m (Eyles & Sladen 1981, p.134)" }
+depth_in_host = { min = 0.03, max = 0.7, basis = "forge judgement calibrated to the BGS strike depths: the literature gives no depth for the lenses, so the lens sits in the upper part of the grey till, the unweathered lodgement till (Eyles & Sladen 1981, p.131: lodgement till with intercalated lenses of sand, gravel and laminated clay; p.134: sand lenses at the reddened-grey contact), with its depth fraction fitted to strike depth in granular strata, P10-P50-P90 3.7-8.9-17.8 m (n = 90, 20 projects) in BGS NGDC AGS accessions 174059, 121869, 186814, 128125, 169655-7, 165950, 42158, 126770, 174053, 173968-71, 163688, 186779, 191205, 163846, 163546, 163565 and others (793 holes, 38 projects, NE England), forge analysis (the file gives 3.4-9.4-15.9 m; final depth caps the deepest). Contains data supplied by UKRI, OGL v3." }
+water_bearing = { share = 0.36, basis = "BGS NGDC AGS accessions 174059, 121869, 186814, 128125, 169655-7, 165950, 42158, 126770, 174053, 173968-71, 163688, 186779, 191205, 163846, 163546, 163565 and others (793 holes, 38 projects, NE England): 89 of 249 holes with a granular layer strike in it (36%), forge analysis. Contains data supplied by UKRI, OGL v3." }
+description = { principals = ["SAND", "GRAVEL"], secondaries = ["sand", "gravel", "silt"], colours = ["light brown", "grey"] }
+sampling = { types = ["B", "D"], interval_m = { min = 1.0, max = 1.5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 53, s53.7.2, p.791: sampling typically every 1.5 m; Craig's Soil Mechanics, 7th ed., 2004, ch. 8, p.297: SPT every 0.75-1.5 m" } }
+
+[lenses.properties]
+spt_n = { min = 5, max = 46, basis = "forge calibration to BGS NGDC AGS accessions 174059, 121869, 186814, 128125, 169655-7, 165950, 42158, 126770, 174053, 173968-71, 163688, 186779, 191205, 163846, 163546, 163565 and others (793 holes, 38 projects, NE England): SPT N in glaciofluvial sand and gravel with till above, refusals excluded, mean 24.9, SD 12.8, P10-P50-P90 8-23.5-42 (207 tests, 20 projects; 28% refusals), forge analysis, under the SPT_COV scatter (the file gives mean 26.2, P50 23; below N 50, mean 23.1, SD 10.8, P10-P50-P90 10-22-38; 8% at N 50 or more against the crawl's 28% refusals, many of them cobble strikes). Contains data supplied by UKRI, OGL v3." }
+moisture_content_percent = { min = 11, max = 19, basis = "forge judgement: no source gives a water content for the lenses; a saturated dense sand and gravel" }
+particle_density_ratio = { min = 2.65, max = 2.65, basis = "Head, Manual of Soil Laboratory Testing Vol. 1, 3rd ed., Table 3.1, p.126 (quartz 2.65); its use for the glaciofluvial sand and gravel is forge judgement" }
+
+# Testing rates. Each SAMP-child rate is sized so the smallest default site
+# (3 holes) meets Decoding Eurocode 7's "no comparable experience" minimum
+# per stratum in the till on every seed, which a test holds. Decoding EC7 does
+# not define "stratum". The weathered and red tills are too thin or too often
+# absent to meet a minimum on their own (absent from about 63% and 43% of
+# holes), and even the grey till falls short on a few 3-hole sites (about 0.3%
+# over 5,000 seeds), so WT, RT and GT count together as one till stratum, as
+# Eyles & Sladen 1981 (pp.134-135) read the reddened till as the weathered top
+# of one lodgement till: forge judgement.
+
+[[suite]]
+group = "LNMC"
+headings = ["LNMC_MC"]
+units = ["WT", "RT", "GT"]
+rate = { min = 0.7, max = 1.0, basis = "Decoding Eurocode 7, Bond and Harris, 2008, ch. 4, s4.5.4, Figs 4.14 and 4.15, p.108, and Example 4.3, p.124: with no comparable experience, water contents at least the Atterberg count (3) per stratum, WT, RT and GT together as one till stratum (forge judgement); sized so a 3-hole site meets it (forge analysis), and above the LLPL rate so water contents outnumber Atterberg tests on average" }
+
+[[suite]]
+group = "LLPL"
+headings = ["LLPL_LL", "LLPL_PL", "LLPL_PI"]
+units = ["WT", "RT", "GT"]
+rate = { min = 0.3, max = 0.45, basis = "Decoding Eurocode 7, Bond and Harris, 2008, ch. 4, s4.5.4, Figs 4.14 and 4.15, p.108, and Example 4.3, p.124: with no comparable experience, at least 3 Atterberg tests per stratum, WT, RT and GT together as one till stratum (forge judgement); sized so a 3-hole site meets it (forge analysis)" }
+
+[[suite]]
+group = "LDEN"
+headings = ["LDEN_BDEN", "LDEN_DDEN", "LDEN_MC"]
+units = ["WT", "RT", "GT"]
+rate = { min = 0.5, max = 0.7, basis = "Decoding Eurocode 7, Bond and Harris, 2008, ch. 4, s4.5.4, Figs 4.14 and 4.15, p.108, and Example 4.3, p.124: with no comparable experience, at least 3 bulk densities per stratum, WT, RT and GT together as one till stratum (forge judgement); sized so a 3-hole site meets it on U samples alone (forge analysis)" }
+
+[[suite]]
+group = "TRIG"
+headings = []
+units = ["WT", "RT", "GT"]
+rate = { min = 0.5, max = 0.7, basis = "Decoding Eurocode 7, Bond and Harris, 2008, ch. 4, s4.5.4, Figs 4.14 and 4.15, p.108, and Example 4.3, p.124: with no comparable experience, at least 3 triaxial cu tests per stratum, WT, RT and GT together as one till stratum (forge judgement); sized so a 3-hole site meets it on U samples alone (forge analysis)" }
+
+[[suite]]
+group = "TRIT"
+headings = ["TRIT_CU", "TRIT_DEVF", "TRIT_CELL", "TRIT_BDEN", "TRIT_IMC"]
+
+[[suite]]
+group = "ISPT"
+headings = ["ISPT_NVAL"]
+units = ["WT", "RT", "GT", "GFSG"]
+rate = { min = 1.0, max = 1.0, basis = "Decoding Eurocode 7 (Bond and Harris, 2008) gives no SPT frequency; ICE Manual of Geotechnical Engineering Vol. 1, 2012, p.630: SPTs 'typically every 1.5 m'. An SPT at every D sample follows the sampling interval (forge judgement)" }
+
+[[suite]]
+group = "WSTG"
+headings = []
+
+[[suite]]
+group = "WSTD"
+headings = []
