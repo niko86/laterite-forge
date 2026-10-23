@@ -468,9 +468,9 @@ dependencies = [
 
 [[package]]
 name = "laterite-ags4-emit"
-version = "0.20.5"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d825677acd590d86360143526e50f66ba6c0d5ef4fdb1002670415610ce96403"
+checksum = "7ed6d4d54f2a93ae615e4119d638c6271fd4877eb8a3b2389085ee2269fe37cb"
 dependencies = [
  "encoding_rs",
  "laterite-ags4-parse",
@@ -501,9 +501,9 @@ dependencies = [
 
 [[package]]
 name = "laterite-ags4-parity"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8aced298523e18baf972cb2935f88579c9ba45993de5714f08e8bee3fe6678f"
+checksum = "4945072c24aaecb77627e0ed41402c6248fe6feecadcd0d6416b8141e4cc4efd"
 dependencies = [
  "laterite-ags4-validator",
  "laterite-cliutil",

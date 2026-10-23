@@ -64,24 +64,22 @@ fn combo_meta(injs: &[Injection]) -> (String, Option<String>) {
 /// check` makes too (niko86/laterite#1109): the comparison has one home, so the two commands
 /// cannot answer differently while both exist.
 ///
-/// Forge probes the oracle before handing over, because `run`'s own probe can
-/// only say "unavailable", not why or what to do about it (#5). When forge's
-/// probe fails, `run` is told to skip python rather than probe again; when it
-/// succeeds, `run` probes once more (the parity crate takes no prebuilt
-/// oracle). A missing path is `run`'s error to report, so nothing is probed
-/// ahead of it.
+/// Forge probes the oracle itself, because the parity crate's own probe can
+/// only say "unavailable", not why or what to do about it (#5). The oracle it
+/// built is handed to `run_with`, so python-ags4 is probed once (#67). A
+/// missing path is `run_with`'s error to report, so nothing is probed ahead
+/// of it.
 pub fn check(args: &CheckArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
     let probe = !args.no_oracle && args.paths.iter().all(|p| p.exists());
-    let no_oracle = !probe
-        || site
-            .build_oracle(args.timeout, "check: Rust-only verdict (optional QA)")
-            .is_none();
-    Ok(laterite_ags4_parity::check::run(
+    let oracle = if probe {
+        site.build_oracle(args.timeout, "check: Rust-only verdict (optional QA)")
+            .map(|(o, _)| o)
+    } else {
+        None
+    };
+    Ok(laterite_ags4_parity::check::run_with(
         &args.paths,
-        &site.wrapper,
-        &site.project,
-        args.timeout,
-        no_oracle,
+        oracle.as_ref(),
         &ctx,
     )?)
 }

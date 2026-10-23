@@ -212,3 +212,51 @@ fn a_missing_file_is_rejected_before_the_oracle_is_probed() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!stderr.contains("python-ags4"), "probed first: {stderr}");
 }
+
+/// A successful `check` probes python-ags4 once (#67): forge builds the
+/// oracle itself and hands it to the parity crate, which must not run its
+/// own `--selfcheck` as well. The copied wrapper appends a line to a log
+/// each time it is started with `--selfcheck`, so the log counts the probes.
+#[test]
+fn a_successful_check_runs_the_selfcheck_exactly_once() {
+    let dir = oracle_project_copy();
+    let log = dir.path().join("selfcheck.log");
+    let wrapper = dir.path().join("tools/py_ags4_check_json.py");
+    let text = std::fs::read_to_string(&wrapper).unwrap();
+    let anchor = "def main() -> int:\n";
+    assert!(
+        text.contains(anchor),
+        "the wrapper's main() has changed shape"
+    );
+    let logging = format!(
+        "{anchor}    if \"--selfcheck\" in sys.argv:\n        with open({:?}, \"a\") as f:\n            f.write(\"probe\\n\")\n",
+        log.display().to_string()
+    );
+    std::fs::write(&wrapper, text.replacen(anchor, &logging, 1)).unwrap();
+    let out = forge(
+        &[
+            "check",
+            &example(),
+            "--oracle-project",
+            dir.path().to_str().unwrap(),
+            "--json",
+        ],
+        &[],
+    );
+    let doc = json(&out);
+    if skipped_without_oracle(
+        "a_successful_check_runs_the_selfcheck_exactly_once",
+        &doc,
+        &out,
+    ) {
+        return;
+    }
+    assert_eq!(doc["oracle"], true);
+    let probes = std::fs::read_to_string(&log).unwrap_or_default();
+    assert_eq!(
+        probes.lines().count(),
+        1,
+        "expected one --selfcheck: {probes:?}\nstderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
