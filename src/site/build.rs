@@ -1575,9 +1575,10 @@ mod shipped_pins {
     /// Each shipped preset's default file, pinned like the scaffolds
     /// (`synth_output_bytes_are_pinned`). Consumers commit output from these,
     /// so moving a pin is a preset version bump they must be told about
-    /// (ADR 0001): bump `version`, re-pin, and say so in the PR. Re-taken once
-    /// for london-basin v2 (#41), which adds the properties the descriptions'
-    /// leading terms come from.
+    /// (ADR 0001): bump `version`, re-pin, and say so in the PR. Re-taken for
+    /// london-basin v2 (#41), which adds the properties the descriptions'
+    /// leading terms come from, and for v3 (#48), which adds the suite and
+    /// the calibrated ranges. The versioning promise starts at v3.
     #[test]
     fn shipped_preset_output_bytes_are_pinned() {
         use sha2::{Digest, Sha256};
@@ -1585,20 +1586,20 @@ mod shipped_pins {
             (
                 "london-basin",
                 0u64,
-                "b3b5a734b7555e3348320e09d1abb103f00ba8bf7738906330f1d52fe853702d",
-                6848usize,
+                "7cb1bad87a68477f79d5adf8b1b7827f238ca80151f6797753e8220106b1dacc",
+                19314usize,
             ),
             (
                 "london-basin",
                 1,
-                "9e7ec1f406533b49cb50deedad67d77f6b00b41467d788c2d49602336bd62175",
-                5506,
+                "93b5ccf3d6584135a9b2aa1ce33b621c948ad22dbc093aa92b14193626825f66",
+                15172,
             ),
             (
                 "london-basin",
                 2,
-                "750078211ebbb2b89f00ac354aced1e777b0b009abe355b4f21fe2a3126867c9",
-                8842,
+                "88ddff6574abece85f5dcf1e28ef9bd4136f8bd2f817f589588eee66b58fec70",
+                26366,
             ),
         ] {
             let text = shipped(name, seed);
@@ -1614,7 +1615,9 @@ mod shipped_pins {
         );
     }
 
-    /// The AGS TYPEs each shipped preset's files declare, across seeds.
+    /// The AGS TYPEs each shipped preset's files declare, across seeds. v3's
+    /// suite adds 0DP (`LLPL_LL`, `LLPL_PI`, `TRIT_CU`, `TRIT_DEVF`, `TRIT_CELL`,
+    /// `ISPT_NVAL`) and XN (`LLPL_PL`).
     #[test]
     fn shipped_presets_reach_a_pinned_set_of_ags_types() {
         let mut types = std::collections::BTreeSet::new();
@@ -1625,7 +1628,9 @@ mod shipped_pins {
             }
         }
         let expected: std::collections::BTreeSet<String> =
-            ["2DP", "DT", "ID", "PA", "X"].map(String::from).into();
+            ["0DP", "2DP", "DT", "ID", "PA", "X", "XN"]
+                .map(String::from)
+                .into();
         assert_eq!(types, expected);
     }
 

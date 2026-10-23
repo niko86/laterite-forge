@@ -1,8 +1,14 @@
 # london-basin: River Terrace Deposits over weathered and unweathered London
-# Clay (ADR 0001, #24). Every range carries its basis. A basis names the
+# Clay (ADR 0001, #24, #48). Every range carries its basis. A basis names the
 # source as found (book, edition, chapter, printed page, table) and the
 # original paper where the book names one. "forge judgement" marks a value
 # that describes the synthetic site or a modelling choice, not the ground.
+# "calibrated (forge analysis)" marks a range tuned so that the values the
+# file writes, pooled over many seeds, match the named source's mean and
+# spread (docs/research/london-basin-sources.md has the method and results).
+#
+# Versioning: from v3, any change to what this preset generates bumps
+# `version`, and consumers are told and re-baseline (ADR 0001).
 #
 # Description constraints (not ranges, so they carry no basis field) follow
 # these sources:
@@ -17,25 +23,49 @@
 #   blue grey fissured silty clay (ICE Vol. 1, ch. 36, Table 36.2, p.496,
 #   after Czerewko et al. 2003a; BGS Lexicon, London Clay Formation).
 #
-# Index properties (v2) set the leading strength or density term of each
-# description at mid-depth. Each range carries its own basis; the sources are:
-# - RTD SPT N: Craig's Soil Mechanics 7th ed., ch. 8, Table 8.3, p.298
-#   (medium dense, after Terzaghi and Peck); logged N 15 in terrace gravel,
-#   ICE Vol. 1, ch. 13, Fig. 13.1(a), p.142.
-# - Plasticity and liquidity of the clays: ICE Vol. 2, ch. 53, Table 53.7,
-#   p.784 (WLC, LC); ICE Vol. 1, ch. 36, Table 36.3, p.498, after Cripps and
-#   Taylor 1981 and others (LC plastic limit and plasticity index).
-# - Particle density: Head, Manual of Soil Laboratory Testing Vol. 1, 3rd ed.,
-#   Table 3.1, p.126 (kaolinite 2.6, quartz 2.65, calcite 2.71).
+# Sources of the v3 values (each range names the ones it uses):
+# - Brosse, Lo, Davis & Che (2025), Revisiting of London Clay simple
+#   correlations using a Bayesian approach, Proc. 9th ISGSR, pp. 867-871,
+#   doi:10.3850/GRF-25280825_isgsr-185-P110-cd (2,015 Crossrail UU tests).
+# - Jones & Terrington (2011), Modelling volume change potential in the London
+#   Clay, QJEGH 44(1):109-122, doi:10.1144/1470-9236/08-112.
+# - Royse, Rutter & Entwisle (2009), Property attribution of 3D geological
+#   models in the Thames Gateway, London, Bull. Eng. Geol. Env. 68(1),
+#   doi:10.1007/s10064-008-0171-0.
+# - Skempton & Henkel (1957), Tests on London Clay from deep borings at
+#   Paddington, Victoria and the South Bank, Proc. 4th ICSMFE, London.
+# - ISSMGE-TC304 (2021), State-of-the-art review of inherent variability and
+#   uncertainty in geotechnical properties and models, doi:10.53243/R0001
+#   (Appendix: Cooling & Skempton, London Clay PL).
+# - Bond and Harris (2008), Decoding Eurocode 7, ch. 4, s4.5.4, Figs 4.14 and
+#   4.15, p.108, and Example 4.3, p.124 (minimum tests per stratum).
+# - BGS National Geotechnical Data Centre AGS accessions, forge analysis of two
+#   crawls (docs/research/london-basin-sources.md). Index properties:
+#   128985 (Tideway West) and 129866 (West Drayton); terrace-gravel SPT N:
+#   128985, 126770, 129866, 121953; water strikes: 163306, 39638, 162465,
+#   167350, 167349, 167292, 167290, 83329, 167414, 167131, 168650, 162665,
+#   164271, 185262, 192346. Open Government Licence v3. Contains data supplied
+#   by UKRI.
+#
+# v2 context, kept for reference: RTD N 10-30 (Craig's Soil Mechanics 7th
+# ed., ch. 8, Table 8.3, p.298, medium dense, after Terzaghi and Peck; logged
+# N 15 in terrace gravel, ICE Vol. 1, ch. 13, Fig. 13.1(a), p.142); clay
+# plasticity and liquidity from ICE Vol. 2, ch. 53, Table 53.7, p.784 and ICE
+# Vol. 1, ch. 36, Table 36.3, p.498, after Cripps and Taylor 1981 and others.
+#
+# The suite lists no LNMC in RTD: its B and D samples are quality class 4 and
+# LNMC needs class 3 (data/sample-quality/table.json), so RTD could carry no
+# LNMC row.
 schema = 1
 name = "london-basin"
-version = 2
+version = 3
 summary = "River Terrace Deposits over weathered and unweathered London Clay, London Basin."
 
 [site]
 extent_m = { x = 300.0, y = 200.0 }
 ground_level_m = { min = 5.0, max = 30.0, basis = "forge judgement: a synthetic local datum, not a real elevation" }
-groundwater_depth_m = { min = 1.0, max = 5.0, basis = "forge judgement" }
+groundwater_depth_m = { min = 2.7, max = 7.2, basis = "BGS NGDC AGS water-strike accessions listed above: depth to water 20 minutes after the strike, P10-P90 2.70-7.24 m (n = 25, 11 projects), forge analysis. Contains data supplied by UKRI, OGL v3" }
+strike_rise_m = { min = 0.0, max = 2.6, basis = "BGS NGDC AGS water-strike accessions listed above: strike depth minus the 20-minute level, P10-P90 0.02-2.62 m (n = 25, 11 projects), forge analysis. Contains data supplied by UKRI, OGL v3" }
 
 [[hole_types]]
 code = "CP"
@@ -50,22 +80,24 @@ description = { principals = ["GRAVEL", "SAND"], secondaries = ["sand", "gravel"
 sampling = { types = ["B", "D"], interval_m = { min = 1.0, max = 1.5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 53, s53.7.2, p.791: sampling typically every 1.5 m; Craig's Soil Mechanics, 7th ed., 2004, ch. 8, p.297: SPT every 0.75-1.5 m" } }
 
 [units.properties]
-spt_n = { min = 10, max = 30, basis = "Craig's Soil Mechanics, 7th ed., ch. 8, Table 8.3, p.298 (medium dense, after Terzaghi and Peck); logged N 15 in terrace gravel, ICE Manual of Geotechnical Engineering Vol. 1, ch. 13, Fig. 13.1(a), p.142" }
+spt_n = { min = 17, max = 37, basis = "Royse, Rutter & Entwisle 2009, doi:10.1007/s10064-008-0171-0, Fig. 4 (terrace gravels, median about 30, mostly N 10-50; COV about 0.5 derived); calibrated (forge analysis) to mean about 27, COV 0.40-0.50 with SPT_COV. Cross-check: BGS NGDC AGS accessions 128985, 126770, 129866, 121953 (terrace gravel over London Clay, mean 26.8, COV 0.39, n = 142), forge analysis, contains data supplied by UKRI, OGL v3" }
 moisture_content_percent = { min = 5, max = 15, basis = "forge judgement" }
 particle_density_ratio = { min = 2.64, max = 2.66, basis = "Head, Manual of Soil Laboratory Testing Vol. 1, 3rd ed., Table 3.1, p.126 (quartz 2.65)" }
 
 [[units]]
 id = "WLC"
 name = "Weathered London Clay"
-thickness_m = { min = 2.0, max = 8.0, basis = "ICE Manual of Geotechnical Engineering Vol. 1, 2012, ch. 36, s36.3, p.497: weathering to 7-8 m in UK overconsolidated clays and mudrocks (general, not London Clay specific); one London log shows about 3 m (same, ch. 13, Fig. 13.1(a), p.142)" }
+thickness_m = { min = -1.0, max = 3.0, basis = "Skempton & Henkel 1957, Proc. 4th ICSMFE: under the terrace gravels the brown clay 'is rarely more than a few feet thick, and sometimes entirely absent' (a cap of about 1 m); the spread about it and the minimum below zero (absent in places) are forge judgement" }
 description = { principals = ["CLAY"], secondaries = ["silt"], colours = ["brown", "orangeish brown", "light brown"] }
 sampling = { types = ["U", "D"], interval_m = { min = 1.0, max = 1.5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 53, s53.7.2, p.791: sampling typically every 1.5 m" } }
 
 [units.properties]
-plastic_limit_percent = { min = 25, max = 35, basis = "Derived from ICE Manual of Geotechnical Engineering Vol. 2, ch. 53, Table 53.7, p.784 (w 30-35, PI 50, LI 0 to +0.1)" }
-plasticity_index_percent = { min = 50, max = 50, basis = "ICE Manual of Geotechnical Engineering Vol. 2, ch. 53, Table 53.7, p.784" }
-liquidity_index = { min = 0.0, max = 0.1, basis = "ICE Manual of Geotechnical Engineering Vol. 2, ch. 53, Table 53.7, p.784" }
+plastic_limit_percent = { min = 25, max = 27, basis = "Skempton & Henkel 1957, Table 1 (PL about 26 at all depths); Cooling & Skempton, London PL n = 100, mean 26.7, COV 9.4% (ISSMGE-TC304 2021, doi:10.53243/R0001, Appendix); calibrated (forge analysis) to mean 26, COV about 0.09 with LIMIT_COV. Cross-check: BGS NGDC AGS accessions 128985, 129866 (weathered PL mean 26.3, COV 0.079, n = 79), forge analysis, contains data supplied by UKRI, OGL v3" }
+plasticity_index_percent = { min = 36, max = 52, basis = "Jones & Terrington 2011, doi:10.1144/1470-9236/08-112, Table 1, area 3a, central London (modified PI, n = 7,460: mean 44, P10-P90 33-54); calibrated (forge analysis) to that mean and P10-P90 with LIMIT_COV" }
+liquidity_index = { min = -0.01, max = 0.04, basis = "Skempton & Henkel 1957, Table 1 (w 26, PL 26, so LI about 0); calibrated (forge analysis) to w mean 26, COV about 0.12 with MOISTURE_COV. Cross-check: BGS NGDC AGS accessions 128985, 129866 (weathered w mean 26.4, COV 0.11, n = 85), forge analysis, contains data supplied by UKRI, OGL v3. Context: ICE Manual of Geotechnical Engineering Vol. 2, ch. 53, Table 53.7, p.784 gives 0 to +0.1" }
 particle_density_ratio = { min = 2.60, max = 2.71, basis = "Head, Manual of Soil Laboratory Testing Vol. 1, 3rd ed., Table 3.1, p.126 (kaolinite 2.6, quartz 2.65, calcite 2.71). Mineral values; use as a soil-level range is forge judgement" }
+strength = { relation = "cu.linear_with_depth", cu_top_kpa = { min = 45, max = 135, basis = "Brosse, Lo, Davis & Che 2025, doi:10.3850/GRF-25280825_isgsr-185-P110-cd, Table 1, weathered row (n = 35, Su0 mean 90.0 kPa, SD 39.9, COV 0.44); calibrated (forge analysis) to that mean and COV with STRENGTH_COV" }, per_m = { min = 0, max = 0, basis = "forge judgement: no trend with depth in the thin weathered zone" } }
+spt = { relation = "spt.stroud_butler", f1 = { min = 4.5, max = 5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 63, s63.2.3, p.973, after Simpson and Driscoll 1998" } }
 
 [[units]]
 id = "LC"
@@ -74,7 +106,60 @@ description = { principals = ["CLAY"], secondaries = ["silt"], colours = ["grey"
 sampling = { types = ["U", "D"], interval_m = { min = 1.0, max = 1.5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 53, s53.7.2, p.791: sampling typically every 1.5 m" } }
 
 [units.properties]
-plastic_limit_percent = { min = 22, max = 35, basis = "ICE Manual of Geotechnical Engineering Vol. 1, ch. 36, Table 36.3, p.498, after Cripps and Taylor 1981 and others" }
-plasticity_index_percent = { min = 40, max = 65, basis = "ICE Manual of Geotechnical Engineering Vol. 1, ch. 36, Table 36.3, p.498, after Cripps and Taylor 1981 and others" }
-liquidity_index = { min = -0.1, max = 0.0, basis = "ICE Manual of Geotechnical Engineering Vol. 2, ch. 53, Table 53.7, p.784" }
+plastic_limit_percent = { min = 25, max = 27, basis = "Skempton & Henkel 1957, Table 1 (PL about 26 at all depths); Cooling & Skempton, London PL n = 100, mean 26.7, COV 9.4% (ISSMGE-TC304 2021, doi:10.53243/R0001, Appendix); calibrated (forge analysis) to mean 26, COV about 0.09 with LIMIT_COV. Cross-check: BGS NGDC AGS accessions 128985, 129866 (unweathered PL mean 25.7, COV 0.096, n = 125), forge analysis, contains data supplied by UKRI, OGL v3" }
+plasticity_index_percent = { min = 36, max = 52, basis = "Jones & Terrington 2011, doi:10.1144/1470-9236/08-112, Table 1, area 3a, central London (modified PI, n = 7,460: mean 44, P10-P90 33-54); calibrated (forge analysis) to that mean and P10-P90 with LIMIT_COV" }
+liquidity_index = { min = -0.02, max = 0.01, basis = "Skempton & Henkel 1957, Table 1 (w 26, PL 26, so LI about 0); calibrated (forge analysis) to w mean 26, COV about 0.12 with MOISTURE_COV. Cross-check: BGS NGDC AGS accessions 128985, 129866 (unweathered w mean 25.4, COV 0.12, n = 132), forge analysis, contains data supplied by UKRI, OGL v3. Context: ICE Manual of Geotechnical Engineering Vol. 2, ch. 53, Table 53.7, p.784 gives -0.1 to 0" }
 particle_density_ratio = { min = 2.60, max = 2.71, basis = "Head, Manual of Soil Laboratory Testing Vol. 1, 3rd ed., Table 3.1, p.126 (kaolinite 2.6, quartz 2.65, calcite 2.71). Mineral values; use as a soil-level range is forge judgement" }
+strength = { relation = "cu.linear_with_depth", cu_top_kpa = { min = 82.5, max = 84.0, basis = "Brosse, Lo, Davis & Che 2025, doi:10.3850/GRF-25280825_isgsr-185-P110-cd, Table 3, Model B per-unit intercepts (82.5-84.0 kPa, z below the top of the London Clay). Measuring z from the top of this unaltered LC unit, below WLC, is forge judgement" }, per_m = { min = 6.4, max = 9.2, basis = "Brosse, Lo, Davis & Che 2025, doi:10.3850/GRF-25280825_isgsr-185-P110-cd, Table 3, Model B per-unit slopes (B 6.4, A3 6.8, C 7.3, A2 9.2 kPa/m); the authors find the fit linear to about 30 m. Scatter about the line calibrated (forge analysis) to their COV of about 0.34 with STRENGTH_COV" } }
+spt = { relation = "spt.stroud_butler", f1 = { min = 4.5, max = 5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 63, s63.2.3, p.973, after Simpson and Driscoll 1998" } }
+
+# Testing rates. Each SAMP-child rate is sized so the smallest default site
+# (3 holes) meets Decoding Eurocode 7's "no comparable experience" minimum
+# per stratum in London Clay on every seed, which a test holds. Decoding EC7
+# does not define "stratum", and WLC is too thin to reach a minimum on its own
+# (under a metre or absent in half the holes; fewer than 3 U samples on 95% of
+# 3-hole sites even at rate 1.0), so WLC and LC count together as one London
+# Clay stratum: forge judgement. The BGS per-metre rates in the bases
+# are a realism check only.
+
+[[suite]]
+group = "LNMC"
+headings = ["LNMC_MC"]
+units = ["WLC", "LC"]
+rate = { min = 0.7, max = 1.0, basis = "Decoding Eurocode 7, Bond and Harris, 2008, ch. 4, s4.5.4, Figs 4.14 and 4.15, p.108, and Example 4.3, p.124: with no comparable experience, water contents at least the Atterberg count (3) per stratum, WLC and LC together (forge judgement); sized so a 3-hole site meets it (forge analysis), and above the LLPL rate so water contents outnumber Atterberg tests on average. Realism check: about 0.33 per m of London Clay against 0.25 in BGS NGDC AGS accessions 128985, 129866, forge analysis, contains data supplied by UKRI, OGL v3" }
+
+[[suite]]
+group = "LLPL"
+headings = ["LLPL_LL", "LLPL_PL", "LLPL_PI"]
+units = ["WLC", "LC"]
+rate = { min = 0.3, max = 0.45, basis = "Decoding Eurocode 7, Bond and Harris, 2008, ch. 4, s4.5.4, Figs 4.14 and 4.15, p.108, and Example 4.3, p.124: with no comparable experience, at least 3 Atterberg tests per stratum, WLC and LC together (forge judgement); sized so a 3-hole site meets it (forge analysis). Realism check: about 0.29 per m of London Clay against 0.24 in BGS NGDC AGS accessions 128985, 129866, forge analysis, contains data supplied by UKRI, OGL v3" }
+
+[[suite]]
+group = "LDEN"
+headings = ["LDEN_BDEN", "LDEN_DDEN", "LDEN_MC"]
+units = ["WLC", "LC"]
+rate = { min = 0.5, max = 0.7, basis = "Decoding Eurocode 7, Bond and Harris, 2008, ch. 4, s4.5.4, Figs 4.14 and 4.15, p.108, and Example 4.3, p.124: with no comparable experience, at least 3 bulk densities per stratum, WLC and LC together (forge judgement); sized so a 3-hole site meets it on U samples alone (forge analysis)" }
+
+[[suite]]
+group = "TRIG"
+headings = []
+units = ["WLC", "LC"]
+rate = { min = 0.5, max = 0.7, basis = "Decoding Eurocode 7, Bond and Harris, 2008, ch. 4, s4.5.4, Figs 4.14 and 4.15, p.108, and Example 4.3, p.124: with no comparable experience, at least 3 triaxial cu tests per stratum, WLC and LC together (forge judgement); sized so a 3-hole site meets it on U samples alone (forge analysis). Realism check: about 0.23 per m of London Clay against 0.23 in BGS NGDC AGS accessions 128985, 129866, forge analysis, contains data supplied by UKRI, OGL v3" }
+
+[[suite]]
+group = "TRIT"
+headings = ["TRIT_CU", "TRIT_DEVF", "TRIT_CELL", "TRIT_BDEN", "TRIT_IMC"]
+
+[[suite]]
+group = "ISPT"
+headings = ["ISPT_NVAL"]
+units = ["RTD", "WLC", "LC"]
+rate = { min = 1.0, max = 1.0, basis = "Decoding Eurocode 7 (Bond and Harris, 2008) gives no SPT frequency; ICE Manual of Geotechnical Engineering Vol. 1, 2012, p.630: SPTs 'typically every 1.5 m'. An SPT at every D sample follows the sampling interval (forge judgement)" }
+
+[[suite]]
+group = "WSTG"
+headings = []
+
+[[suite]]
+group = "WSTD"
+headings = []
