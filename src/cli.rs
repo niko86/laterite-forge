@@ -160,18 +160,22 @@ pub struct GenArgs {
     /// Artifact dir (default: $`AGS4_FORGE_DIR` or ./forge-runs).
     #[arg(long)]
     pub out_dir: Option<PathBuf>,
-    /// Generate from a site-model preset (a shipped name or a TOML path)
-    /// instead of a scaffold. Hidden until its descriptions are complete
-    /// (ADR 0001).
-    #[arg(long, hide = true, conflicts_with = "scaffold")]
+    /// Generate from a site-model preset instead of a scaffold: a shipped
+    /// name (`london-basin`) or a path to a preset TOML. The file carries
+    /// believable synthetic ground (strata, samples, the preset's test suite)
+    /// and a SYNTHETIC marker in `PROJ_MEMO`. Same preset version and seed,
+    /// same bytes; any change to a shipped preset's output bumps its version.
+    #[arg(long, conflicts_with = "scaffold", value_name = "PRESET")]
     pub site: Option<String>,
-    /// `--site` only: add national-grid coordinates. The one grid is `bng`,
-    /// which needs `--origin`.
-    #[arg(long, hide = true, requires_all = ["site", "origin"], value_parser = ["bng"])]
+    /// `--site` only: add national-grid coordinates (`LOCA_NATE`,
+    /// `LOCA_NATN`, `LOCA_GREF`) beside the local grid. The one grid is
+    /// `bng`, which needs `--origin`.
+    #[arg(long, requires_all = ["site", "origin"], value_parser = ["bng"])]
     pub grid: Option<String>,
-    /// `--grid bng` only: the national-grid origin `E,N` of the site's local
-    /// grid. The consumer chooses it and is responsible for it.
-    #[arg(long, hide = true, requires = "grid", value_name = "E,N")]
+    /// `--grid bng` only: the national-grid origin `E,N` (metres) of the
+    /// site's local grid. The consumer chooses it and is responsible for it;
+    /// no shipped preset carries a real origin.
+    #[arg(long, requires = "grid", value_name = "E,N")]
     pub origin: Option<String>,
 }
 
@@ -328,17 +332,21 @@ pub struct ScaleArgs {
     /// Requires `--inject`. Default when `--inject` is given: 1.0 (all sites).
     #[arg(long)]
     pub density: Option<f64>,
-    /// Scale a site-model preset (a shipped name or a TOML path) instead of
-    /// a scaffold. Hidden until its descriptions are complete (ADR 0001).
-    #[arg(long, hide = true, conflicts_with = "scaffold")]
+    /// Scale a site-model preset instead of a scaffold: a shipped name
+    /// (`london-basin`) or a path to a preset TOML. The hole count is
+    /// calibrated to `--size`; a smaller file is a prefix of a larger one,
+    /// group by group, because hole k is the same whatever the hole count.
+    #[arg(long, conflicts_with = "scaffold", value_name = "PRESET")]
     pub site: Option<String>,
-    /// `--site` only: add national-grid coordinates. The one grid is `bng`,
-    /// which needs `--origin`.
-    #[arg(long, hide = true, requires_all = ["site", "origin"], value_parser = ["bng"])]
+    /// `--site` only: add national-grid coordinates (`LOCA_NATE`,
+    /// `LOCA_NATN`, `LOCA_GREF`) beside the local grid. The one grid is
+    /// `bng`, which needs `--origin`.
+    #[arg(long, requires_all = ["site", "origin"], value_parser = ["bng"])]
     pub grid: Option<String>,
-    /// `--grid bng` only: the national-grid origin `E,N` of the site's local
-    /// grid. The consumer chooses it and is responsible for it.
-    #[arg(long, hide = true, requires = "grid", value_name = "E,N")]
+    /// `--grid bng` only: the national-grid origin `E,N` (metres) of the
+    /// site's local grid. The consumer chooses it and is responsible for it;
+    /// no shipped preset carries a real origin.
+    #[arg(long, requires = "grid", value_name = "E,N")]
     pub origin: Option<String>,
     /// Where to write the .ags (default: <out-dir>/scale/<scaffold>_<size>.ags).
     #[arg(long)]

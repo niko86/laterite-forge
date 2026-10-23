@@ -121,14 +121,31 @@ fn site_and_scaffold_together_are_refused() {
     assert_eq!(out.status.code(), Some(5), "{}", stderr(&out));
 }
 
-/// `--site` stays out of `--help` until its descriptions are complete.
+/// `--site`, `--grid` and `--origin` are documented in `gen --help` (ADR 0001,
+/// from london-basin v3), and `--readme` covers the site model.
 #[test]
-fn site_is_hidden_from_help() {
+fn site_is_documented_in_help() {
     let out = forge(&["gen", "--help"]);
     assert_eq!(out.status.code(), Some(0));
     let help = String::from_utf8_lossy(&out.stdout);
-    for flag in ["--site", "--grid", "--origin"] {
-        assert!(!help.contains(flag), "{flag} is visible in gen --help");
+    for flag in [
+        "--site <PRESET>",
+        "--grid",
+        "--origin <E,N>",
+        "london-basin",
+    ] {
+        assert!(help.contains(flag), "{flag} is missing from gen --help");
+    }
+    let out = forge(&["--readme"]);
+    assert_eq!(out.status.code(), Some(0));
+    let readme = String::from_utf8_lossy(&out.stdout);
+    for text in [
+        "## Site model",
+        "--site london-basin",
+        "--grid bng --origin",
+        "SYNTHETIC",
+    ] {
+        assert!(readme.contains(text), "{text} is missing from --readme");
     }
 }
 
@@ -230,11 +247,12 @@ fn scale_site_with_a_bad_preset_exits_5() {
 }
 
 #[test]
-fn scale_site_flags_are_hidden_from_help() {
+fn scale_site_flags_are_documented_in_help() {
     let out = forge(&["scale", "--help"]);
+    assert_eq!(out.status.code(), Some(0));
     let help = String::from_utf8_lossy(&out.stdout);
-    for flag in ["--site", "--grid", "--origin"] {
-        assert!(!help.contains(flag), "{flag} is visible in scale --help");
+    for flag in ["--site <PRESET>", "--grid", "--origin <E,N>"] {
+        assert!(help.contains(flag), "{flag} is missing from scale --help");
     }
 }
 
