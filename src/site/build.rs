@@ -1475,6 +1475,56 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
         }
     }
 
+    fn with_wlc_skew(skew: &str) -> Preset {
+        let text = FIXTURE.replacen(
+            "thickness_m = { min = 2.0, max = 8.0,",
+            &format!("thickness_m = {{ min = 2.0, max = 8.0, skew = {skew},"),
+            1,
+        );
+        Preset::from_toml(&text).expect("skewed fixture loads")
+    }
+
+    /// A skew of 1 changes nothing in the built site; a skew of 2 does.
+    #[test]
+    fn a_skew_of_one_builds_the_same_site() {
+        let plain = build(&fixture(), 4, 25);
+        assert_eq!(build(&with_wlc_skew("1.0"), 4, 25), plain);
+        assert_ne!(build(&with_wlc_skew("2.0"), 4, 25), plain);
+    }
+
+    /// Neighbouring holes still agree under a skew, the bound scaled by it.
+    #[test]
+    fn neighbouring_holes_have_similar_skewed_unit_thickness() {
+        let skew = 2.0;
+        let p = with_wlc_skew("2.0");
+        let wlc = &p.units[1];
+        let range = wlc.thickness_m.as_ref().unwrap();
+        for seed in 0..10 {
+            let surface = Field::new(
+                &mut Key::unit("thickness", &wlc.id).rng(seed),
+                p.site.extent_m,
+            );
+            let site = build(&p, seed, 20);
+            let thickness = |h: &Hole| {
+                let s = h.strata.iter().find(|s| s.unit == "WLC").unwrap();
+                s.base - s.top
+            };
+            for pair in site.holes.windows(2) {
+                let (a, b) = (&pair[0], &pair[1]);
+                if a.strata.last().unwrap().unit != "LC" || b.strata.last().unwrap().unit != "LC" {
+                    continue;
+                }
+                let d = (a.x - b.x).hypot(a.y - b.y);
+                let bound = (range.max - range.min) * surface.max_slope() * skew * d + 0.02;
+                let diff = (thickness(a) - thickness(b)).abs();
+                assert!(
+                    diff <= bound,
+                    "seed {seed}: {diff} over {d} m (bound {bound})"
+                );
+            }
+        }
+    }
+
     /// The marker names forge, the preset and its version, in `PROJ_MEMO`.
     #[test]
     fn every_site_file_carries_the_synthetic_marker() {
