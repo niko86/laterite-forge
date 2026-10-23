@@ -1787,20 +1787,20 @@ mod shipped_pins {
             (
                 "tyneside-till",
                 0,
-                "9ae909eac05da60bad542a1ecebdc5064e218e16fd2074c26f250f9b0b591797",
-                18513,
+                "dde724c886e8bc2f1d9140959271552a704c9e7595543ab31e6f16110fa55c24",
+                20789,
             ),
             (
                 "tyneside-till",
                 1,
-                "9f15e5da333b532635b4348d17d89222390cf2c0b6845c738a75e3b20e994f51",
-                13490,
+                "f3fc13b48c93b6e9f28e7b06931b48a4b23e80ccf3b5ee3f2651140dcad8295e",
+                14594,
             ),
             (
                 "tyneside-till",
                 2,
-                "175e1369315d67e9dd8404509fe01b8f80f5de20f8acbafcffb3c772cd0e0119",
-                24157,
+                "11cb6416ee72d443a2bc8caee70bd993f2bbda12d5f03f962b0e1a0898a83940",
+                25910,
             ),
         ] {
             let text = shipped(name, seed);
@@ -1869,6 +1869,16 @@ mod shipped_pins {
         ] {
             let mut preset = resolve(name).expect("shipped preset loads");
             preset.cover = None;
+            // tyneside-till v4's multi-stage share (#2) is the other thing
+            // since v2 that changes bytes; without it the bytes are v2's.
+            for p in preset
+                .units
+                .iter_mut()
+                .map(|u| &mut u.properties)
+                .chain(preset.lenses.iter_mut().map(|l| &mut l.properties))
+            {
+                p.triaxial = None;
+            }
             preset.version = version;
             let site = build(&preset, seed, default_hole_count(seed));
             let text = emit_to_string(&lower(&site, &preset, seed, Grid::Local));

@@ -115,6 +115,11 @@ sources: []
 > the grey till, water-bearing in a 0.36 share of the holes it reaches,
 > calibrated to Clarke et al. 2008 and a BGS NGDC crawl
 > (`docs/research/tyneside-till-sources.md`).
+> A unit's optional `triaxial` table (ADR 0001, "Multi-stage UU") makes a
+> share of its TRIG tests multi-stage: `TRIG_TYPE` `UUM` and three TRIT rows
+> (`TRIT_TESN` 1 to 3, cell pressure x1/x2/x4, cu rising by a `stage_gain`
+> per stage, density and moisture content repeated). `tyneside-till` v4 sets
+> a share of about 0.54 and a gain of about 0.20; `london-basin` sets none.
 > `--site` and `--scaffold` are mutually exclusive, and the loader refuses a
 > preset with a missing basis, an unknown key, or a suite heading no producer
 > can make, naming the field (exit 5). Every file carries a SYNTHETIC marker in

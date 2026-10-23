@@ -300,6 +300,32 @@ consumer can replace.
   where one was dropped and every test and result below the cover keeps its
   keyed draw. london-basin v6 and tyneside-till v3 adopt the layer.
 
+## Multi-stage UU
+
+(Added 2026-10-23, #2; the decisions are the owner's Q1-Q4 on that issue.)
+
+- **Scope.** Multi-stage unconsolidated-undrained triaxial only: a TRIG test
+  with `TRIG_TYPE = "UUM"` has three TRIT rows, `TRIT_TESN` 1 to 3, on one
+  specimen. Effective-stress TREG/TRET is a separate slice.
+- **Share.** A unit or lens may carry `triaxial = { multi_stage_share = { min,
+  max, basis }, stage_gain = { min, max, basis } }`. The share is drawn once
+  per site from a stream keyed by the unit; each TRIG test then makes its own
+  keyed draw (tag `trig-uum`, on hole, unit and sample) on whether it is
+  `UUM`. A preset with no `triaxial` writes every test as `UU` with one row
+  and keeps its bytes; a share moves only its own unit's TRIG type and TRIT
+  rows. The loader refuses a share or gain outside 0 to 1, a `stage_gain`
+  without a `multi_stage_share`, a missing basis, and a `triaxial` on a unit no
+  TRIG entry tests.
+- **Stages.** The cell pressure is 1, 2 and 4 times the single-stage value.
+  cu at stage k is the written stage-1 cu x (1 + `stage_gain` x (k - 1)),
+  rounded to the kPa, with `stage_gain` drawn once per site (0 when absent);
+  `TRIT_DEVF` stays twice the written cu. `TRIT_BDEN` and `TRIT_IMC` are
+  drawn once per specimen and repeated on every stage. Stage 1 is exactly the
+  row a single-stage test writes. tyneside-till v4 adopts it (the owner's note
+  that labs run UUM where three matched 38 mm specimens cannot be cut from a
+  matrix-bound gravelly till is the basis, alongside the NE crawl's count);
+  london-basin has no source and none.
+
 ## Presets
 
 `london-basin` comes first, starting in natural ground: River Terrace

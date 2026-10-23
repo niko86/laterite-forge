@@ -106,6 +106,12 @@ the preset's test suite. `--site` and `--scaffold` are mutually exclusive.
   test and strike is where it was, and nothing is sampled or tested in the
   cover. A sample that would start in the cover moves to its base or is
   dropped, leaving a gap in `SAMP_REF`.
+  tyneside-till v4 adds **multi-stage UU triaxial** tests: about
+  54% of its TRIG tests are `TRIG_TYPE` `UUM`, each with three TRIT rows
+  (`TRIT_TESN` 1 to 3, cell pressure at 1, 2 and 4 times the single-stage
+  value, `TRIT_CU` rising from stage to stage, and the specimen's density and
+  moisture content repeated). Single-stage tests are as v3 wrote them;
+  london-basin is unchanged.
 
 ## Finding python-ags4
 
