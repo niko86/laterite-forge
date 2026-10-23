@@ -1,7 +1,10 @@
-# london-basin v3: sources and calibration
+# london-basin: sources and calibration
 
-This records where the values in `data/presets/london-basin.toml` (v3, #48)
-come from, how they were calibrated, and what the generated files measure.
+This records where the values in `data/presets/london-basin.toml` come from,
+how they were calibrated, and what the generated files measure: the natural
+units (v3, #48) first, then the Made Ground unit v4 adds on top (#42,
+"Made Ground (v4)" below). v4 leaves the natural units' values as v3 set
+them.
 It holds aggregate statistics and accession IDs only: no raw data, no
 scripts, and no individual borehole rows.
 
@@ -189,7 +192,8 @@ Clay stratum.
 - Queen Mary Reservoir supplies 23 of the 73 strikes. About 45% of strata
   types in crawl 2 are inferred, a missing WSTG may simply be unrecorded, and
   some final levels come from remarks.
-- The no-strike fraction comes out at about 70%, well above BGS's 32-40%.
+- (v3; v4 brings it to about 45%, see "Made Ground (v4)".) The no-strike
+  fraction comes out at about 70%, well above BGS's 32-40%.
   In the BGS holes the gravel starts some metres below ground (strikes average
   4.12 m below ground but 0.98 m below the gravel top), under cover forge does
   not model, whereas london-basin has no Made Ground and its gravel starts at
@@ -211,3 +215,282 @@ Clay stratum.
   fraction finer than 425 µm); using them as a PI target is forge judgement.
 - The BGS samples are small and the literature is used for the primary basis
   wherever it has a larger dataset.
+
+## Made Ground (v4)
+
+v4 adds a Made Ground unit, `MG`, above RTD. The decisions behind it are the
+owner's M1-M6 on #42. The natural units keep their v3 values.
+
+### Method
+
+- **Sample.** The holes of both crawls above, deduplicated by `BGS_LOCA_ID`:
+  663 holes from 126 projects in 80 accessions. Access route and licence as
+  above. **Contains data supplied by UKRI.**
+- **Accessions.** 39638, 40721, 81109, 81709, 83329, 107613, 111549, 121953,
+  126770, 128985, 129866, 133106, 138366, 138585, 138586, 140725, 140726,
+  141089, 141090, 161518, 161519, 161567, 161905, 162207, 162345, 162409,
+  162410, 162465, 162565, 162665, 162765, 163045, 163306, 163405, 164270,
+  164271, 166866, 167034, 167131, 167132, 167290, 167291, 167292, 167344,
+  167345, 167346, 167347, 167348, 167349, 167350, 167413, 167414, 167415,
+  167951, 167952, 167953, 167954, 168212, 168533, 168549, 168650, 168963,
+  168964, 169038, 169571, 169573, 173376, 185262, 185575, 186926, 188520,
+  188540, 188542, 190850, 190946, 192298, 192311, 192312, 192346, 192401.
+- **Made Ground.** `GEOL_GEOL` MG, MGR*, MGG, MADE*, FILL, CONC or HS, or a
+  description containing "made ground" or "(fill)". An uncoded stratum also
+  counts if it names brick, concrete, tarmac, ash, clinker or rubble.
+  Embankment fill (mostly accession 83329, LUL earthworks) and topsoil are
+  kept apart.
+- **Stratum below.** From codes first, then the description; about 40% of
+  these calls are inferred.
+- **Thickness** runs to the base of the contiguous Made Ground. Holes that end
+  in Made Ground are left out.
+- **Constituents** are counted by mention: the share of the 1,288 Made Ground
+  strata with a soil principal (85 projects) that name each word.
+
+### Statistics
+
+Presence: the first stratum is Made Ground in 73.6% of holes (80.9% leaving
+out 83329), and Made Ground or fill appears in the surface sequence of 89.9%.
+
+| Thickness subset | n (projects) | Mean | SD | P10 / P50 / P90 |
+|---|---|---|---|---|
+| All | 491 (98) | 2.81 | 2.31 | 0.70 / 2.10 / 5.90 |
+| Over terrace gravel over London Clay | 102 (36) | 2.25 | 1.57 | 0.71 / 1.86 / 4.58 |
+| Directly over London Clay | 93 (30) | 2.27 | 2.49 | 0.50 / 1.50 / 5.38 |
+| Over alluvium | 199 (43) | 3.72 | 2.49 | 1.08 / 3.20 / 6.71 |
+
+Within 500 m of the Thames the mean is 3.53 m, and beyond it 2.63 m.
+
+| Measure, of 1,288 Made Ground soil strata | Value |
+|---|---|
+| Principal | CLAY 36%, GRAVEL 29%, SAND 29%, SILT 3% |
+| Commonest forms | gravelly sandy CLAY 18.5%, clayey gravelly SAND 8.9%, clayey sandy GRAVEL 8.5%, sandy GRAVEL 8.2%, gravelly SAND 7.6% |
+| First colour phrase | brown 23%, dark brown 19%, dark grey 7.5%, light brown 6.6%, grey 6.2%, black 5.7%; none 10% |
+| Strength and density terms | very soft 2.4%, soft 15%, firm 13%, stiff 4%, very stiff 0.9%; very loose 0.9%, loose 6%, medium dense 6%, dense 1.4%, very dense 0.5% |
+| Constituents in the forge vocabulary | brick 68%, concrete 39%, clinker 15%, ash 13%, pottery/ceramic/tile 10%, glass 7.8%, wood/timber 7.5%, metal 6.3%, coal 5.7%, slag 4.2%, plastic 3.8%, tarmac/asphalt 3.3% |
+| Not in the vocabulary | flint 62% (mostly the lithology of gravel clasts), cobbles 18%, rootlets 13%, stone 8%, chalk 4.1% |
+| Count of vocabulary constituents | 0 in 20%, 1 in 30%, 2 in 27%, 3 or more in 23% |
+| Amount words | occasional 25%, rare 14%, frequent 7%, abundant 2%, numerous 0% |
+
+SPT N in Made Ground, a cross-check for the coarse set (blank tests left out,
+refusals, N 50 or more, left out): mean 12.5, COV 0.74, P10 / P50 / P90
+3 / 10 / 25 (n = 434, 30 projects, 21 of the accessions). In CLAY-led strata
+the mean is 10.4 (n = 146), and in SAND- or GRAVEL-led ones 13.9 (n = 201).
+
+Groundwater context, holes with gravel directly over London Clay (n = 128, 38
+projects): the gravel top lies at P10 / P50 / P90 0.71 / 1.86 / 4.70 m under
+Made Ground, and 0.30 / 1.40 / 3.79 m over all such holes. Under this
+classifier 46% of them have no strike in the gravel (89 holes, 28 projects),
+against 32-40% from crawl 2's classifier above; the inference choices account
+for the difference. The target is therefore 32-46%.
+
+### Literature
+
+| Source | Numbers used |
+|---|---|
+| Ford, Price, Cooper & Waters (2014), An assessment of lithostratigraphy for anthropogenic deposits, Geol. Soc. London Spec. Publ. 395:55-89, doi:10.1144/SP395.12 | London 3D model, Table 1: made ground mean 1.4 m, SD 2.6, maximum 26 m; made plus infilled ground mean 1.6 m, P90 3 m. Deposits under 1 m are left out of the model. Cross-check for thickness. |
+| Terrington, Silva, Waters, Smith & Thorpe (2018), Quantifying anthropogenic modification of the shallow geosphere in central London, UK, Geomorphology 319:15-34, doi:10.1016/j.geomorph.2018.07.005 | Table 5, mean thickness over terrace deposits: City 3.19 m, Tower Hamlets 2.21 m. Table 4, by distance from the Thames: 3.72 m within 500 m, 2.42 m beyond. Table 2: brick and concrete dominate the logged terms. Cross-check for thickness and constituents. |
+| Rosenbaum, McMillan, Powell, Culshaw & Northmore (2003), Classification of artificial (man-made) ground, Eng. Geol. 69:399-409, doi:10.1016/S0013-7952(02)00282-X | Five BGS classes: made, worked, infilled, landscaped and disturbed ground. The unit is made ground in this sense. Context only. |
+| Norbury (2010), Soil and Rock Description in Engineering Practice, ch. 14, pp.212-214 | Two stages: normal soil terms first, then the constituents. Example p.214: "MADE GROUND: dense brown sandy GRAVEL with occasional tiles, wire, glass, tyres". The description form. |
+
+### The preset's values
+
+| Field | Value | Basis |
+|---|---|---|
+| `thickness_m` | -1.0 to 5.75 m, skew 1.3 | BGS over terrace over London Clay, P10 / P50 / P90 0.71 / 1.86 / 4.58 m with about 10% absent; range and skew fitted to these (see "Thickness fit"). Cross-checked against Terrington 2018 Table 5 and Ford 2014 Table 1. |
+| principals, secondaries | CLAY, GRAVEL, SAND; sand, gravel, clay | BGS principal shares and commonest forms |
+| colours | brown, dark brown, dark grey, grey, black, light brown | BGS first colour phrases. The vocabulary accepts all six. |
+| constituent shares | brick 0.68, concrete 0.39, clinker 0.15, ash 0.13, pottery 0.10, glass 0.078, timber 0.075, metal 0.063, coal 0.057, slag 0.042, plastic 0.038, tarmacadam 0.033 | BGS mention shares |
+| `count.weights` | 0.20, 0.30, 0.27, 0.23 | BGS count distribution |
+| `amounts.weights` | rare 0.14, occasional 0.25, frequent 0.07, numerous 0, abundant 0.02 | BGS amount-word shares |
+| `liquidity_index` | 0.1 to 0.9 | forge judgement, calibrated to the BGS consistency terms |
+| `spt_n` | 3 to 18 | forge judgement, calibrated to the BGS density terms; cross-checked against BGS N in Made Ground |
+| `plastic_limit_percent`, `plasticity_index_percent` | 20-26, 20-35 | forge judgement: no lab data on Made Ground in the exports |
+| `moisture_content_percent` | 10-20 | forge judgement; required by the loader, never read |
+| `particle_density_ratio` | 2.60-2.70 | Head Vol. 1 Table 3.1 mineral values; their use for Made Ground is forge judgement |
+| sampling | B and D every 1-1.5 m | as RTD (ICE Vol. 2 p.791; Craig p.297) |
+| suite | ISPT at every D sample; no lab groups (the loader refuses them, M5) | as the other units' ISPT basis |
+
+**Mixed principals.** The unit names CLAY, SAND and GRAVEL, so the loader
+requires both property sets, and the property model carries both
+(`site/properties.rs`). Each stratum draws its principal uniformly. A
+CLAY-led stratum leads with the consistency term from the fine set's
+Ic = 1 - LI at mid-depth, and a SAND- or GRAVEL-led one with the density term
+from the coarse set's SPT N. Two consequences follow:
+
+- Moisture content, and so bulk density and the overburden it adds to TRIT
+  cell pressures below, comes from the fine set whatever the principal. The
+  coarse set's moisture content is required by the loader but never read.
+- Every Made Ground SPT, whatever the principal, writes the coarse set's N.
+  Giving the unit a `strength` and `spt.stroud_butler` would instead derive
+  every N, GRAVEL-led strata included, from an undrained strength, which a
+  granular fill does not have. The BGS N barely differs by principal (10.4
+  against 13.9), so one N field for the unit is the honest choice.
+
+PL and PI are forge judgement and feed only that moisture content: the
+loader refuses LLPL, LNMC, LDEN and TRIG over Made Ground. Made Ground never
+yields a water strike.
+
+**Calibration.** As for the natural units: 400 seeds, rows read back, Made
+Ground strata recognised by their `MADE GROUND: ` tag. LI and SPT N ranges
+were swept until the leading terms sat near the BGS proportions read within
+each lane. The BGS fine terms (soft 15%, firm 13%, stiff 4%) give soft and
+firm about equal with a little stiff. The coarse ones (loose 6%, medium dense
+6%) give loose and medium dense about equal. A smooth field is symmetric
+about its range's middle, so LI cannot match both tails: BGS has more stiff
+than very soft, and LI 0.1-0.9 compromises at about 6% stiff and 9% very
+soft. Narrower or shifted ranges traded one tail for the other, or put soft
+well under firm.
+
+### Thickness fit
+
+A unit's thickness may carry a `skew` (ADR 0001, "Ground"): the smooth field
+value u becomes u^skew before it is placed on the range. The field is
+compressed about 0.5 (P10-P90 of u about 0.23-0.77), so no range and skew can
+match the BGS P10, P50, P90 and absence exactly.
+
+Method: one 1,000-seed run with Made Ground 0-10 m and no skew gives each
+hole's field value u (4,951 holes, from the written thickness). Every
+candidate (min -2.5 to 0 by 0.05 m, max 4 to 10 by 0.25 m, skew 1 to 3 by
+0.1) is then evaluated on those u values with the same 2 DP rounding and
+absence rule as the build. The score is the sum of the relative errors of
+P10, P50 and P90 (of the holes where Made Ground is present) and of the
+absent fraction, with P50 and absence weighted double. The leading
+candidates were then generated in full to measure the no-strike fraction,
+which the fit does not see.
+
+| min, max, skew | Score | P10 / P50 / P90 (m) | Absent | No strike, 1,000 [400] seeds |
+|---|---|---|---|---|
+| BGS target | 0 | 0.71 / 1.86 / 4.58 | about 10% | 32-46% |
+| **-1.0, 5.75, 1.3 (shipped)** | **0.54** | **0.49 / 1.92 / 3.90** | **9.9%** | **43.6% [45.4%]** |
+| -0.6, 6.75, 1.7 (best score) | 0.50 | 0.42 / 1.86 / 4.23 | 9.9% | 46.3% [47.9%] |
+| -0.65, 7.25, 1.7 | 0.51 | 0.45 / 1.99 / 4.55 | 10.0% | 46.8% [47.7%] |
+| -0.7, 6.75, 1.6 | 0.55 | 0.46 / 1.95 / 4.32 | 9.8% | 46.0% [47.3%] |
+| -1.3, 5.25, 1.1 | 0.53 | 0.53 / 1.92 / 3.69 | 9.9% | 42.7% [44.1%] |
+| -0.5, 7.5, 1.9 | 0.51 | 0.39 / 1.86 / 4.51 | 10.2% | 47.8% [48.6%] |
+| -1.5, 5.0, no skew | 0.51 | 0.54 / 1.91 / 3.58 | 10.0% | 42.5% [43.8%] |
+| -0.5, 9.0, 2 | 0.85 | 0.43 / 2.12 / 5.30 | 9.9% | 49.8% |
+| -0.5, 4.6, no skew (first v4 draft) | 2.16 | 0.80 / 2.07 / 3.43 | 2.2% | 38.2% [40.0%] |
+
+Scores and percentiles are from full generation over 1,000 seeds. The 60
+best candidates on the field values were all generated in full this way.
+
+The candidates that keep the no-strike fraction inside the BGS range over
+both 400 and 1,000 seeds score 0.51-0.54, which is within seed noise: over
+3,000 seeds the order changes (-1.3, 5.25, 1.1 scores 0.65; the shipped fit
+0.66; -1.5, 5.0 with no skew 0.67). Among these ties the preset takes skew
+1.3, the one with the highest P90 (3.90 m against 3.58 m unskewed).
+
+The shipped fit's residuals are P10 -31%, P50 +3%, P90 -15% and absence
+-1%. The best-scoring candidate, -0.6 to 6.75 m at skew 1.7, fits slightly
+better (P50 exact, P90 -8%, P10 -41%; 0.60 over 3,000 seeds) but puts the
+no-strike fraction at 46.3%, just above the top of the BGS 32-46% range
+(47.9% over 400 seeds, 47.3% over 3,000). The trade-off is the owner's call:
+the alternative is a one-line change to the range.
+
+### Result
+
+400 seeds (1,963 holes), london-basin v4. The 1,000-seed figures, where
+given, are in brackets.
+
+| Quantity | Synthetic | Target |
+|---|---|---|
+| **No strike, holes through gravel into clay** | **45.4% (822 of 1,809) [43.6%]** | **32-46% (BGS)** |
+| Strike depth | mean 5.75, P10-P90 4.38-7.19 m | mean 4.12, P10-P90 1.22-7.78 m |
+| Level 20 minutes after the strike | mean 4.75, P10-P90 3.53-5.84 m | mean 4.81, P10-P90 2.70-7.24 m |
+| Rise | mean 1.00, P10-P90 0.16-2.07 m | mean 1.20, P10-P90 0.02-2.62 m |
+| MG thickness, where present | P10 / P50 / P90 0.55 / 2.00 / 3.91 m, mean 2.09 [0.49 / 1.92 / 3.90, mean 2.05] | 0.71 / 1.86 / 4.58 m, mean 2.25 |
+| Holes with no MG | 10.2% (201 of 1,963) [9.9%] | about 10% |
+| Gravel top under MG | P10 / P50 / P90 0.55 / 1.99 / 3.92 m [0.50 / 1.92 / 3.89] | 0.71 / 1.86 / 4.70 m |
+| Principal | CLAY 34%, GRAVEL 33%, SAND 33% | 36%, 29%, 29% (SILT 3%) |
+| Colour | each of the six 16-18% | brown 23%, dark brown 19%, then 6-8% each |
+| Leading term, CLAY-led (599 strata) [1,476] | soft 39%, firm 45%, stiff 5%, very soft 9.5%, very stiff 1% [41 / 44 / 6 / 9 / 1] | soft 15 : firm 13 : stiff 4 (47 : 41 : 12) |
+| Leading term, SAND- or GRAVEL-led (1,163) [2,983] | loose 50%, medium dense 46.5%, very loose 3.5% [48 / 49 / 3] | loose 6 : medium dense 6 (50 : 50) |
+| SPT N in MG (1,131) | mean 10.8, COV 0.58, P10-P90 4-19 | BGS cross-check mean 12.5, COV 0.74, P10-P90 3-25 |
+
+Constituents, 400 seeds (1,762 Made Ground strata) [1,000 seeds, 4,459]:
+
+| | Synthetic | Preset |
+|---|---|---|
+| brick | 0.646 [0.655] | 0.68 |
+| concrete | 0.379 [0.377] | 0.39 |
+| clinker | 0.147 [0.140] | 0.15 |
+| ash | 0.114 [0.117] | 0.13 |
+| pottery | 0.096 [0.096] | 0.10 |
+| glass | 0.077 [0.075] | 0.078 |
+| timber | 0.074 [0.077] | 0.075 |
+| metal | 0.059 [0.061] | 0.063 |
+| coal | 0.041 [0.051] | 0.057 |
+| slag | 0.037 [0.038] | 0.042 |
+| plastic | 0.035 [0.036] | 0.038 |
+| tarmacadam | 0.027 [0.030] | 0.033 |
+| count 0 / 1 / 2 / 3+ | 0.211 / 0.289 / 0.274 / 0.226 [0.200 / 0.293 / 0.279 / 0.229] | 0.20 / 0.30 / 0.27 / 0.23 |
+| strata using rare / occasional / frequent / numerous / abundant | 0.38 / 0.58 / 0.21 / 0 / 0.08 | relative weights 0.14 / 0.25 / 0.07 / 0 / 0.02 |
+
+The shares sum to 1.84 and the count distribution's mean is 1.76, so the fit
+is a compromise and every share comes out about 5% low. Amount words are
+compared as relative weights: in the synthetic strata rare, occasional,
+frequent and abundant are 30%, 46%, 17% and 6% of the amounts used, against
+29%, 53%, 14% and 4% in BGS. BGS strata carry fewer amount words in all
+because many name their constituents inside the gravel description ("Gravel
+is ... of flint, brick and concrete") rather than in a `with` clause.
+
+Five sample descriptions:
+
+- MADE GROUND: Firm dark brown gravelly CLAY with frequent brick, and
+  occasional concrete, clinker and timber fragments.
+- MADE GROUND: Loose dark grey clayey GRAVEL with abundant concrete and rare
+  pottery fragments.
+- MADE GROUND: Medium dense brown very clayey GRAVEL with abundant brick,
+  occasional concrete, ash and glass, and rare coal fragments.
+- MADE GROUND: Medium dense black very gravelly SAND with occasional brick,
+  concrete and clinker, and rare ash and pottery fragments.
+- MADE GROUND: Medium dense black clayey GRAVEL with occasional concrete and
+  rare tarmacadam fragments.
+
+**Natural units.** The v3 targets still hold. Every draw is keyed, so the
+units' fields, thicknesses and test selection are unchanged: RTD and WLC
+lengths, WLC thickness (mean 1.04 m, absent in 13%, under 1 m in 50%) and the
+WLC row counts are identical. What moves is depth: every lower stratum starts
+deeper by the Made Ground thickness, so LC is about 7% shorter within the
+same final depths and carries fewer rows, and TRIT cell pressures carry the
+Made Ground overburden. Each written result's scatter is keyed by the
+sample's position in its hole, and Made Ground samples come first, so the
+scatter draws below are renumbered. The pooled statistics move within noise:
+
+| Quantity | v3 (same script, 400 seeds) | v4 | Target |
+|---|---|---|---|
+| PI, LC / WLC | 44.1 / 43.5, P10-P90 34-54 / 34-54 | 44.1 / 43.7, 34-54 / 34-55 | 44, 33-54 |
+| PL, LC / WLC | 26.0 / 26.0, COV 0.089 / 0.088 | 26.0 / 26.0, COV 0.089 / 0.096 | 26, about 0.09 |
+| w, LC / WLC | 25.8 / 26.4, COV 0.118 / 0.118 | 25.8 / 26.4, COV 0.116 / 0.119 | 26, about 0.12 |
+| Bulk density, LC / WLC | 1.98 / 1.97, COV 0.055 / 0.053 | 1.98 / 1.97, COV 0.055 / 0.055 | about 2.0 |
+| LC cu over the Brosse line | 1.02, COV 0.339 | 1.02, COV 0.339 | about 0.34 |
+| WLC cu | 92, COV 0.443 | 91, COV 0.421 | 90, about 0.44 |
+| RTD N | 27.0, COV 0.474, P10-P90 13-45 | 26.9, COV 0.467, 14-44 | about 27, 0.40-0.50 |
+| Testing per m of London Clay: LNMC / LLPL / LDEN / TRIG | 0.33 / 0.28 / 0.23 / 0.23 | 0.33 / 0.28 / 0.23 / 0.23 | realism check |
+
+`london_basin_meets_the_ec7_minimums_on_the_smallest_default_site` still
+passes over 1,000 seeds. Over 400 seeds no RTD N is 0 and no LC cu falls
+below 15% of the Brosse line. Every file of 1,000 seeds is Rust-clean, and no Made Ground
+stratum carries a strike or a lab test.
+
+### Caveats
+
+- **Thickness fit.** The field is compressed about 0.5, so the fit is a
+  compromise: P10 comes out 31% low and P90 15% low. A fit with a better P90
+  pushes the no-strike fraction to the top of the BGS range or past it (see
+  "Thickness fit"). Seed 0's site happens to lie where Made Ground is
+  absent, so the seed-0 file has none.
+- **Riverside bias.** The Tideway accessions dominate, and 17% of holes lie
+  within 500 m of the Thames, where Made Ground is thicker.
+- **Logging.** Contractors log Made Ground differently. Constituents are
+  counted by mention, not weighted by amount. The stratum below is inferred
+  in about 40% of calls.
+- **Censoring.** Leaving out holes that end in Made Ground biases the
+  thickness low.
+- **Colours.** The description engine draws a colour uniformly from the
+  palette, so the six colours come out about equal, not in the BGS order.
+- **Properties.** No lab data on Made Ground came with the exports, so its
+  fine and coarse sets are forge judgement calibrated to description terms.
+  The BGS N cross-check comes from 30 projects and spreads wider (COV 0.74)
+  than the synthetic N (0.56).

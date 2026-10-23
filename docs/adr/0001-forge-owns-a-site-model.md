@@ -231,7 +231,8 @@ Deposits, weathered London Clay, London Clay. Made Ground waited for a
 description lane for man-made ground, because the BS 5930 engine had none and
 a hand-written placeholder would be the only unconstrained text in the file.
 The lane exists and a preset can now declare made-ground units (see
-"Made-ground units"); `london-basin` adopts it in a later version.
+"Made-ground units"); `london-basin` adopts it in v4 (#42), the first
+version bump under the promise in "Slices".
 A glacial preset follows.
 
 ## Slices

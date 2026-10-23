@@ -1,7 +1,7 @@
-# london-basin: River Terrace Deposits over weathered and unweathered London
-# Clay (ADR 0001, #24, #48). Every range carries its basis. A basis names the
-# source as found (book, edition, chapter, printed page, table) and the
-# original paper where the book names one. "forge judgement" marks a value
+# london-basin: Made Ground over River Terrace Deposits over weathered and
+# unweathered London Clay (ADR 0001, #24, #48, #42). Every range carries its
+# basis. A basis names the source as found (book, edition, chapter, printed
+# page, table) and the original paper where the book names one. "forge judgement" marks a value
 # that describes the synthetic site or a modelling choice, not the ground.
 # "calibrated (forge analysis)" marks a range tuned so that the values the
 # file writes, pooled over many seeds, match the named source's mean and
@@ -12,6 +12,16 @@
 #
 # Description constraints (not ranges, so they carry no basis field) follow
 # these sources:
+# - Made Ground: principals CLAY, GRAVEL and SAND (36%, 29% and 29% of 1,288
+#   Made Ground soil strata in the BGS Made Ground accessions below, forge
+#   analysis); secondaries sand, gravel and clay (commonest forms gravelly
+#   sandy CLAY, clayey gravelly SAND, clayey sandy GRAVEL, sandy GRAVEL);
+#   colours the six commonest first colour phrases (brown, dark brown, dark
+#   grey, light brown, grey, black: 68% of strata). Normal soil terms first,
+#   then the man-made constituents (Norbury, Soil and Rock Description in
+#   Engineering Practice, 2010, ch. 14, pp.212-214; example p.214: "MADE
+#   GROUND: dense brown sandy GRAVEL with occasional tiles, wire, glass,
+#   tyres").
 # - RTD: light brown, slightly sandy flint GRAVEL (ICE Manual of Geotechnical
 #   Engineering Vol. 1, 2012, ch. 13, Fig. 13.1(a), p.142); brown fine to
 #   medium sand and gravel (same, ch. 4, Fig. 4.4, p.21).
@@ -23,7 +33,7 @@
 #   blue grey fissured silty clay (ICE Vol. 1, ch. 36, Table 36.2, p.496,
 #   after Czerewko et al. 2003a; BGS Lexicon, London Clay Formation).
 #
-# Sources of the v3 values (each range names the ones it uses):
+# Sources of the v3 and v4 values (each range names the ones it uses):
 # - Brosse, Lo, Davis & Che (2025), Revisiting of London Clay simple
 #   correlations using a Bayesian approach, Proc. 9th ISGSR, pp. 867-871,
 #   doi:10.3850/GRF-25280825_isgsr-185-P110-cd (2,015 Crossrail UU tests).
@@ -44,8 +54,22 @@
 #   128985 (Tideway West) and 129866 (West Drayton); terrace-gravel SPT N:
 #   128985, 126770, 129866, 121953; water strikes: 163306, 39638, 162465,
 #   167350, 167349, 167292, 167290, 83329, 167414, 167131, 168650, 162665,
-#   164271, 185262, 192346. Open Government Licence v3. Contains data supplied
+#   164271, 185262, 192346. Made Ground (v4): the 80 accessions of the two
+#   crawls, 663 holes from 126 projects: 39638, 40721, 81109, 81709, 83329,
+#   107613, 111549, 121953, 126770, 128985, 129866, 133106, 138366, 138585,
+#   138586, 140725, 140726, 141089, 141090, 161518, 161519, 161567, 161905,
+#   162207, 162345, 162409, 162410, 162465, 162565, 162665, 162765, 163045,
+#   163306, 163405, 164270, 164271, 166866, 167034, 167131, 167132, 167290,
+#   167291, 167292, 167344, 167345, 167346, 167347, 167348, 167349, 167350,
+#   167413, 167414, 167415, 167951, 167952, 167953, 167954, 168212, 168533,
+#   168549, 168650, 168963, 168964, 169038, 169571, 169573, 173376, 185262,
+#   185575, 186926, 188520, 188540, 188542, 190850, 190946, 192298, 192311,
+#   192312, 192346, 192401. Open Government Licence v3. Contains data supplied
 #   by UKRI.
+# - Terrington, Silva, Waters, Smith & Thorpe (2018), Geomorphology
+#   319:15-34, doi:10.1016/j.geomorph.2018.07.005.
+# - Ford, Price, Cooper & Waters (2014), Geol. Soc. London Spec. Publ.
+#   395:55-89, doi:10.1144/SP395.12.
 #
 # v2 context, kept for reference: RTD N 10-30 (Craig's Soil Mechanics 7th
 # ed., ch. 8, Table 8.3, p.298, medium dense, after Terzaghi and Peck; logged
@@ -53,13 +77,27 @@
 # plasticity and liquidity from ICE Vol. 2, ch. 53, Table 53.7, p.784 and ICE
 # Vol. 1, ch. 36, Table 36.3, p.498, after Cripps and Taylor 1981 and others.
 #
+# Made Ground (v4, #42) is a mixed unit: CLAY-led strata take their
+# consistency term from the fine set (Ic = 1 - LI) and SAND- or GRAVEL-led
+# strata their density term from the coarse set's SPT N. Both sets are forge
+# judgement, as the BGS exports carry no lab data on Made Ground, calibrated
+# (forge analysis) so the leading terms come out in about the BGS
+# proportions. A mixed unit takes its moisture content (so its bulk density,
+# and the overburden below it) from the fine set; the coarse set's moisture
+# content is required by the loader but not read. Every Made Ground SPT,
+# CLAY-led or not, writes the coarse set's N. Made Ground takes no lab tests
+# (the loader refuses them) and never yields a water strike. Its thickness is
+# a skewed range (ADR 0001, "Ground") fitted to the BGS P10, P50, P90 and
+# absent share; the field is compressed, so the fit is a compromise, chosen
+# to keep the no-strike share inside the BGS 32-46%.
+#
 # The suite lists no LNMC in RTD: its B and D samples are quality class 4 and
 # LNMC needs class 3 (data/sample-quality/table.json), so RTD could carry no
 # LNMC row.
 schema = 1
 name = "london-basin"
-version = 3
-summary = "River Terrace Deposits over weathered and unweathered London Clay, London Basin."
+version = 4
+summary = "Made Ground over River Terrace Deposits over weathered and unweathered London Clay, London Basin."
 
 [site]
 extent_m = { x = 300.0, y = 200.0 }
@@ -71,6 +109,39 @@ strike_rise_m = { min = 0.0, max = 2.6, basis = "BGS NGDC AGS water-strike acces
 code = "CP"
 weight = 1
 final_depth_m = { min = 20.0, max = 40.0, basis = "forge judgement: an investigation choice; within the 50-60 m percussion boreholes generally reach (Craig's Soil Mechanics, 7th ed., 2004, s10.2, p.376)" }
+
+[[units]]
+id = "MG"
+name = "Made Ground"
+thickness_m = { min = -1.0, max = 5.75, skew = 1.3, basis = "BGS NGDC AGS Made Ground accessions listed above: Made Ground over terrace gravel over London Clay, P10-P90 0.71-4.58 m, P50 1.86 m, about 10% absent (n = 102, 36 projects; Made Ground or fill in the surface sequence of 89.9% of 663 holes); range and skew fitted to these (forge analysis; the file gives P10-P50-P90 about 0.49-1.92-3.90 m, 10% absent; the best unconstrained fit, -0.6 to 6.75 at skew 1.7, lifts the no-strike share above the BGS 46%; docs/research/london-basin-sources.md). Contains data supplied by UKRI, OGL v3. Cross-checks: Terrington et al. 2018, doi:10.1016/j.geomorph.2018.07.005, Table 5 (mean over terrace deposits 2.21-3.19 m); Ford et al. 2014, doi:10.1144/SP395.12, Table 1 (made ground mean 1.4 m, SD 2.6)" }
+description = { principals = ["CLAY", "GRAVEL", "SAND"], secondaries = ["sand", "gravel", "clay"], colours = ["brown", "dark brown", "dark grey", "grey", "black", "light brown"] }
+sampling = { types = ["B", "D"], interval_m = { min = 1.0, max = 1.5, basis = "ICE Manual of Geotechnical Engineering Vol. 2, 2012, ch. 53, s53.7.2, p.791: sampling typically every 1.5 m; Craig's Soil Mechanics, 7th ed., 2004, ch. 8, p.297: SPT every 0.75-1.5 m" } }
+
+[units.made_ground]
+constituents = [
+    { name = "brick", share = 0.68, basis = "BGS NGDC AGS Made Ground accessions listed above: brick named in 879 of 1,288 Made Ground soil strata (85 projects), forge analysis, contains data supplied by UKRI, OGL v3" },
+    { name = "concrete", share = 0.39, basis = "BGS NGDC AGS Made Ground accessions listed above: concrete named in 498 of 1,288 Made Ground soil strata (85 projects), forge analysis, contains data supplied by UKRI, OGL v3" },
+    { name = "clinker", share = 0.15, basis = "BGS NGDC AGS Made Ground accessions listed above: clinker named in 196 of 1,288 Made Ground soil strata (85 projects), forge analysis, contains data supplied by UKRI, OGL v3" },
+    { name = "ash", share = 0.13, basis = "BGS NGDC AGS Made Ground accessions listed above: ash named in 167 of 1,288 Made Ground soil strata (85 projects), forge analysis, contains data supplied by UKRI, OGL v3" },
+    { name = "pottery", share = 0.1, basis = "BGS NGDC AGS Made Ground accessions listed above: pottery, ceramic or tile named in 134 of 1,288 Made Ground soil strata (85 projects), forge analysis, contains data supplied by UKRI, OGL v3" },
+    { name = "glass", share = 0.078, basis = "BGS NGDC AGS Made Ground accessions listed above: glass named in 101 of 1,288 Made Ground soil strata (85 projects), forge analysis, contains data supplied by UKRI, OGL v3" },
+    { name = "timber", share = 0.075, basis = "BGS NGDC AGS Made Ground accessions listed above: wood or timber named in 97 of 1,288 Made Ground soil strata (85 projects), forge analysis, contains data supplied by UKRI, OGL v3" },
+    { name = "metal", share = 0.063, basis = "BGS NGDC AGS Made Ground accessions listed above: metal named in 81 of 1,288 Made Ground soil strata (85 projects), forge analysis, contains data supplied by UKRI, OGL v3" },
+    { name = "coal", share = 0.057, basis = "BGS NGDC AGS Made Ground accessions listed above: coal named in 73 of 1,288 Made Ground soil strata (85 projects), forge analysis, contains data supplied by UKRI, OGL v3" },
+    { name = "slag", share = 0.042, basis = "BGS NGDC AGS Made Ground accessions listed above: slag named in 54 of 1,288 Made Ground soil strata (85 projects), forge analysis, contains data supplied by UKRI, OGL v3" },
+    { name = "plastic", share = 0.038, basis = "BGS NGDC AGS Made Ground accessions listed above: plastic named in 49 of 1,288 Made Ground soil strata (85 projects), forge analysis, contains data supplied by UKRI, OGL v3" },
+    { name = "tarmacadam", share = 0.033, basis = "BGS NGDC AGS Made Ground accessions listed above: tarmac or asphalt named in 42 of 1,288 Made Ground soil strata (85 projects), forge analysis, contains data supplied by UKRI, OGL v3" },
+]
+count = { weights = [0.20, 0.30, 0.27, 0.23], basis = "BGS NGDC AGS Made Ground accessions listed above: of 1,288 Made Ground soil strata, 20% name none of these twelve constituents, 30% one, 27% two and 23% three or more, forge analysis, contains data supplied by UKRI, OGL v3" }
+amounts = { weights = [0.14, 0.25, 0.07, 0.0, 0.02], basis = "BGS NGDC AGS Made Ground accessions listed above: share of 1,288 Made Ground soil strata using each amount word (rare 13.9%, occasional 25.1%, frequent 6.8%, numerous 0%, abundant 1.7%), forge analysis, contains data supplied by UKRI, OGL v3" }
+
+[units.properties]
+plastic_limit_percent = { min = 20, max = 26, basis = "forge judgement: the BGS exports carry no lab data on Made Ground; a reworked clay matrix at or a little below London Clay's PL 26. It feeds only the moisture content behind bulk density (the overburden below), since the loader refuses lab groups over Made Ground" }
+plasticity_index_percent = { min = 20, max = 35, basis = "forge judgement: the BGS exports carry no lab data on Made Ground; a reworked clay matrix below London Clay's PI 44, for its sand and gravel. It feeds only the moisture content behind bulk density (the overburden below)" }
+liquidity_index = { min = 0.1, max = 0.9, basis = "forge judgement (the BGS exports carry no lab data on Made Ground), calibrated (forge analysis) so CLAY-led Made Ground leads soft and firm in about equal shares, with a little stiff (BGS NGDC AGS Made Ground accessions listed above: soft 15%, firm 13%, stiff 4% of 1,288 Made Ground soil strata, forge analysis, contains data supplied by UKRI, OGL v3)" }
+spt_n = { min = 3, max = 18, basis = "forge judgement (the BGS exports carry no lab data on Made Ground), calibrated (forge analysis) so SAND- and GRAVEL-led Made Ground leads loose and medium dense in about equal shares (BGS NGDC AGS Made Ground accessions listed above: loose 6%, medium dense 6% of 1,288 Made Ground soil strata, forge analysis, contains data supplied by UKRI, OGL v3). Cross-check: SPT N in Made Ground in the same accessions, refusals excluded, mean 12.5, P10-P50-P90 3-10-25 (n = 434, 30 projects), forge analysis" }
+moisture_content_percent = { min = 10, max = 20, basis = "forge judgement; not read, because a unit with a fine principal takes its moisture content from the fine set" }
+particle_density_ratio = { min = 2.60, max = 2.70, basis = "Head, Manual of Soil Laboratory Testing Vol. 1, 3rd ed., Table 3.1, p.126 (kaolinite 2.6, quartz 2.65). Mineral values; their use for Made Ground, whose brick, ash and clinker are not minerals, is forge judgement" }
 
 [[units]]
 id = "RTD"
@@ -153,7 +224,7 @@ headings = ["TRIT_CU", "TRIT_DEVF", "TRIT_CELL", "TRIT_BDEN", "TRIT_IMC"]
 [[suite]]
 group = "ISPT"
 headings = ["ISPT_NVAL"]
-units = ["RTD", "WLC", "LC"]
+units = ["MG", "RTD", "WLC", "LC"]
 rate = { min = 1.0, max = 1.0, basis = "Decoding Eurocode 7 (Bond and Harris, 2008) gives no SPT frequency; ICE Manual of Geotechnical Engineering Vol. 1, 2012, p.630: SPTs 'typically every 1.5 m'. An SPT at every D sample follows the sampling interval (forge judgement)" }
 
 [[suite]]
