@@ -502,6 +502,34 @@ rate = { min = 0.5, max = 0.5, basis = "test fixture" }
         }
     }
 
+    /// tyneside-till's rates meet the same Decoding Eurocode 7 minimums on
+    /// the smallest default site, with the weathered, red and grey tills
+    /// counted as one till stratum, as the preset's rate bases say.
+    #[test]
+    fn tyneside_till_meets_the_ec7_minimums_on_the_smallest_default_site() {
+        let p = super::super::preset::resolve("tyneside-till").unwrap();
+        let till = ["WT", "RT", "GT"];
+        for seed in 0..1000 {
+            let site = build::build(&p, seed, 3);
+            let m = build::lower(&site, &p, seed, Grid::Local);
+            for (group, minimum) in [("LLPL", 3), ("LNMC", 3), ("LDEN", 3), ("TRIG", 3)] {
+                let n = rows(&m, group)
+                    .iter()
+                    .filter(|r| {
+                        let id = &r.values[col(&m, group, "LOCA_ID")];
+                        let top = &r.values[col(&m, group, "SAMP_TOP")];
+                        let h = site.holes.iter().find(|h| &h.id == id).unwrap();
+                        numbered(h).any(|n| {
+                            till.contains(&n.stratum.unit.as_str())
+                                && format!("{:.2}", n.sample.top) == *top
+                        })
+                    })
+                    .count();
+                assert!(n >= minimum, "seed {seed}: {n} {group} tests in the till");
+            }
+        }
+    }
+
     #[test]
     fn a_range_rate_is_one_draw_per_site_inside_its_range() {
         let p = suite_fixture();

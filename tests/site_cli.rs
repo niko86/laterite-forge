@@ -133,6 +133,7 @@ fn site_is_documented_in_help() {
         "--grid",
         "--origin <E,N>",
         "london-basin",
+        "tyneside-till",
     ] {
         assert!(help.contains(flag), "{flag} is missing from gen --help");
     }
@@ -142,6 +143,7 @@ fn site_is_documented_in_help() {
     for text in [
         "## Site model",
         "--site london-basin",
+        "--site tyneside-till",
         "--grid bng --origin",
         "SYNTHETIC",
     ] {

@@ -161,7 +161,7 @@ pub struct GenArgs {
     #[arg(long)]
     pub out_dir: Option<PathBuf>,
     /// Generate from a site-model preset instead of a scaffold: a shipped
-    /// name (`london-basin`) or a path to a preset TOML. The file carries
+    /// name (`london-basin`, `tyneside-till`) or a path to a preset TOML. The file carries
     /// believable synthetic ground (strata, samples, the preset's test suite)
     /// and a SYNTHETIC marker in `PROJ_MEMO`. Same preset version and seed,
     /// same bytes; any change to a shipped preset's output bumps its version.
@@ -333,7 +333,7 @@ pub struct ScaleArgs {
     #[arg(long)]
     pub density: Option<f64>,
     /// Scale a site-model preset instead of a scaffold: a shipped name
-    /// (`london-basin`) or a path to a preset TOML. The hole count is
+    /// (`london-basin`, `tyneside-till`) or a path to a preset TOML. The hole count is
     /// calibrated to `--size`; a smaller file is a prefix of a larger one,
     /// group by group, because hole k is the same whatever the hole count.
     #[arg(long, conflicts_with = "scaffold", value_name = "PRESET")]

@@ -22,10 +22,16 @@ use crate::synth::made_ground;
 const SCHEMA: i64 = 1;
 
 /// Presets shipped inside the binary as `(name, toml)`.
-pub(crate) const SHIPPED: &[(&str, &str)] = &[(
-    "london-basin",
-    include_str!("../../data/presets/london-basin.toml"),
-)];
+pub(crate) const SHIPPED: &[(&str, &str)] = &[
+    (
+        "london-basin",
+        include_str!("../../data/presets/london-basin.toml"),
+    ),
+    (
+        "tyneside-till",
+        include_str!("../../data/presets/tyneside-till.toml"),
+    ),
+];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Preset {
@@ -2321,6 +2327,37 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
                 panic!("shipped preset {name} is refused:\n{e}");
             }
             assert!(resolve(name).is_ok(), "{name} does not resolve by name");
+        }
+    }
+
+    /// tyneside-till (#13) loads by name as three tills over one another with
+    /// a water-bearing sand and gravel lens in the grey till, and every range
+    /// carries a real basis, not a placeholder.
+    #[test]
+    fn tyneside_till_loads_with_its_tills_and_lens() {
+        let p = resolve("tyneside-till").unwrap();
+        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 1));
+        let units: Vec<&str> = p.units.iter().map(|u| u.id.as_str()).collect();
+        assert_eq!(units, ["WT", "RT", "GT"]);
+        assert!(p.units.last().unwrap().thickness_m.is_none());
+        assert_eq!(p.lenses.len(), 1);
+        let lens = &p.lenses[0];
+        assert_eq!((lens.id.as_str(), lens.host.as_str()), ("GFSG", "GT"));
+        let share = lens.water_bearing.as_ref().unwrap();
+        assert_eq!((share.min, share.max), (0.36, 0.36));
+        assert!(share.basis.contains("89 of 249"), "{}", share.basis);
+        let text = SHIPPED
+            .iter()
+            .find(|(n, _)| *n == "tyneside-till")
+            .unwrap()
+            .1;
+        for line in text.lines().filter(|l| l.contains("basis = ")) {
+            for placeholder in ["\"calib\"", "\"BGS\"", "\"ICE\"", "\"EC7\"", "\"Head\""] {
+                assert!(!line.contains(placeholder), "placeholder basis: {line}");
+            }
+            if line.contains("BGS NGDC") {
+                assert!(line.contains("Contains data supplied by UKRI"), "{line}");
+            }
         }
     }
 
