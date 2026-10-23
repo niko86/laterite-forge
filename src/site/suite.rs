@@ -466,6 +466,42 @@ rate = { min = 0.5, max = 0.5, basis = "test fixture" }
         assert!((f - 0.6).abs() < 0.06, "LDEN in LC: {f}");
     }
 
+    /// london-basin's rates are sized so the smallest default site meets
+    /// Decoding Eurocode 7's "no comparable experience" minimums per stratum
+    /// (Bond and Harris 2008, ch. 4, s4.5.4, Figs 4.14 and 4.15, p.108;
+    /// Example 4.3, p.124): 3 Atterberg tests, 3 bulk densities, 3 triaxial cu
+    /// tests, and water contents at least the Atterberg count (3). WLC and LC count
+    /// as one London Clay stratum, as the preset's rate bases say.
+    #[test]
+    fn london_basin_meets_the_ec7_minimums_on_the_smallest_default_site() {
+        let p = super::super::preset::resolve("london-basin").unwrap();
+        let smallest = (0..2000).map(build::default_hole_count).min();
+        assert_eq!(smallest, Some(3));
+        let london_clay = ["WLC", "LC"];
+        for seed in 0..1000 {
+            let site = build::build(&p, seed, 3);
+            let m = build::lower(&site, &p, seed, Grid::Local);
+            for (group, minimum) in [("LLPL", 3), ("LNMC", 3), ("LDEN", 3), ("TRIG", 3)] {
+                let n = rows(&m, group)
+                    .iter()
+                    .filter(|r| {
+                        let id = &r.values[col(&m, group, "LOCA_ID")];
+                        let top = &r.values[col(&m, group, "SAMP_TOP")];
+                        let h = site.holes.iter().find(|h| &h.id == id).unwrap();
+                        numbered(h).any(|n| {
+                            london_clay.contains(&n.stratum.unit.as_str())
+                                && format!("{:.2}", n.sample.top) == *top
+                        })
+                    })
+                    .count();
+                assert!(
+                    n >= minimum,
+                    "seed {seed}: {n} {group} tests in London Clay"
+                );
+            }
+        }
+    }
+
     #[test]
     fn a_range_rate_is_one_draw_per_site_inside_its_range() {
         let p = suite_fixture();

@@ -89,6 +89,28 @@ sources: []
 > size-scaled *densely-dirty* twin of a clean rung prices the validator's
 > error-emission path at scale (T5) — e.g. `--inject rule16 --density 1.0`
 > is ~314k Rule-16 findings on a 25 MB file.
+> `gen --site <preset>` and `scale --site <preset>` replace the scaffold with
+> the **site model** (ADR 0001, `docs/adr/0001-forge-owns-a-site-model.md` in
+> this repo): a preset, either the shipped `london-basin` or a TOML path,
+> describes believable synthetic ground, and forge builds holes, strata,
+> samples and the preset's test suite from it. `london-basin` v3 writes PROJ,
+> TRAN, LOCA, GEOL, SAMP, LNMC, LLPL, LDEN, TRIG/TRIT, ISPT and WSTG/WSTD,
+> with every value from the property model and every range cited in the
+> preset (`docs/research/london-basin-sources.md` gives the calibration).
+> `--site` and `--scaffold` are mutually exclusive, and the loader refuses a
+> preset with a missing basis, an unknown key, or a suite heading no producer
+> can make, naming the field (exit 5). Every file carries a SYNTHETIC marker in
+> `PROJ_MEMO` naming the preset and version. Holes sit on a local grid;
+> `--grid bng --origin E,N` adds `LOCA_NATE`/`LOCA_NATN`/`LOCA_GREF` at an
+> origin the consumer chooses. `gen --site` draws 3–7 holes from the seed;
+> `scale --site` calibrates the hole count to `--size`, and because every draw
+> is keyed by (seed, tag, hole, unit, test), hole k is the same at any hole
+> count, so a smaller scaled file is a group-by-group prefix of a larger one.
+> `gen`'s `--inject` and `--combine`, and `scale`'s `--inject`/`--density`, run
+> unchanged on a site base. The preset versioning promise starts at `london-basin` v3: any change
+> to a shipped preset's output bumps its `version`, re-pins
+> `shipped_preset_output_bytes_are_pinned`, and consumers are told and
+> re-baseline.
 > `edit` is the one command that does not synthesize: it applies **structured
 > edits to a file that already exists** — set/blank a cell, rewrite the UNIT or
 > the TYPE a heading declares, add a column, add or insert a row, delete a row,

@@ -42,25 +42,43 @@ use super::suite::Producer;
 /// (Decoding Eurocode 7, Bond and Harris, 2008, ch. 5, s5.3.1, p.136, after
 /// Schneider 1997 and Phoon and Kulhawy 1999).
 pub const DENSITY_COV: f64 = 0.055;
-/// Coefficient of variation of a moisture content result. Basis: forge
-/// judgement.
-pub const MOISTURE_COV: f64 = 0.075;
-/// Coefficient of variation of a liquid or plastic limit result. Basis: forge
-/// judgement.
-pub const LIMIT_COV: f64 = 0.075;
-/// Coefficient of variation of an undrained strength result: the midpoint of
-/// 20-40 % (Decoding Eurocode 7, Bond and Harris, 2008, ch. 5, s5.3.1, p.136).
-pub const STRENGTH_COV: f64 = 0.30;
-/// Coefficient of variation of an SPT N result in a unit with its own N. Basis:
-/// forge judgement.
-pub const SPT_COV: f64 = 0.30;
+/// Coefficient of variation of a moisture content result. Calibrated (forge
+/// analysis, #48) against london-basin v3 over 400 seeds: the pooled `LNMC_MC`
+/// COV is 0.118 in LC and 0.119 in WLC, just under the 0.12 of the BGS crawl
+/// (London Clay w, n = 217) with Skempton and Henkel 1957 giving the mean.
+/// Inside the site-specific clay range of ISSMGE-TC304 (2021),
+/// doi:10.53243/R0001, Table 1.2 (w 3.5-46 %).
+pub const MOISTURE_COV: f64 = 0.115;
+/// Coefficient of variation of a liquid or plastic limit result. Calibrated
+/// (forge analysis, #48) against london-basin v3 over 400 seeds: the pooled
+/// `LLPL_PL` COV is 0.089 in LC and 0.090 in WLC, at the 0.09 of the BGS crawl
+/// and Cooling and Skempton (9.4 %, in ISSMGE-TC304 2021, Appendix), and the
+/// written PI spans P10-P90 34-54 against 33-54 (Jones and Terrington 2011).
+/// Inside ISSMGE-TC304 (2021), doi:10.53243/R0001, Table 1.2 (LL 3.4-39 %, PL
+/// 2.9-38.1 %).
+pub const LIMIT_COV: f64 = 0.088;
+/// Coefficient of variation of an undrained strength result. Calibrated (forge
+/// analysis, #48) against london-basin v3 over 400 seeds: LC `TRIT_CU` over the
+/// Brosse et al. 2025 mean line (83.1 + 7.4z kPa) has COV 0.343, against
+/// their sigma/mu of about 0.34 (doi:10.3850/GRF-25280825_isgsr-185-P110-cd),
+/// and WLC `TRIT_CU` pools to COV 0.44 (their weathered row, 0.44). Inside
+/// ISSMGE-TC304 (2021), doi:10.53243/R0001, Table 1.2 (su 6-56 %).
+pub const STRENGTH_COV: f64 = 0.345;
+/// Coefficient of variation of an SPT N result in a unit with its own N.
+/// Calibrated (forge analysis, #48) against london-basin v3 over 400 seeds:
+/// RTD `ISPT_NVAL` pools to mean 27.1, COV 0.47, inside the 0.40-0.50 between
+/// the BGS crawl (0.39) and Royse et al. 2009 (about 0.5). Inside the sand
+/// range of ISSMGE-TC304 (2021), doi:10.53243/R0001, Table 1.3 (SPT-N
+/// 18.4-62 %).
+pub const SPT_COV: f64 = 0.42;
 /// The TRIT headings that need the unit to have a `strength`.
 pub const TRIT_STRENGTH_HEADINGS: &[&str] = &["TRIT_CU", "TRIT_DEVF"];
 /// The LLPL headings that need the unit to have `fine` properties.
 pub const LLPL_HEADINGS: &[&str] = &["LLPL_LL", "LLPL_PL", "LLPL_PI"];
 /// The chance a result is an outlier. Basis: forge judgement.
 pub const RESULT_OUTLIER_RATE: f64 = 0.02;
-/// Scatter is a standard normal truncated at this many standard deviations.
+/// The scatter draw is a standard normal truncated at this many standard
+/// deviations.
 const TRUNCATION: f64 = 3.0;
 
 /// A standard normal draw truncated at +-[`TRUNCATION`]: Box-Muller on two
@@ -1059,9 +1077,20 @@ rate = {{ min = 1.0, max = 1.0, basis = "test fixture" }}
         }
     }
 
+    /// The calibrated result COVs stay inside the site-specific ranges their
+    /// doc comments check them against (ISSMGE-TC304 2021, Tables 1.2 and
+    /// 1.3), so a re-calibration cannot drift out of them unnoticed.
     #[test]
-    fn the_strength_cov_is_the_midpoint_of_twenty_to_forty_percent() {
-        assert!((STRENGTH_COV - f64::midpoint(0.20, 0.40)).abs() < 1e-12);
+    fn the_calibrated_covs_sit_inside_the_tc304_site_specific_ranges() {
+        for (name, cov, lo, hi) in [
+            ("MOISTURE_COV (w)", MOISTURE_COV, 0.035, 0.46),
+            ("LIMIT_COV (LL)", LIMIT_COV, 0.034, 0.39),
+            ("LIMIT_COV (PL)", LIMIT_COV, 0.029, 0.381),
+            ("STRENGTH_COV (su)", STRENGTH_COV, 0.06, 0.56),
+            ("SPT_COV (sand SPT-N)", SPT_COV, 0.184, 0.62),
+        ] {
+            assert!((lo..=hi).contains(&cov), "{name} {cov} outside {lo}-{hi}");
+        }
     }
 
     /// In a fine unit N x f1 / cu is 1 before scatter, so over many tests its
