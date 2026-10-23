@@ -15,6 +15,7 @@ use toml::Value;
 use super::properties::{self as props, Domain};
 use super::results;
 use super::suite;
+use crate::synth::bs5930::{Content, VeryCoarse};
 use crate::synth::made_ground;
 
 /// The only schema this forge reads.
@@ -196,6 +197,8 @@ pub struct DescriptionSpec {
     pub principals: Vec<String>,
     pub secondaries: Vec<String>,
     pub colours: Vec<String>,
+    /// Cobble and boulder content, worded per BS 5930 Table 15.
+    pub very_coarse: Option<VeryCoarse>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1663,12 +1666,62 @@ fn read_description(u: &mut Node, errs: &mut Vec<String>) -> Option<DescriptionS
             errs.push(format!("{}: must not be empty", d.at(key)));
         }
     }
+    let very_coarse = read_very_coarse(&mut d, errs);
     d.finish(errs);
     Some(DescriptionSpec {
         principals: principals?,
         secondaries: secondaries?,
         colours: colours?,
+        very_coarse: very_coarse?,
     })
+}
+
+/// A description's optional `very_coarse = { cobbles = "low", boulders =
+/// "medium" }`: each side a level (low, medium or high) and either omitted,
+/// but not both. The outer `None` is a problem already reported.
+// Outer `None` is a reported problem; inner `None` is "not written".
+#[allow(clippy::option_option)]
+fn read_very_coarse(d: &mut Node, errs: &mut Vec<String>) -> Option<Option<VeryCoarse>> {
+    let at = d.at("very_coarse");
+    let t = match d.get("very_coarse") {
+        None => return Some(None),
+        Some(Value::Table(t)) => t,
+        Some(_) => {
+            errs.push(format!("{at}: must be a table"));
+            return None;
+        }
+    };
+    let mut v = Node::new(t, at);
+    let mut level = |key: &'static str, errs: &mut Vec<String>| -> Option<Option<Content>> {
+        let here = v.at(key);
+        match v.get(key) {
+            None => Some(None),
+            Some(Value::String(s)) => {
+                if let Some(c) = Content::parse(s) {
+                    Some(Some(c))
+                } else {
+                    errs.push(format!(
+                        "{here}: unknown level \"{s}\" (known: low, medium, high)"
+                    ));
+                    None
+                }
+            }
+            Some(_) => {
+                errs.push(format!("{here}: must be a string"));
+                None
+            }
+        }
+    };
+    let cobbles = level("cobbles", errs);
+    let boulders = level("boulders", errs);
+    if t.is_empty() {
+        errs.push(format!("{}: names neither cobbles nor boulders", v.path));
+    }
+    v.finish(errs);
+    Some(Some(VeryCoarse {
+        cobbles: cobbles?,
+        boulders: boulders?,
+    }))
 }
 
 fn read_sampling(u: &mut Node, samp: &[&str], errs: &mut Vec<String>) -> Option<Sampling> {
@@ -3084,5 +3137,85 @@ rate = { min = 1, max = 1, basis = "test fixture" }
         let p = Preset::from_toml(&rtd_made_ground(&with_suite(), "true")).expect("valid");
         let ispt = p.suite.iter().find(|e| e.group == "ISPT").unwrap();
         assert_eq!(ispt.units, ["RTD"]);
+    }
+
+    /// `RTD_DESC` with `very_coarse` written as `spec`.
+    fn rtd_very_coarse(spec: &str) -> String {
+        let desc = RTD_DESC.replace(" }", &format!(", very_coarse = {spec} }}"));
+        with(RTD_DESC, &desc)
+    }
+
+    #[test]
+    fn a_description_without_very_coarse_is_plain() {
+        let p = Preset::from_toml(&valid()).expect("valid");
+        assert!(p.units.iter().all(|u| u.description.very_coarse.is_none()));
+    }
+
+    #[test]
+    fn very_coarse_loads_either_side_or_both() {
+        let load = |spec: &str| {
+            Preset::from_toml(&rtd_very_coarse(spec))
+                .expect("valid")
+                .units[0]
+                .description
+                .very_coarse
+        };
+        assert_eq!(
+            load(r#"{ cobbles = "low", boulders = "high" }"#),
+            Some(VeryCoarse {
+                cobbles: Some(Content::Low),
+                boulders: Some(Content::High)
+            })
+        );
+        assert_eq!(
+            load(r#"{ boulders = "medium" }"#),
+            Some(VeryCoarse {
+                cobbles: None,
+                boulders: Some(Content::Medium)
+            })
+        );
+        assert_eq!(
+            load(r#"{ cobbles = "low" }"#),
+            Some(VeryCoarse {
+                cobbles: Some(Content::Low),
+                boulders: None
+            })
+        );
+    }
+
+    #[test]
+    fn very_coarse_refuses_an_unknown_level_naming_the_field() {
+        assert_refused(
+            &rtd_very_coarse(r#"{ cobbles = "some" }"#),
+            "units[0] (RTD).description.very_coarse.cobbles: unknown level \"some\" (known: low, medium, high)",
+        );
+        assert_refused(
+            &rtd_very_coarse(r#"{ boulders = "Low" }"#),
+            "units[0] (RTD).description.very_coarse.boulders: unknown level \"Low\" (known: low, medium, high)",
+        );
+        assert_refused(
+            &rtd_very_coarse(r"{ boulders = 3 }"),
+            "units[0] (RTD).description.very_coarse.boulders: must be a string",
+        );
+    }
+
+    #[test]
+    fn very_coarse_refuses_an_unknown_key_naming_the_field() {
+        assert_refused(
+            &rtd_very_coarse(r#"{ cobbles = "low", gravel = "low" }"#),
+            "units[0] (RTD).description.very_coarse: unknown key \"gravel\"",
+        );
+    }
+
+    #[test]
+    fn very_coarse_refuses_naming_neither_fraction_and_a_non_table() {
+        assert_refused(
+            &rtd_very_coarse("{}"),
+            "units[0] (RTD).description.very_coarse: names neither cobbles nor boulders",
+        );
+        assert_refused(
+            &rtd_very_coarse(r#""low""#),
+            "units[0] (RTD).description.very_coarse: must be a table",
+        );
     }
 }
