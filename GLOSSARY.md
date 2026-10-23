@@ -45,6 +45,18 @@ _Avoid_: layer, unit (for this meaning)
 A unit whose preset entry sets `made_ground`. Its strata are described `MADE GROUND: ` + matrix + constituents. It takes no lab tests and never yields a water strike.
 _Avoid_: fill, artificial ground
 
+**Cover layer**:
+What lies on the ground before a hole's first stratum: topsoil, hard surfacing or nothing, one keyed draw per hole from a preset's `[cover]` block. It takes its thickness off the top of the first stratum, so no other boundary, sample, test or strike moves. Nothing is sampled or tested in it.
+_Avoid_: overburden, capping
+
+**Topsoil**:
+A cover layer worded "<colour> <minor fractions> TOPSOIL with rootlets." (for example "Dark brown slightly gravelly sandy TOPSOIL with rootlets."), from the topsoil lane of the BS 5930 engine. Not a unit and not made ground.
+_Avoid_: soil layer, A horizon
+
+**Surfacing**:
+A cover layer of hard standing, a Made Ground stratum worded "MADE GROUND: Tarmacadam.", "MADE GROUND: Concrete." or "MADE GROUND: Paving slabs.", the kind drawn by weight.
+_Avoid_: paving, pavement, hardstanding
+
 **Water-bearing stratum**:
 A stratum of a unit or lens whose preset entry sets `water_bearing`. A hole that meets one strikes water at its top, and the readings rise toward the water table, or stay at the strike when the table is deeper (perched water). Optionally a table with a `share` (0 to 1, cited, drawn once per site), the fraction of holes meeting the stratum that yield water in it; `true` is share 1. A hole that does not yield gets no strike from the stratum, and the water-table rule applies as before. Never a made-ground unit.
 _Avoid_: aquifer, wet layer

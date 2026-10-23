@@ -988,6 +988,115 @@ pub fn describe_unit(
     })
 }
 
+/// What a site-model topsoil allows its description to say (ADR 0001, "Cover
+/// layer"): a weighted colour and the minor fractions with the chance each is
+/// named. Owned strings, so preset data maps straight on.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TopsoilSpec {
+    /// Whole colour phrases with their weights, each used verbatim.
+    pub colours: Vec<(String, f64)>,
+    /// A fraction (`sand`, `gravel`, `silt` or `clay`) and the chance it is
+    /// named.
+    pub secondaries: Vec<(String, f64)>,
+}
+
+/// The upper bound of a topsoil fraction's field-estimate percentage (forge
+/// judgement); with the Table 17 fine-soil bands it gives a "slightly" and a
+/// plain adjective in about equal parts and "very" rarely, as the logs do.
+const TOPSOIL_FRACTION_MAX_PCT: i64 = 70;
+
+/// The most the named fractions of a topsoil sum to, as in the other lanes'
+/// budgets (forge judgement).
+const TOPSOIL_BUDGET_PCT: i64 = 80;
+
+impl TopsoilSpec {
+    /// Every problem in this constraint against `vocab`, empty when usable.
+    pub fn problems(&self, vocab: &Vocab) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.colours.is_empty() {
+            out.push("empty palette".to_string());
+        }
+        out.extend(
+            self.colours
+                .iter()
+                .filter_map(|(c, _)| colour_problem(vocab, c)),
+        );
+        for (fraction, _) in &self.secondaries {
+            if !UNIT_SECONDARIES.contains(&fraction.as_str()) {
+                out.push(format!("unknown secondary {fraction:?}"));
+            }
+        }
+        out
+    }
+}
+
+/// Draw one topsoil description: `<Colour> <fractions> TOPSOIL with rootlets.`,
+/// e.g. `Dark brown slightly gravelly sandy TOPSOIL with rootlets.`
+///
+/// The fractions read in increasing proportion, like the other lanes' (the
+/// least first), banded by Table 17's fine-soil column; no consistency term
+/// leads, since a topsoil is not graded by hand test. Every fraction draws its
+/// chance and its percentage whether or not it is named, so the share of one
+/// never moves another's draw. The clause "with rootlets" is the topsoil's
+/// own (forge judgement). Errors only on a constraint
+/// [`TopsoilSpec::problems`] would report.
+// `rng.range(1, hi) as u32`: hi is at most TOPSOIL_FRACTION_MAX_PCT.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+pub fn describe_topsoil(
+    vocab: &Vocab,
+    rng: &mut Rng,
+    spec: &TopsoilSpec,
+) -> Result<String, String> {
+    let problems = spec.problems(vocab);
+    if !problems.is_empty() {
+        return Err(problems.join("; "));
+    }
+    let total: f64 = spec.colours.iter().map(|c| c.1).sum();
+    let mut at = (rng.below(1 << 53) as f64) / ((1u64 << 53) as f64) * total;
+    let colour = spec
+        .colours
+        .iter()
+        .find(|(_, w)| {
+            if at < *w {
+                true
+            } else {
+                at -= w;
+                false
+            }
+        })
+        .or(spec.colours.last())
+        .map(|(c, _)| c.clone())
+        .expect("a palette is not empty");
+
+    // The named fractions share a budget, as in the other lanes, so two never
+    // both read "very".
+    let mut budget = TOPSOIL_BUDGET_PCT;
+    let mut secondaries: Vec<Secondary> = Vec::new();
+    for (fraction, share) in &spec.secondaries {
+        let named = (rng.below(1 << 53) as f64) / ((1u64 << 53) as f64) < *share;
+        let pct = rng.range(1, budget.clamp(1, TOPSOIL_FRACTION_MAX_PCT)) as u32;
+        if named {
+            budget -= i64::from(pct);
+            secondaries.push(Secondary {
+                soil: fraction_static(fraction),
+                pct,
+                qualifier: band_fine_principal(pct),
+            });
+        }
+    }
+    secondaries.sort_by_key(|s| s.pct);
+
+    let mut words = vec![colour];
+    words.extend(secondaries.iter().map(Secondary::adjective));
+    words.push("TOPSOIL".to_string());
+    let mut text = words.join(" ");
+    if let Some(first) = text.get_mut(..1) {
+        first.make_ascii_uppercase();
+    }
+    text.push_str(" with rootlets.");
+    Ok(text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1876,5 +1985,88 @@ mod very_coarse_tests {
             ["very coarse content names neither cobbles nor boulders"]
         );
         assert!(describe_unit(&v, &mut Rng::seeded(1), &u, Lead::default()).is_err());
+    }
+}
+
+/// The topsoil lane (ADR 0001, "Cover layer").
+#[cfg(test)]
+mod topsoil_tests {
+    use super::*;
+
+    fn spec(colours: &[(&str, f64)], secondaries: &[(&str, f64)]) -> TopsoilSpec {
+        TopsoilSpec {
+            colours: colours
+                .iter()
+                .map(|(c, w)| ((*c).to_string(), *w))
+                .collect(),
+            secondaries: secondaries
+                .iter()
+                .map(|(f, s)| ((*f).to_string(), *s))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn a_topsoil_reads_colour_fractions_topsoil_with_rootlets() {
+        let v = Vocab::load();
+        let s = spec(&[("dark brown", 1.0)], &[("gravel", 1.0), ("sand", 1.0)]);
+        for seed in 0..50u64 {
+            let text = describe_topsoil(&v, &mut Rng::seeded(seed), &s).unwrap();
+            let body = text.strip_suffix(" TOPSOIL with rootlets.").expect(&text);
+            let words: Vec<&str> = body.split(' ').collect();
+            assert_eq!(&words[..2], ["Dark", "brown"], "{text}");
+            // Both fractions are always named, each after at most a
+            // qualifier, and never both "very".
+            let named: Vec<&str> = words[2..]
+                .iter()
+                .copied()
+                .filter(|w| matches!(*w, "sandy" | "gravelly"))
+                .collect();
+            assert!(
+                named == ["gravelly", "sandy"] || named == ["sandy", "gravelly"],
+                "{text}"
+            );
+            assert!(words.iter().filter(|w| **w == "very").count() < 2, "{text}");
+        }
+    }
+
+    #[test]
+    fn a_fraction_with_no_chance_is_never_named_and_one_with_certainty_always_is() {
+        let v = Vocab::load();
+        let s = spec(&[("brown", 1.0)], &[("clay", 1.0), ("silt", 0.0)]);
+        for seed in 0..50u64 {
+            let text = describe_topsoil(&v, &mut Rng::seeded(seed), &s).unwrap();
+            assert!(text.contains("clayey") && !text.contains("silty"), "{text}");
+        }
+        let none = spec(&[("brown", 1.0)], &[]);
+        assert_eq!(
+            describe_topsoil(&v, &mut Rng::seeded(1), &none).unwrap(),
+            "Brown TOPSOIL with rootlets."
+        );
+    }
+
+    #[test]
+    fn a_zero_weight_colour_is_never_drawn_and_the_draw_is_deterministic() {
+        let v = Vocab::load();
+        let s = spec(&[("grey", 0.0), ("black", 2.0)], &[("sand", 0.5)]);
+        for seed in 0..50u64 {
+            let a = describe_topsoil(&v, &mut Rng::seeded(seed), &s).unwrap();
+            assert_eq!(a, describe_topsoil(&v, &mut Rng::seeded(seed), &s).unwrap());
+            assert!(a.starts_with("Black "), "{a}");
+        }
+    }
+
+    #[test]
+    fn a_colour_or_fraction_the_vocabulary_cannot_meet_is_an_error() {
+        let v = Vocab::load();
+        let bad = spec(&[("mauve", 1.0)], &[("loam", 0.5)]);
+        let e = describe_topsoil(&v, &mut Rng::seeded(0), &bad).unwrap_err();
+        assert!(e.contains("mauve") && e.contains("loam"), "{e}");
+        let empty = spec(&[], &[]);
+        assert!(
+            describe_topsoil(&v, &mut Rng::seeded(0), &empty)
+                .unwrap_err()
+                .contains("empty palette")
+        );
     }
 }

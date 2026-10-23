@@ -93,7 +93,7 @@ sources: []
 > the **site model** (ADR 0001, `docs/adr/0001-forge-owns-a-site-model.md` in
 > this repo): a preset, either a shipped one (`london-basin`, `tyneside-till`) or a TOML path,
 > describes believable synthetic ground, and forge builds holes, strata,
-> samples and the preset's test suite from it. `london-basin` v5 writes PROJ,
+> samples and the preset's test suite from it. `london-basin` v6 writes PROJ,
 > TRAN, LOCA, GEOL, SAMP, LNMC, LLPL, LDEN, TRIG/TRIT, ISPT and WSTG/WSTD,
 > with every value from the property model and every range cited in the
 > preset (`docs/research/london-basin-sources.md` gives the calibration).
@@ -103,7 +103,14 @@ sources: []
 > strength (any drawn N of 50 or more) and, where a preset sets
 > `spt.refusal_share`, from cobble and boulder strikes (ADR 0001, "SPT
 > refusals").
-> `tyneside-till` v2 writes the same groups for NE England glacial till:
+> A preset's optional `[cover]` block adds a **cover layer** (ADR 0001,
+> "Cover layer"): each hole draws surfacing, topsoil or nothing (shares and
+> thicknesses cited, drawn once per site and per hole), and the cover takes its
+> thickness off the top of the first stratum, so only the first GEOL row's top
+> moves and one row is added. `london-basin` v6 has both layers
+> (`MADE GROUND: Tarmacadam.` and the like; `Dark brown slightly gravelly
+> sandy TOPSOIL with rootlets.`); `tyneside-till` v3 has topsoil only.
+> `tyneside-till` v3 writes the same groups for NE England glacial till:
 > weathered, red and grey till with a glaciofluvial sand and gravel lens in
 > the grey till, water-bearing in a 0.36 share of the holes it reaches,
 > calibrated to Clarke et al. 2008 and a BGS NGDC crawl

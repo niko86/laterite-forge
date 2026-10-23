@@ -100,18 +100,26 @@ pub(super) fn strikes(site: &Site, preset: &Preset, seed: u64) -> Vec<Strike> {
     let mut out = Vec::new();
     for (hi, hole) in site.holes.iter().enumerate() {
         let table = round2(site.properties.groundwater_depth(hole));
+        // Nothing is struck in the cover: a table above its base (which the
+        // loader rules out, since the cover is thinner than the shallowest
+        // table) would strike nothing.
+        let cover_base = hole.cover.as_ref().map_or(0.0, |c| c.base);
         let in_table = hole
             .strata
             .iter()
             .find(|s| table >= s.top && table < s.base)
+            .filter(|_| table >= cover_base)
             // Made Ground yields no strike, whatever its properties: perched
             // water is out of scope (niko86/laterite-forge#42, M2).
             .filter(|s| !preset.is_made_ground(&s.unit) && site.properties.is_coarse(&s.unit));
-        // The first water-bearing stratum down the hole that yields water.
+        // The first water-bearing stratum down the hole that yields water,
+        // struck at its written top (below the cover).
         let bearing = hole
             .strata
             .iter()
-            .find(|s| yields(&shares, seed, hi, &s.unit));
+            .enumerate()
+            .find(|(_, s)| yields(&shares, seed, hi, &s.unit))
+            .map(|(i, _)| hole.written_top(i));
         if in_table.is_none() && bearing.is_none() {
             continue;
         }
@@ -121,14 +129,14 @@ pub(super) fn strikes(site: &Site, preset: &Preset, seed: u64) -> Vec<Strike> {
             depth: round2(table + rise).min(s.base),
             settle: table,
         });
-        let by_stratum = bearing.map(|s| Strike {
+        let by_stratum = bearing.map(|top| Strike {
             hole: hi,
-            depth: s.top,
+            depth: top,
             // Perched water has no head above the strike to rise into.
-            settle: if table < s.top {
-                table.max(round2(s.top - rise))
+            settle: if table < top {
+                table.max(round2(top - rise))
             } else {
-                s.top
+                top
             },
         });
         // A water-bearing stratum takes precedence over the table rule.

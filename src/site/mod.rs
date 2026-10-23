@@ -5,6 +5,7 @@
 //! and lowers them into the model the emitter writes.
 
 pub mod build;
+pub mod cover;
 mod draw;
 mod ground;
 pub mod preset;

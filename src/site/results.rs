@@ -134,7 +134,6 @@ fn specimen_at<'a>(
     depth: f64,
 ) -> Option<Specimen<'a>> {
     let hole_index = site.holes.iter().position(|h| h.id == hole.id)?;
-    let mut index = 0u64;
     for stratum in &site.holes[hole_index].strata {
         for x in &stratum.samples {
             if std::ptr::eq(x, sample) {
@@ -143,11 +142,10 @@ fn specimen_at<'a>(
                     hole_index,
                     depth,
                     unit: stratum.unit.as_str(),
-                    sample_index: index,
+                    sample_index: x.rank as u64,
                     model: site.properties_at(hole_index, depth)?,
                 });
             }
-            index += 1;
         }
     }
     None
