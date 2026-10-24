@@ -1820,7 +1820,7 @@ mod shipped_pins {
             (
                 "tyneside-till",
                 0,
-                "4f8d6ffcc650ab5cc96201b136c5c3d553e1b0619c22d91f2459a16cf1a9bd1b",
+                "d51bc60794b1fd0873087724eec52afd085a54e3ab580d6e555ecb262e0a4e0f",
                 34284,
             ),
             (
@@ -1832,7 +1832,7 @@ mod shipped_pins {
             (
                 "tyneside-till",
                 2,
-                "70fbf665f1f3753f92f365b39831612385317b1ba78bcf6bc55389bcb424abbb",
+                "a22dafe3c02a0c0c8a9d5e8d255c549b0c3eab15a0ebc482cae848be1a0ea5a8",
                 41357,
             ),
         ] {

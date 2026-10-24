@@ -163,14 +163,17 @@ consumer can replace.
   - **One strike per hole.** The shallowest of a lens-top strike and a till
     strike wins (the lens on a tie), and a water-table strike in a coarse
     stratum counts only when neither occurs. In the crawl the till strike is
-    the hole's first in 74% of holes that have one. Several strikes per hole
-    remain out of scope.
-  - **Rise.** The lens rule applies. Where the table is above the strike the
-    settled level is `max(table, strike - rise)`, the rise drawn from the
-    unit's `rise_m` (a stream keyed by hole and unit), and a draw under
-    `no_rise_share` (drawn once per site) leaves the water at the strike;
-    where the table is at or below the strike the water is perched and stays
-    at the strike. The readings follow the same decay as every strike, so they
+    the hole's first in 74% of holes that have one. The GFSG lens share is
+    raised from 0.36 to 0.44 so that, with the shallower till strike taking
+    precedence in some holes, the holes with the lens strike in it at the
+    crawl's 36%. Several strikes per hole remain out of scope.
+  - **Rise.** Unlike the lens rule, the table bounds nothing. The settled
+    level is `max(0, strike - rise)`, the rise drawn from the unit's `rise_m`
+    (a stream keyed by hole and unit), and a draw under `no_rise_share` (drawn
+    once per site) leaves the water at the strike. The head on a sand or silt
+    parting in a clay till is not the site water table, and the crawl's till
+    strikes almost all rise (1 of 90 fell, 12% none; `forge judgement`). The
+    readings follow the same decay as every strike, so they
     are monotone and settle exactly at the 20-minute level. The tills carry
     the same pooled rise (crawl n 90, 17 projects), because weathered till has
     10 readings.

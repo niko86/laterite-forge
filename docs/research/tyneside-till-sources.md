@@ -154,9 +154,9 @@ lenses or a depth for them.
 | GFSG `radius_m` | 50-83 m | fitted to the BGS 16-18% of holes with a lens between till; Eyles & Sladen's "under 200 m across" as a cross-check |
 | GFSG `thickness_m` | 0.3-3.6 m | BGS layers within till, P10-P90, as the centre thickness (forge judgement) |
 | GFSG `depth_in_host` | 0.03-0.70 | forge judgement calibrated to the BGS strike depths in granular strata |
-| GFSG `water_bearing` | share 0.36 | BGS: 89 of 249 holes with a granular layer strike in it |
+| GFSG `water_bearing` | share 0.44 | BGS: 89 of 249 holes with a granular layer strike in it (36%); raised from 0.36 in v8 so the file's lens holes strike in it at 35.8% |
 | WT, RT, GT `strike.rate_per_m` | 0.0375, 0.0425, 0.0116 per m | fitted to the BGS share of holes through each till that strike in it (7.3%, 15.0%, 17.7%), plus the owner's practice note (forge judgement) ("Water strikes in till") |
-| WT, RT, GT `strike.rise_m` | 0.1-7.2 m, skew 2.7 | fitted to the BGS till strike rise where the table is above the strike (P50 0.68, P90 4.11 m, n = 90), pooled over the tills |
+| WT, RT, GT `strike.rise_m` | 0.1-6.9 m, skew 2.6 | fitted to the BGS till strike rise over all the file's till strikes (P50 0.68, P90 4.11 m, n = 90), pooled over the tills |
 | WT, RT, GT `strike.no_rise_share` | 0.12 | BGS: 11 of 90 till strikes (12%) with a level within 0.05 m of the strike |
 | GFSG `spt_n` | 5-46 | fitted to the BGS N in sand and gravel with till above |
 | GFSG `moisture_content_percent` | 11-19 | forge judgement |
@@ -306,7 +306,8 @@ Sample descriptions:
 - The lens fit uses the strike depths of all granular strata, which include
   sands below the till and layers this site does not model. The share of
   lens holes with a strike (40%) is above the 0.36 share because a dry lens
-  still strikes where the water table falls inside it.
+  still strikes where the water table falls inside it. (From v8 the share is
+  0.44; see "Water strikes in till".)
 - The synthetic rise is smaller than BGS's: a perched lens (table below the
   lens top) settles at the strike depth, with no rise.
 
@@ -839,11 +840,13 @@ per metre drawn once per site (`rate_per_m`, here a single pooled value). The
 first event below the written top of the till's stratum is the strike, so it is
 uniform in the stratum, as the crawl's are. One strike per hole: the
 shallowest of a lens-top strike and a till strike; a table strike in a coarse
-stratum counts only when neither occurs. The rise follows the lens rule: where
-the water table is above the strike the water rises by a draw from `rise_m`
-but not above the table, a draw under `no_rise_share` leaves it at the strike,
-and where the table is at or below the strike the water is perched. All three
-tills carry the pooled rise and no-rise share because WT has 10 readings.
+stratum counts only when neither occurs. The water always rises by a draw
+from `rise_m`, whatever the depth of the water table, but not above ground
+level, and a draw under `no_rise_share` leaves it at the strike. The table
+bounds nothing (`forge judgement`): in a clay till the head on a sand or silt
+parting is not the site water table, and the crawl's till strikes almost all
+rise (1 of 90 fell, 12% none). All three tills carry the pooled rise and
+no-rise share because WT has 10 readings.
 
 The rates are fitted to the share of holes through each unit that strike in it,
 as the issue asks, not to the crawl's per-metre rate:
@@ -863,50 +866,50 @@ the crawl's and is not a per-metre match. WT and RT are fitted higher than the
 crawl's because the file's holes cross less of each than the crawl's do, and
 one strike per hole lets a shallower strike pre-empt a deeper one.
 
-The rise range is `{ min 0.1, max 7.2, skew 2.7 }` with a no-rise share of 0.12,
-fitted by sweeping the range and skew against the file's strikes that have the
-water table above them (see below). The no-rise draw is the crawl's 12% on its
-own: the table cap adds only about 0.4 points on top (12.4% of those strikes
-have a rise of 0.05 m or less).
+The rise range is `{ min 0.1, max 6.9, skew 2.6 }` with a no-rise share of 0.12,
+fitted by sweeping the range and skew against all of the file's till strikes
+(see below). The no-rise draw is the crawl's 12% on its own: the ground cap
+adds only about 0.4 points on top (12.4% of strikes have a rise of 0.05 m or
+less). A skewed uniform cannot match the crawl's P50, P90 and mean together
+(at P50 0.68 m and P90 4.2 m the mean is 1.43 m against 1.74 m; a range wide
+enough for the mean pulls P50 down to 0.5 m), so the fit holds the median and
+the 90th percentile.
 
 ### Fit (20,000 seeds, 3 to 7 holes each, 100,387 holes)
 
 | Quantity | Crawl | File |
 |---|---|---|
-| Holes striking in WT, of holes through it | 7.3% | 7.2% (37,358 holes) |
-| Holes striking in RT | 15.0% | 14.9% (57,539) |
-| Holes striking in GT | 17.7% | 17.8% (100,043) |
+| Holes striking in WT, of holes through it | 7.3% | 7.3% (37,007 holes) |
+| Holes striking in RT | 15.0% | 14.9% (57,425) |
+| Holes striking in GT | 17.7% | 17.7% (99,660) |
+| Holes with the GFSG lens that strike in it | 36% (89 of 249) | 35.8% (17,960 holes) |
 | Till strike depth, P10 / P50 / P90 (m) | 2.0 / 6.7 / 16.0 | 1.1 / 7.2 / 19.4 |
-| Rise of strikes with the table above them, P50 / P90 (m) | 0.68 / 4.11 | 0.65 / 4.18 |
-| Same, mean; over 1 m; 0.05 m or less | 1.74; 40%; 12% | 1.42; 42%; 12.4% |
-| Holes with any strike | 40.9% (with made ground) | 34.3% (about 7% in v7) |
+| Rise of all till strikes, P10 / P50 / P90 (m) | 0.02 / 0.68 / 4.11 | 0.00 / 0.68 / 4.17 |
+| Same, mean; over 1 m; 0.05 m or less | 1.74; 40%; 12% | 1.43; 42%; 12.4% |
+| Holes with any strike | 40.9% (with made ground) | 35.3% (about 7% in v7) |
 
 ### Caveats
 
-- **The site's water table leaves most till strikes perched.** The table field
-  is fitted to the granular strata's 20-minute levels (P10 to P90 2.9 to 14.4
-  m), and at the file's till strikes it is 5.5 / 8.7 / 11.8 m (P10 / P50 /
-  P90). The crawl's till strikes settle at 2.0 / 5.8 / 11.6 m. With the lens
-  rule, 55% of the file's till strikes have the table at or below them and are
-  perched, so across all till strikes the file's rise is P10 / P50 / P90 0.00 /
-  0.00 / 2.43 m with 61% no rise, against the crawl's 0.02 / 0.68 / 4.11 m and
-  12%. The rise is calibrated where the rule lets water rise (the strikes with
-  the table above them, 45% of the file's). Matching the crawl overall needs a
-  shallower water level for till strikes (a till-specific table, or a change to
-  `groundwater_depth_m`, which also moves the pore pressures and the
-  effective-stress results); neither is in the issue.
+- **The table does not bound a till strike's rise.** The first v8 build capped
+  the rise at the water table and left strikes perched where the table is at
+  or below them. The table field is fitted to the granular strata's 20-minute
+  levels (P10 to P90 2.9 to 14.4 m), so that rule left 55% of the file's till
+  strikes perched and 61% with no rise, against the crawl's 12% (1 of 90
+  fell). The owner's decision is that a till strike always rises by its draw,
+  capped only at ground level (`forge judgement`: in a clay till the head on a
+  parting is not the site water table). The settled levels of till strikes
+  are then not tied to the pore-pressure table.
 - The file's till strike depths are spread wider than the crawl's: P10 1.1 m
   and P90 19.4 m against 2.0 and 16.0 m. The grey till runs to final depth (15
   to 30 m) here, so its strikes reach deeper than the crawl's holes do.
 - The strike rate is one pooled value per unit, not a range: the crawl gives no
   spread between projects that the model could use, and strikes cluster by
   project (10 to 16 projects per unit).
-- One strike per hole means a shallower strike pre-empts a lens-top strike. The
-  lens's own `water_bearing` share (0.36) was fitted before till strikes
-  existed and is not refitted; the lens holes whose recorded strike is the lens
-  top fall below that share by the holes where a till strike is shallower. The
-  crawl's 89 of 249 holes striking in a granular layer counts holes that also
-  strike elsewhere.
+- One strike per hole means a shallower strike pre-empts a lens-top strike. At
+  the old share of 0.36 the file's lens holes struck in the lens in 29% of
+  holes (crawl 36%), so the share is raised to 0.44 and the file gives 35.8%.
+  The crawl's 89 of 249 holes striking in a granular layer counts holes that
+  also strike elsewhere.
 - Thin cells: WT strikes (19), WT rise (10 readings, 5 projects) and all
   per-thickness cells under 40 holes.
 

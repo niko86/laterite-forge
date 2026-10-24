@@ -3689,7 +3689,7 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
         let lens = &p.lenses[0];
         assert_eq!((lens.id.as_str(), lens.host.as_str()), ("GFSG", "GT"));
         let share = lens.water_bearing.as_ref().unwrap();
-        assert_eq!((share.min, share.max), (0.36, 0.36));
+        assert_eq!((share.min, share.max), (0.44, 0.44));
         assert!(share.basis.contains("89 of 249"), "{}", share.basis);
         let text = SHIPPED
             .iter()

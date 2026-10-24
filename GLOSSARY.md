@@ -62,7 +62,7 @@ A stratum of a unit or lens whose preset entry sets `water_bearing`. A hole that
 _Avoid_: aquifer, wet layer
 
 **Till strike**:
-A water strike a hole meets along its depth in a unit whose preset entry sets a `strike` table (`rate_per_m`, `rise_m`, `no_rise_share`, each cited). The hole is a Poisson process along its penetration of the unit, so the strike falls evenly through the stratum. The shallowest of a lens-top strike and a till strike is the hole's one strike; a water-table strike counts only when neither occurs. The water rises as in a water-bearing stratum (capped at the table; perched otherwise). Never on a made-ground or water-bearing unit.
+A water strike a hole meets along its depth in a unit whose preset entry sets a `strike` table (`rate_per_m`, `rise_m`, `no_rise_share`, each cited). The hole is a Poisson process along its penetration of the unit, so the strike falls evenly through the stratum. The shallowest of a lens-top strike and a till strike is the hole's one strike; a water-table strike counts only when neither occurs. The water always rises by the drawn rise, whatever the depth of the water table, but not above ground level. Never on a made-ground or water-bearing unit.
 _Avoid_: till lens, partings (a till strike is not tied to a logged parting)
 
 **Refusal**:

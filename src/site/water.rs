@@ -50,12 +50,12 @@
 //!   is uniform in the stratum by construction. A unit a lens splits into two
 //!   pieces continues one stream, so the pieces are one process. The stream is
 //!   keyed by (hole, unit): changing another unit's rate moves none of it.
-//! - The rise follows the lens rule. Where the table is above the strike the
-//!   water rises by a draw from the unit's `rise_m` but not above the table;
-//!   a draw under the unit's `no_rise_share` (drawn once per site) leaves it at
-//!   the strike. Where the table is at or below the strike the water is
-//!   perched and the readings stay at the strike depth. The rise draws are
-//!   keyed by (hole, unit) and are made whichever case a hole falls in.
+//! - The water always rises by a draw from the unit's `rise_m`, whatever the
+//!   depth of the table, but not above ground level; a draw under the unit's
+//!   `no_rise_share` (drawn once per site) leaves it at the strike. The head on
+//!   a sand or silt parting in a clay till is not the site's water table, so
+//!   the table bounds nothing (`forge judgement`). This differs from the lens
+//!   rule above. The rise draws are keyed by (hole, unit).
 //! - The first unit down that strikes is the hole's till strike.
 //!
 //! **One strike per hole.** AGS allows several `WSTG` rows per hole, but one
@@ -172,7 +172,7 @@ pub(super) fn strikes(site: &Site, preset: &Preset, seed: u64) -> Vec<Strike> {
                 top
             },
         });
-        let by_till = by_till.map(|t| t.strike(hi, table, seed));
+        let by_till = by_till.map(|t| t.strike(hi, seed));
         // The shallowest of a lens-top strike and a till strike wins, the lens
         // on a tie; a table strike counts only when neither occurs.
         let first = match (by_stratum, by_till) {
@@ -230,11 +230,12 @@ struct TillStrike<'a> {
 }
 
 impl TillStrike<'_> {
-    /// The strike with its settled level. Where the table is above the strike
-    /// the water rises by a drawn rise but not above the table; otherwise it
-    /// is perched and stays at the strike. A no-rise draw (the unit's share of
-    /// strikes) leaves the water at the strike.
-    fn strike(&self, hole: usize, table: f64, seed: u64) -> Strike {
+    /// The strike with its settled level. The water always rises by the drawn
+    /// rise, whatever the table's depth, but not above ground level. A
+    /// no-rise draw (the unit's share of strikes) leaves the water at the
+    /// strike. The head on a parting in a clay till is not the site's water
+    /// table, so the table bounds nothing.
+    fn strike(&self, hole: usize, seed: u64) -> Strike {
         let mut rng = Key::stratum("till-strike-rise", hole, self.unit).rng(seed);
         let rise = skewed(&self.spec.rise_m, uniform(&mut rng, 0.0, 1.0));
         let none = uniform(&mut rng, 0.0, 1.0) < self.no_rise;
@@ -242,11 +243,7 @@ impl TillStrike<'_> {
         Strike {
             hole,
             depth: self.depth,
-            settle: if table < self.depth {
-                table.max(round2(self.depth - rise))
-            } else {
-                self.depth
-            },
+            settle: round2(self.depth - rise).max(0.0),
         }
     }
 }
@@ -1307,8 +1304,8 @@ particle_density_ratio = {{ min = 2.6, max = 2.7, basis = "test fixture" }}
     }
 
     /// A till strike of `depth` metres in hole 0, with the unit's rise `rise`
-    /// and `no_rise` share, against a water table at `table`.
-    fn till_settle(table: f64, depth: f64, rise: (f64, f64), no_rise: f64, seed: u64) -> f64 {
+    /// and `no_rise` share.
+    fn till_settle(depth: f64, rise: (f64, f64), no_rise: f64, seed: u64) -> f64 {
         let spec = UnitStrike {
             rate_per_m: Range {
                 min: 0.1,
@@ -1335,29 +1332,53 @@ particle_density_ratio = {{ min = 2.6, max = 2.7, basis = "test fixture" }}
             no_rise,
             depth,
         };
-        t.strike(0, table, seed).settle
+        t.strike(0, seed).settle
     }
 
     #[test]
-    fn a_till_rise_with_the_table_above_the_strike_is_capped_at_the_table() {
-        // Struck at 10.00 m with a 2 m rise: a table at 9.20 m caps it, one at
-        // 5.00 m does not.
-        assert!((till_settle(9.2, 10.0, (2.0, 2.0), 0.0, 1) - 9.2).abs() < 1e-9);
-        assert!((till_settle(5.0, 10.0, (2.0, 2.0), 0.0, 1) - 8.0).abs() < 1e-9);
-        // A skewed or wide range still never rises above the table.
+    fn a_till_strike_rises_by_its_draw_whatever_the_table_and_never_above_ground() {
+        // Struck at 10.00 m with a 2 m rise: the readings settle at 8.00 m
+        // with the table above the strike, at it or below it.
+        assert!((till_settle(10.0, (2.0, 2.0), 0.0, 1) - 8.0).abs() < 1e-9);
+        // A rise larger than the depth stops at ground level.
+        assert!(till_settle(1.5, (4.0, 4.0), 0.0, 1).abs() < 1e-9);
+        // A skewed or wide range never rises above ground.
         for seed in 0..50 {
-            let settle = till_settle(8.0, 10.0, (0.1, 7.0), 0.0, seed);
-            assert!((8.0..=9.9).contains(&settle), "{settle}");
+            let settle = till_settle(3.0, (0.1, 7.0), 0.0, seed);
+            assert!((0.0..=2.9).contains(&settle), "{settle}");
         }
     }
 
+    /// Whichever side of the strike the table is on, the file's till strikes
+    /// rise by the unit's draw and settle between ground and the strike.
     #[test]
-    #[allow(clippy::float_cmp)] // the settled level is the strike depth itself
-    fn a_till_strike_with_the_table_at_or_below_it_is_perched() {
-        for seed in 0..20 {
-            assert_eq!(till_settle(10.0, 10.0, (1.0, 5.0), 0.0, seed), 10.0);
-            assert_eq!(till_settle(12.5, 10.0, (1.0, 5.0), 0.0, seed), 10.0);
+    fn a_till_strike_file_rises_with_the_table_above_or_below_the_strike() {
+        let (mut above, mut below) = (0, 0);
+        for table in ["min = 1.0, max = 1.0", DEEP] {
+            let p = tills(
+                &till_table(0.05, (1.0, 1.0), 0.0),
+                &till_table(0.05, (1.0, 1.0), 0.0),
+                table,
+            );
+            for seed in 0..30 {
+                let site = build::build(&p, seed, 6);
+                for s in strikes(&site, &p, seed) {
+                    let hole = &site.holes[s.hole];
+                    if !["WLC", "LC"].contains(&stratum_at(hole, s.depth).1.unit.as_str()) {
+                        continue;
+                    }
+                    let want = round2(s.depth - 1.0).max(0.0);
+                    assert!((s.settle - want).abs() < 1e-9, "seed {seed} {s:?}");
+                    assert!(s.settle >= 0.0 && s.settle <= s.depth);
+                    if table == DEEP {
+                        below += 1;
+                    } else {
+                        above += 1;
+                    }
+                }
+            }
         }
+        assert!(above > 10 && below > 10, "{above} / {below}");
     }
 
     #[test]
@@ -1365,13 +1386,13 @@ particle_density_ratio = {{ min = 2.6, max = 2.7, basis = "test fixture" }}
     fn the_no_rise_share_leaves_that_share_of_strikes_at_the_strike() {
         let n = 4000_u32;
         let stayed = (0..u64::from(n))
-            .filter(|&seed| till_settle(5.0, 10.0, (1.0, 1.0), 0.3, seed) == 10.0)
+            .filter(|&seed| till_settle(10.0, (1.0, 1.0), 0.3, seed) == 10.0)
             .count();
         let share = stayed as f64 / f64::from(n);
         assert!((share - 0.3).abs() < 0.03, "{share}");
         for seed in 0..50 {
-            assert_eq!(till_settle(5.0, 10.0, (1.0, 1.0), 1.0, seed), 10.0);
-            assert!((till_settle(5.0, 10.0, (1.0, 1.0), 0.0, seed) - 9.0).abs() < 1e-9);
+            assert_eq!(till_settle(10.0, (1.0, 1.0), 1.0, seed), 10.0);
+            assert!((till_settle(10.0, (1.0, 1.0), 0.0, seed) - 9.0).abs() < 1e-9);
         }
     }
 
