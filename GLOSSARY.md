@@ -61,6 +61,10 @@ _Avoid_: paving, pavement, hardstanding
 A stratum of a unit or lens whose preset entry sets `water_bearing`. A hole that meets one strikes water at its top, and the readings rise toward the water table, or stay at the strike when the table is deeper (perched water). Optionally a table with a `share` (0 to 1, cited, drawn once per site), the fraction of holes meeting the stratum that yield water in it; `true` is share 1. A hole that does not yield gets no strike from the stratum, and the water-table rule applies as before. Never a made-ground unit.
 _Avoid_: aquifer, wet layer
 
+**Till strike**:
+A water strike a hole meets along its depth in a unit whose preset entry sets a `strike` table (`rate_per_m`, `rise_m`, `no_rise_share`, each cited). The hole is a Poisson process along its penetration of the unit, so the strike falls evenly through the stratum. The shallowest of a lens-top strike and a till strike is the hole's one strike; a water-table strike counts only when neither occurs. The water always rises by the drawn rise, whatever the depth of the water table, but not above ground level. Never on a made-ground or water-bearing unit.
+_Avoid_: till lens, partings (a till strike is not tied to a logged parting)
+
 **Refusal**:
 An SPT stopped at 50 blows before the full 300 mm main drive, written as N 50 (not extrapolated), `ISPT_MAIN` 50, `ISPT_NPEN` 150 plus the penetration reached, and `ISPT_REP` "50/<mm>". Any drawn N of 50 or more is one (strength), and a unit may add a `spt.refusal_share` for cobble and boulder strikes (obstruction).
 _Avoid_: capped N, extrapolated N

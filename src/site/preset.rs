@@ -252,9 +252,27 @@ pub struct Unit {
     /// the range (ADR 0001, "Water-bearing strata"). `true` is share 1.
     /// Never set on a made-ground unit.
     pub water_bearing: Option<Range>,
+    /// `Some` makes the unit strike water along its penetration: a hole that
+    /// goes through it meets water at a Poisson-distributed depth below the
+    /// unit's top (ADR 0001, "Water strikes in till"). Never set on a
+    /// made-ground or water-bearing unit.
+    pub strike: Option<UnitStrike>,
     pub sampling: Sampling,
     /// Index properties (required).
     pub properties: Properties,
+}
+
+/// The water strikes of a unit that yields water along its depth (a clay
+/// till whose strikes come from partings too thin to log).
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnitStrike {
+    /// Strikes per metre penetrated, drawn once per site.
+    pub rate_per_m: Range,
+    /// How far the water rises above the strike where the water table is
+    /// above it, metres; the optional skew is as for a thickness.
+    pub rise_m: Range,
+    /// The fraction of strikes whose water does not rise at all.
+    pub no_rise_share: Range,
 }
 
 /// How a made-ground unit names its constituents. Both parts are optional:
@@ -397,7 +415,8 @@ pub struct Range {
     pub min: f64,
     pub max: f64,
     pub basis: String,
-    /// Only a unit's `thickness_m` carries one: a positive exponent applied to
+    /// Only a unit's `thickness_m` (and the cover, construction and a unit's
+    /// `strike.rise_m` ranges that read like it) carries one: a positive exponent applied to
     /// the field value before it is placed on the range (ADR 0001). `None`
     /// is the plain linear mapping.
     pub skew: Option<f64>,
@@ -2316,6 +2335,12 @@ fn read_units(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Unit>> {
             made_ground.as_ref().is_some_and(Option::is_some),
             errs,
         );
+        let strike = read_unit_strike(
+            &mut u,
+            made_ground.as_ref().is_some_and(Option::is_some),
+            water_bearing.as_ref().is_some_and(Option::is_some),
+            errs,
+        );
         let sampling = read_sampling(&mut u, &samp, errs);
         let properties = required_properties(&mut u, description.as_ref(), errs);
         u.finish(errs);
@@ -2325,6 +2350,7 @@ fn read_units(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Unit>> {
             Some(description),
             Some(made_ground),
             Some(water_bearing),
+            Some(strike),
             Some(sampling),
             Some(properties),
         ) = (
@@ -2333,6 +2359,7 @@ fn read_units(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Unit>> {
             description,
             made_ground,
             water_bearing,
+            strike,
             sampling,
             properties,
         ) && (i == last || thickness.is_some())
@@ -2344,6 +2371,7 @@ fn read_units(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Unit>> {
                 description,
                 made_ground,
                 water_bearing,
+                strike,
                 sampling,
                 properties,
             });
@@ -2670,6 +2698,76 @@ fn read_water_bearing(
             errs.push(format!("{at}: must be true, false or a table with a share"));
             None
         }
+    }
+}
+
+/// Reads the optional `strike` table of a unit: `rate_per_m` (strikes per
+/// metre penetrated, never negative), `rise_m` (never negative, with an
+/// optional skew) and `no_rise_share` (0 to 1), each cited. It is refused on
+/// a made-ground unit (which never yields water) and on a water-bearing unit
+/// (which already strikes at its top).
+// Outer `None` is a reported problem; inner `None` is "not written".
+#[allow(clippy::option_option)]
+fn read_unit_strike(
+    u: &mut Node,
+    made_ground: bool,
+    water_bearing: bool,
+    errs: &mut Vec<String>,
+) -> Option<Option<UnitStrike>> {
+    let at = u.at("strike");
+    let Some(v) = u.get("strike") else {
+        return Some(None);
+    };
+    let Value::Table(t) = v else {
+        errs.push(format!("{at}: must be a table"));
+        return None;
+    };
+    if made_ground {
+        errs.push(format!(
+            "{at}: not allowed on a made-ground unit (Made Ground never yields a water strike)"
+        ));
+        return None;
+    }
+    if water_bearing {
+        errs.push(format!(
+            "{at}: not allowed on a water-bearing unit (it already strikes at its top)"
+        ));
+        return None;
+    }
+    let mut s = Node::new(t, at);
+    let mut fine = true;
+    let rate = read_range(&mut s, "rate_per_m", errs);
+    if let Some(r) = &rate {
+        let before = errs.len();
+        check_domain(r, &s.at("rate_per_m"), &props::STRIKE_RATE_PER_M, errs);
+        fine &= errs.len() == before;
+    }
+    let rise = read_thickness(&mut s, "rise_m", errs);
+    if let Some(r) = &rise {
+        let before = errs.len();
+        check_domain(r, &s.at("rise_m"), &props::STRIKE_RISE_M, errs);
+        fine &= errs.len() == before;
+    }
+    let no_rise = read_range(&mut s, "no_rise_share", errs);
+    if let Some(r) = &no_rise {
+        for (which, v) in [("min", r.min), ("max", r.max)] {
+            if !(0.0..=1.0).contains(&v) {
+                errs.push(format!(
+                    "{}: {which} {v} is outside 0 to 1",
+                    s.at("no_rise_share")
+                ));
+                fine = false;
+            }
+        }
+    }
+    s.finish(errs);
+    match (rate, rise, no_rise) {
+        (Some(rate_per_m), Some(rise_m), Some(no_rise_share)) if fine => Some(Some(UnitStrike {
+            rate_per_m,
+            rise_m,
+            no_rise_share,
+        })),
+        _ => None,
     }
 }
 
@@ -3540,7 +3638,7 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
     #[test]
     fn tyneside_till_loads_with_its_tills_and_lens() {
         let p = resolve("tyneside-till").unwrap();
-        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 7));
+        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 8));
         // v6: hole construction, with the NE crawl's casing weights.
         let c = p
             .construction
@@ -3591,7 +3689,7 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
         let lens = &p.lenses[0];
         assert_eq!((lens.id.as_str(), lens.host.as_str()), ("GFSG", "GT"));
         let share = lens.water_bearing.as_ref().unwrap();
-        assert_eq!((share.min, share.max), (0.36, 0.36));
+        assert_eq!((share.min, share.max), (0.44, 0.44));
         assert!(share.basis.contains("89 of 249"), "{}", share.basis);
         let text = SHIPPED
             .iter()
@@ -5128,5 +5226,153 @@ headings = ["TRET_DEVF"]
             &rtd_very_coarse(r#""low""#),
             "units[0] (RTD).description.very_coarse: must be a table",
         );
+    }
+    const STRIKE: &str = "strike = { \
+        rate_per_m = { min = 0.02, max = 0.04, basis = \"test fixture\" }, \
+        rise_m = { min = 0.1, max = 5.0, skew = 2.0, basis = \"test fixture\" }, \
+        no_rise_share = { min = 0.1, max = 0.2, basis = \"test fixture\" } }";
+
+    /// The fixture with `strike` written on the London Clay unit (the last).
+    fn strike_with(spec: &str) -> String {
+        valid().replacen(
+            "name = \"London Clay\"",
+            &format!("name = \"London Clay\"\n{spec}"),
+            1,
+        )
+    }
+
+    #[test]
+    fn a_unit_strike_loads_with_its_three_cited_ranges() {
+        let p = Preset::from_toml(&valid()).unwrap();
+        assert!(p.units.iter().all(|u| u.strike.is_none()));
+        let p = Preset::from_toml(&strike_with(STRIKE)).expect("valid");
+        assert!(p.units[0].strike.is_none());
+        let s = p.units[1].strike.as_ref().expect("LC strikes");
+        assert_eq!((s.rate_per_m.min, s.rate_per_m.max), (0.02, 0.04));
+        assert_eq!(s.rise_m.skew, Some(2.0));
+        assert_eq!((s.no_rise_share.min, s.no_rise_share.max), (0.1, 0.2));
+        assert_eq!(s.rate_per_m.basis, "test fixture");
+    }
+
+    #[test]
+    fn a_unit_strike_is_refused_without_a_basis_or_a_part() {
+        assert_refused(
+            &strike_with(&STRIKE.replace(
+                "rate_per_m = { min = 0.02, max = 0.04, basis = \"test fixture\" }",
+                "rate_per_m = { min = 0.02, max = 0.04 }",
+            )),
+            "units[1] (LC).strike.rate_per_m: no basis",
+        );
+        assert_refused(
+            &strike_with(&STRIKE.replace(
+                "no_rise_share = { min = 0.1, max = 0.2, basis = \"test fixture\" }",
+                "no_rise_share = { min = 0.1, max = 0.2, basis = \"\" }",
+            )),
+            "units[1] (LC).strike.no_rise_share: empty basis",
+        );
+        assert_refused(
+            &strike_with(&STRIKE.replace(
+                "rise_m = { min = 0.1, max = 5.0, skew = 2.0, basis = \"test fixture\" }, ",
+                "",
+            )),
+            "units[1] (LC).strike.rise_m: missing",
+        );
+    }
+
+    #[test]
+    fn a_unit_strike_rate_and_rise_may_not_be_negative_or_not_finite() {
+        assert_refused(
+            &strike_with(&STRIKE.replace("min = 0.02, max = 0.04", "min = -0.01, max = 0.04")),
+            "units[1] (LC).strike.rate_per_m: min -0.01 is outside its domain (>= 0)",
+        );
+        assert_refused(
+            &strike_with(&STRIKE.replace("min = 0.1, max = 5.0", "min = -0.1, max = 5.0")),
+            "units[1] (LC).strike.rise_m: min -0.1 is outside its domain (>= 0)",
+        );
+        assert_refused(
+            &strike_with(&STRIKE.replace("min = 0.02, max = 0.04", "min = 0.02, max = inf")),
+            "units[1] (LC).strike.rate_per_m.max: must be finite",
+        );
+        assert_refused(
+            &strike_with(&STRIKE.replace("min = 0.02, max = 0.04", "min = 0.04, max = 0.02")),
+            "units[1] (LC).strike.rate_per_m: min 0.04 is greater than max 0.02",
+        );
+    }
+
+    #[test]
+    fn a_unit_strike_rise_skew_is_at_least_one_and_the_no_rise_share_is_a_fraction() {
+        assert_refused(
+            &strike_with(&STRIKE.replace("skew = 2.0", "skew = 0.5")),
+            "units[1] (LC).strike.rise_m.skew: 0.5 must be >= 1",
+        );
+        assert_refused(
+            &strike_with(&STRIKE.replace("min = 0.1, max = 0.2", "min = 0.1, max = 1.5")),
+            "units[1] (LC).strike.no_rise_share: max 1.5 is outside 0 to 1",
+        );
+        assert_refused(
+            &strike_with(&STRIKE.replace("min = 0.1, max = 0.2", "min = -0.1, max = 0.2")),
+            "units[1] (LC).strike.no_rise_share: min -0.1 is outside 0 to 1",
+        );
+    }
+
+    #[test]
+    fn a_unit_strike_must_be_a_table_with_known_keys() {
+        assert_refused(
+            &strike_with("strike = 0.03"),
+            "units[1] (LC).strike: must be a table",
+        );
+        assert_eq!(
+            errors_of(&strike_with(
+                &STRIKE.replace("no_rise_share", "no_rise_shar")
+            )),
+            [
+                "units[1] (LC).strike.no_rise_share: missing",
+                "units[1] (LC).strike: unknown key \"no_rise_shar\""
+            ]
+        );
+    }
+
+    #[test]
+    fn a_unit_strike_is_refused_on_a_made_ground_or_water_bearing_unit() {
+        let text = rtd_made_ground(&valid(), "true").replace(
+            "made_ground = true",
+            &format!("made_ground = true\n{STRIKE}"),
+        );
+        let e = errors_of(&text).join("\n");
+        assert!(
+            e.contains("units[0] (RTD).strike: not allowed on a made-ground unit"),
+            "{e}"
+        );
+        let text = rtd_made_ground(&valid(), "false").replace(
+            "made_ground = false",
+            &format!("water_bearing = true\n{STRIKE}"),
+        );
+        assert_refused(
+            &text,
+            "units[0] (RTD).strike: not allowed on a water-bearing unit (it already strikes at its top)",
+        );
+    }
+
+    #[test]
+    fn a_lens_takes_no_strike() {
+        let lens = lens_with("host = \"LC\"", &format!("host = \"LC\"\n{STRIKE}"));
+        let e = errors_of(&lens).join("\n");
+        assert!(e.contains("lenses[0] (SB): unknown key \"strike\""), "{e}");
+    }
+
+    #[test]
+    fn tyneside_till_strikes_in_each_till_with_cited_ranges() {
+        let p = resolve("tyneside-till").unwrap();
+        for id in ["WT", "RT", "GT"] {
+            let u = p.units.iter().find(|u| u.id == id).unwrap();
+            let s = u.strike.as_ref().unwrap_or_else(|| panic!("{id} strikes"));
+            for r in [&s.rate_per_m, &s.rise_m, &s.no_rise_share] {
+                assert!(r.basis.contains("OGL v3"), "{id}: {}", r.basis);
+            }
+            assert!(s.rate_per_m.basis.contains("practice note"), "{id}");
+            assert!(s.rate_per_m.basis.contains("CIRIA C504 Fig 6.3, p.117"));
+            assert!(s.rate_per_m.basis.contains("Eyles & Sladen 1981, p.134"));
+        }
+        assert!(p.lenses.iter().all(|l| l.water_bearing.is_some()));
     }
 }

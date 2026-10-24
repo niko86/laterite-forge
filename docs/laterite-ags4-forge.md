@@ -113,7 +113,7 @@ sources: []
 > sandy TOPSOIL with rootlets.`); `tyneside-till` v3 has topsoil only.
 > `tyneside-till` v3 writes the same groups for NE England glacial till:
 > weathered, red and grey till with a glaciofluvial sand and gravel lens in
-> the grey till, water-bearing in a 0.36 share of the holes it reaches,
+> the grey till, water-bearing in a 0.44 share of the holes it reaches,
 > calibrated to Clarke et al. 2008 and a BGS NGDC crawl
 > (`docs/research/tyneside-till-sources.md`).
 > A unit's optional `triaxial` table (ADR 0001, "Multi-stage UU") makes a
@@ -158,6 +158,22 @@ sources: []
 > slotted section to 0.5 m below it, then bentonite to final depth, tiling 0 to
 > final depth. `MONG` is not written. A preset without the table writes the
 > bytes of the version before.
+>
+> A unit's optional `strike` table (ADR 0001, "Ground"; `tyneside-till` v8)
+> makes the unit yield water along its depth: `rate_per_m` (strikes per metre
+> penetrated, a cited range drawn once per site), `rise_m` (a cited range with
+> an optional skew) and `no_rise_share`. A hole is a Poisson process along its
+> penetration of the unit, keyed by hole and unit, and the first event below
+> the stratum top is the strike, evenly placed in the stratum. A hole records
+> one strike, the shallowest of a lens-top strike and a till strike; a
+> water-table strike in a coarse stratum counts only when neither occurs. The
+> water always rises by a draw from `rise_m`, whatever the depth of the water
+> table, but not above ground level (a draw under `no_rise_share` stays at the
+> strike), and `WSTD` follows the same decay to the settled level at 20 minutes. The loader refuses the table on a
+> made-ground or water-bearing unit, a negative rate or rise, a share outside 0
+> to 1 and a missing basis. A preset without the table writes the bytes of the
+> version before (`docs/research/tyneside-till-sources.md`, "Water strikes in
+> till (v8, #77)", has the fit).
 > `--site` and `--scaffold` are mutually exclusive, and the loader refuses a
 > preset with a missing basis, an unknown key, or a suite heading no producer
 > can make, naming the field (exit 5). Every file carries a SYNTHETIC marker in

@@ -575,3 +575,109 @@ fn site_files_with_installations_agree_with_python_ags4() {
         );
     }
 }
+
+/// The fields of one AGS line, quotes removed (a doubled quote is one).
+fn ags_fields(line: &str) -> Vec<String> {
+    let (mut out, mut cur, mut quoted) = (Vec::new(), String::new(), false);
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match (c, quoted) {
+            ('"', true) if chars.peek() == Some(&'"') => {
+                cur.push('"');
+                chars.next();
+            }
+            ('"', _) => quoted = !quoted,
+            (',', false) => out.push(std::mem::take(&mut cur)),
+            (c, _) => cur.push(c),
+        }
+    }
+    out.push(cur);
+    out
+}
+
+/// The `DATA` rows of `group` in an AGS file.
+fn ags_rows(text: &str, group: &str) -> Vec<Vec<String>> {
+    let mut inside = false;
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let f = ags_fields(line);
+        match f[0].as_str() {
+            "GROUP" => inside = f[1] == group,
+            "DATA" if inside => out.push(f),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Whether some strike in the file is in a clay till stratum, found from the
+/// `WSTG` depth and the `GEOL` row (its description names CLAY) that holds it.
+fn has_a_till_strike(text: &str) -> bool {
+    let num = |s: &str| s.parse::<f64>().unwrap();
+    let geol = ags_rows(text, "GEOL");
+    // DATA, LOCA_ID, GEOL_TOP, GEOL_BASE, GEOL_DESC, ...
+    ags_rows(text, "WSTG").iter().any(|w| {
+        let depth = num(&w[2]);
+        geol.iter().any(|g| {
+            g[1] == w[1] && num(&g[2]) <= depth && depth < num(&g[3]) && g[4].contains("CLAY")
+        })
+    })
+}
+
+/// Generated tyneside-till files with water strikes in the tills agree with
+/// python-ags4 (#77). Seeds are walked until four files have a strike inside
+/// a clay till, so the check always sees one. Without the oracle the test
+/// skips, or under `FORGE_REQUIRE_ORACLE=1` fails.
+#[test]
+fn tyneside_till_files_with_till_strikes_agree_with_python_ags4() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut checked_with_till = 0;
+    for seed in 0..120 {
+        if checked_with_till == 4 {
+            break;
+        }
+        let seed = seed.to_string();
+        let out = dir.path().join(format!("till{seed}"));
+        let made = forge(&[
+            "gen",
+            "--site",
+            "tyneside-till",
+            "--seed",
+            &seed,
+            "--json",
+            "--out-dir",
+            out.to_str().unwrap(),
+        ]);
+        assert_eq!(made.status.code(), Some(0), "{}", stderr(&made));
+        let doc: serde_json::Value = serde_json::from_slice(&made.stdout).unwrap();
+        let path = doc["candidates"][0]["path"].as_str().unwrap().to_string();
+        let text = std::fs::read_to_string(&path).unwrap();
+        if !has_a_till_strike(&text) {
+            continue;
+        }
+        assert!(
+            text.contains("\"GROUP\",\"WSTD\""),
+            "seed {seed}: readings with the strike"
+        );
+        checked_with_till += 1;
+        let checked = forge(&["check", &path, "--json"]);
+        let verdict: serde_json::Value = serde_json::from_slice(&checked.stdout).unwrap();
+        if verdict["oracle"] == false {
+            assert!(
+                std::env::var_os("FORGE_REQUIRE_ORACLE").is_none(),
+                "FORGE_REQUIRE_ORACLE is set but there is no oracle: {}",
+                stderr(&checked)
+            );
+            eprintln!(
+                "SKIP till strike dual validation: {}",
+                stderr(&checked).trim()
+            );
+            return;
+        }
+        assert_eq!(checked.status.code(), Some(0), "seed {seed}: {verdict}");
+        assert_eq!(verdict["verdict"], "AGREE", "seed {seed}: {verdict}");
+        assert_eq!(verdict["rust_rules"], serde_json::json!([]), "{seed}");
+        assert_eq!(verdict["python_rules"], serde_json::json!([]), "{seed}");
+    }
+    assert_eq!(checked_with_till, 4, "four seeds in 0..120 strike in till");
+}
