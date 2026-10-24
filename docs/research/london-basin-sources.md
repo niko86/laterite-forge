@@ -730,4 +730,63 @@ projects), arisings alone, bentonite alone or arisings over bentonite at
   count by each hole's first strike gives 119 of 133 (90%).
 - The crawl's long final-casing gaps (P90 21 m) come from casing left short
   of cored rock; this site has none, so the file's upper tail is shorter.
-- BKFL for installed holes is not written; it is the next slice.
+- BKFL for installed holes is written from v8 (see "Installations").
+
+## Installations (v8, #75)
+
+v8 adds a `[construction.installation]` table (ADR 0001, "Hole construction",
+"Installations"): `PIPE`, and the backfill an installed hole carries in place of
+the site's. The data are the London crawls' PIPE, WSTG and BKFL groups,
+de-duplicated by file content (169 unique files; holes by project, `LOCA_ID`
+and final depth, 632 holes with GEOL). Contains data supplied by UKRI, OGL v3.
+Aggregates only; forge analysis. The London crawls were selected for water
+strikes and Made Ground and terrace sequences, not for installations, so every
+London figure here rests on few holes. Treat the NE England crawl as the better
+installation sample (`docs/research/tyneside-till-sources.md`).
+
+### The crawl
+
+- PIPE is in 17 accessions (39638, 40721, 83329, 111549, 126770, 162465,
+  168212, 173376, 185575, 188520, 188540, 188542, 192298, 192311, 192312,
+  192346, 192401): 89 holes, 14% of the 632.
+- Of 18 projects with five or more CP-type holes, 3 install, with PIPE in 0.50,
+  0.93 and 0.93 of their CP-type holes. Fifteen have none.
+- Of the 89 PIPE holes, 46 have a 50 mm pipe, 20 a 19 mm one, and 23 a 25, 24,
+  70 or 90 mm pipe or no diameter. `PIPE_TYPE` is blank in 67% of rows and
+  never a piezometer tip.
+- Slotted sections: length P10 1.0 m, P50 3.0 m, P90 8.0 m (n = 21 rows). The
+  top, in the 6 holes with a slotted section and no recorded strike, is P10
+  1.1 m, P50 2.35 m, P90 6.5 m; in the 12 with a strike, the top less the first
+  strike's depth is P10 -4.35 m, P50 -1.4 m, P90 +4.25 m. Final depth less the
+  deepest `PIPE_BASE` is P10 0.0 m, P50 2.0 m, P90 28.0 m (n = 89).
+- In holes with PIPE, the concrete layer from the surface is P10 0.2 m, P50
+  0.5 m, P90 1.0 m (n = 45). Of 15 holes whose slotted section lies inside a
+  gravel or sand layer, 14 are gravel and 1 sand.
+- `MONG` is absent from the London crawls.
+
+### Fit (6,000 seeds)
+
+| Quantity | Crawl | File |
+|---|---|---|
+| Sites that install | 3 of 18 projects (0.17) | 1,005 of 6,000 (0.17) |
+| Share of an installing site's holes | 0.50, 0.93, 0.93 | 0.72 (the NE range, 0.43 to 1.0) |
+| Holes installed | 0.14 of all holes (every type) | 0.12 of holes (29,901) |
+| Standpipes among installations | 46 of 66 (69.7%) | 69.8% |
+| Slotted length, standpipe P10, P50, P90 (m) | 1.0, 3.0, 8.0 | 0.99, 2.92, 7.86 |
+| Zone top, no strike P10, P50, P90 (m) | 1.1, 2.35, 6.5 | 1.20, 2.30, 6.40 |
+| Zone top less first strike P10, P50, P90 (m) | -4.35, -1.4, +4.25 | -4.09, -1.39, +4.04 |
+| Gravel filter among installed holes | 14 of 15 | 92.8% |
+
+### Caveats
+
+- The per-site hole share is the NE range: three projects are too few to fit,
+  and the three London values lie inside it.
+- The zone top with no strike rests on 6 holes and the offset from the strike on
+  12; the filter material on 15. The piezometer's 0.3 m tip is the NE crawl's
+  figure, because London has no tip rows.
+- The file's holes are 20 to 40 m, so final depth less the zone base is P10
+  13.8 m, P50 23.2 m, P90 32.5 m, against the crawl's 0.0, 2.0 and 28.0 m. The
+  drawn gap (P10 0.5 m, P50 2.0 m, P90 9.0 m, cut off at 12 m) is only a ceiling
+  on the zone and rarely binds.
+- The zone cannot start above the 1.2 m inspection pit, so the file's P10 for a
+  zone top is 1.2 m.

@@ -385,7 +385,7 @@ consumer can replace.
 
 (Added 2026-10-24, #74; the decisions are the owner's R1 Q1-Q2 and R2 Q1-Q7.
 This is the first of two slices: holes with no installation. Pipes and
-standpipes, with their backfill, are the second.)
+standpipes, with their backfill, are the second, below (#75).)
 
 - **Block.** A preset may carry a `[construction]` block: an
   `inspection_pit_m` range, a `[construction.casing]` table (weighted
@@ -430,8 +430,8 @@ standpipes, with their backfill, are the second.)
   hole draws a sequence by weight: arisings alone, bentonite alone, or arisings
   over bentonite with the boundary from `boundary_m`. The layers tile 0 to final
   depth exactly, in `BKFL_LEG` legend codes 905 (arisings) and 903 (bentonite)
-  only, with no `BKFL_DESC`. The next slice replaces the backfill of installed
-  holes.
+  only, with no `BKFL_DESC`. The backfill of an installed hole replaces it
+  (see "Installations" below).
 - **Draws and order.** Every construction draw has a `cons-` tag of its own
   (`cons-pit`, `cons-casing`, `cons-diameter`, `cons-strike-casing`,
   `cons-backfill`, and the site-level `cons-telescope-share`,
@@ -448,6 +448,66 @@ standpipes, with their backfill, are the second.)
   step-down share, the final casing gap, the rate at which the casing passes the
   strike, the `WSTG_CAS` gap, the BKFL site share and sequence weights.
   Versions without the block keep the previous bytes.
+
+### Installations
+
+(Added 2026-10-24, #75; the decisions are the owner's R1 Q1-Q6.)
+
+- **Table.** A `[construction]` block may carry `[construction.installation]`.
+  It sits inside the block because an installation needs the pit, casing and
+  backfill parts; one without them is refused for what is missing. Keys:
+  `site_share`, `hole_share` (shares in 0 to 1), `kinds` (an array of
+  `{ kind, mm, weight }` with `kind` `standpipe` or `piezometer`, each once, a
+  diameter of 19 or 50 mm and a weight above 0) with `kinds_basis`,
+  `zone_offset_m`, `zone_top_m`, `slotted_length_m`, `base_gap_m`, `cap_m`
+  (lengths in metres; all above 0 except the offset, which may be negative,
+  and the gap, which is not negative) and `filter` (two weights, gravel and
+  sand, with a basis).
+  Every range has a basis; an unknown key is refused. The shortest final depth
+  must exceed the pit, cap, seal, longest slotted section and filter and tail
+  together. A preset without the table keeps its bytes.
+- **Which holes.** A site draws once whether it installs at all (`site_share`:
+  0.53 tyneside-till, 10 of 19 NE projects; 0.17 london-basin, 3 of 18
+  projects), then once a share of its holes (`hole_share`, 0.43 to 1.0), and
+  each hole draws against it. One installation per hole.
+- **Kinds.** Drawn by weight per preset. A standpipe is `PLAIN` from 0 to the
+  zone top and `SLOTTED` through the zone; a piezometer is `PLAIN`, then a
+  0.3 m tip written as `SLOTTED`, because the dictionary's `PIPE_TYPE` has only
+  those two values. `PIPE_DIAM` is 50 or 19, `PIPE_REF` is "1". Craig's Soil
+  Mechanics, 7th ed., pp.405-406 describes the construction (a standpipe of
+  50 mm or smaller with a perforated end or porous tip, a sand or fine gravel
+  filter, a bentonite seal above and a second seal near the surface).
+- **Response zone.** With a strike in the file the zone top is the first
+  strike plus a draw from `zone_offset_m`; with none it is a draw from
+  `zone_top_m`. The slotted length is a draw from `slotted_length_m`
+  (a piezometer's is 0.3 m). The zone is then clamped, not resampled, into the
+  room the hole leaves: not above the pit base, not so high that the cap,
+  a seal of at least 0.1 m and 0.5 m of filter do not fit above it, and not so
+  low that the zone base is within 0.6 m (0.5 m of filter and at least 0.1 m
+  of bentonite) of the final depth. `base_gap_m` is the drawn gap from the
+  final depth to the zone base, a ceiling on the zone: the base is at most the
+  final depth less the gap, raised to that 0.6 m. No stratum is targeted.
+  Depths are worked in whole centimetres.
+- **Backfill.** An installed hole's `BKFL`, top down: concrete (906) from the
+  surface to the cap thickness, bentonite (903) seal, a gravel (902) or sand
+  (901) filter from 0.5 m above the slotted section to 0.5 m below it, bentonite
+  (903) to final depth. The layers tile 0 to final depth exactly and none has
+  zero thickness, because the clamp above leaves room for each. An installed
+  hole always writes `BKFL`, even on a site whose #74 draw writes none; the
+  site's other holes keep their #74 sequences. Legend codes only, no
+  `BKFL_DESC`.
+- **No `MONG`.** It only restates `PIPE` (157 of 158 NE `MONG` holes). A later
+  slice for monitoring readings would add `MONG` and `MOND` together.
+- **Draws and order.** New draws have their own tags (`cons-install-site`,
+  `cons-install-site-share` and `cons-install-share` for the site, and
+  `cons-install-hole`, `cons-install-kind`, `cons-install-zone` and
+  `cons-install-filter` per hole), each a fixed number of draws, so no existing
+  stream moves and hole k is the same whatever the hole count. `PIPE` is
+  written after `BKFL`, so no existing group's rows move. The #74 backfill draw
+  is still made for an installed hole, so installing a hole moves only its own
+  rows.
+- **Versions.** london-basin v8 and tyneside-till v7 adopt it, calibrated to
+  the crawls (`docs/research/*-sources.md`). Both are re-pinned.
 
 ## Presets
 

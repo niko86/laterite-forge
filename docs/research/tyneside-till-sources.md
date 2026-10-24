@@ -685,5 +685,72 @@ over bentonite at 113 : 118 : 65, in legend codes 905 and 903 only.
   The telescope and pass rates are pooled over projects.
 - The pass rate is the owner's figure from the earlier count (376 of 458); a
   count by each hole's first strike gives 279 of 333 (84%).
-- BKFL for installed holes (pipes, standpipes and their filter packs) is not
-  written; it is the next slice.
+- BKFL for installed holes (pipes, standpipes and their filter packs) is
+  written from v7 (see "Installations").
+
+## Installations (v7, #75)
+
+v7 adds a `[construction.installation]` table (ADR 0001, "Hole construction",
+"Installations"): `PIPE`, and the backfill an installed hole carries in place of
+the site's. The data are the NE crawl's PIPE, WSTG and BKFL groups,
+de-duplicated by file content (52 unique files; holes by project, `LOCA_ID` and
+final depth, 1,041 holes with GEOL, 34 projects). Contains data supplied by
+UKRI, OGL v3. Aggregates only; forge analysis. The scripts read the files as
+untrusted data and write statistics only.
+
+### The crawl
+
+- PIPE is in 17 accessions (121869, 128125, 163565, 165950, 165951, 167411,
+  169655, 169656, 169657, 173968, 173969, 173971, 174053, 174059, 174066,
+  186779, 186814): 334 holes, 32% of the 1,041.
+- Of 19 projects with five or more CP-type holes, 10 install: 0.43, 0.44, 0.49,
+  0.64, 0.64, 0.67, 0.77, 0.83, 0.83 and 1.00 of their CP-type holes have PIPE.
+  Nine have none.
+- Of the 334 PIPE holes, 162 have a 50 mm installation, 88 a 19 mm one or a
+  piezometer tip row, 82 record no diameter and 2 another size. Piezometer tip
+  rows are 0.3 m (n = 43).
+- Slotted sections: length P10 0.5 m, P50 2.25 m, P90 6.0 m (n = 180 rows). The
+  top, in the 89 holes with no recorded strike, is P10 1.0 m, P50 3.0 m, P90
+  11.6 m; in the 137 with a strike, the top less the first strike's depth is
+  P10 -2.7 m, P50 0.0 m, P90 +3.0 m. Final depth less the deepest `PIPE_BASE`
+  is P10 0.5 m, P50 3.5 m, P90 20.5 m (n = 310).
+- The notes' earlier median of 4.5 m for that gap counted holes with no
+  `PIPE_BASE` as a base of 0; excluding them gives 3.5 m, which is used.
+- By keyword classification of `GEOL_DESC`, the dominant ground over 225 zones
+  is fine or till-led in about 120, granular in 56, rock in 34 and made ground
+  in 15. The preset places the zone by depth alone.
+- In holes with PIPE, the concrete layer from the surface is P10 0.2 m, P50
+  0.5 m, P90 0.5 m (n = 266). Of 223 holes whose slotted section lies inside a
+  gravel or sand layer, 165 are gravel (902) and 58 sand (901). The filter
+  reaches 0.5 m above and 0.5 m below the slotted section.
+- `MONG` restates `PIPE` and is not written.
+
+### Fit (6,000 seeds)
+
+| Quantity | Crawl | File |
+|---|---|---|
+| Sites that install | 10 of 19 projects (0.53) | 3,115 of 6,000 (0.52) |
+| Share of an installing site's holes | 0.43 to 1.0, mean about 0.72 | 0.72 |
+| Holes installed | 0.32 of all holes (every type) | 0.37 of holes (29,901) |
+| Standpipes among installations | 162 of 250 (64.8%) | 63.6% |
+| Slotted length, standpipe P10, P50, P90 (m) | 0.5, 2.25, 6.0 | 0.49, 2.23, 6.00 |
+| Zone top, no strike P10, P50, P90 (m) | 1.0, 3.0, 11.6 | 1.20, 3.11, 11.15 |
+| Zone top less first strike P10, P50, P90 (m) | -2.7, 0.0, +3.0 | -2.82, -0.12, +3.14 |
+| Gravel filter among installed holes | 165 of 223 (74.0%) | 74.1% |
+
+### Caveats
+
+- The zone cannot start above the 1.2 m inspection pit, so the file's P10 for a
+  zone top is 1.2 m against the crawl's 1.0 m.
+- The file's holes are 15 to 30 m, deeper than many of the crawl's, so final
+  depth less the zone base is P10 7.4 m, P50 15.5 m, P90 23.8 m, against the
+  crawl's 0.5, 3.5 and 20.5 m. The drawn gap (P10 0.5 m, P50 3.5 m, P90 9.9 m,
+  cut off at 12 m) is only a ceiling on the zone and rarely binds. A longer
+  cut-off would pull zones above the strikes they follow.
+- Only 7% of holes strike water (the lens), so the zone-less-strike fit rests
+  on 776 holes in 6,000 sites.
+- Practice is strongly project-dependent (a few dozen contractors). The filter
+  material and the kind weights are pooled over projects.
+- The piezometer's filter is drawn from the same gravel and sand weights as the
+  standpipe's. In the crawl the sand filters sit mostly with piezometers (47 of
+  the 58), a correlation the file does not keep.
