@@ -279,8 +279,9 @@ pub struct Unit {
     pub thickness_m: Option<Range>,
     pub description: DescriptionSpec,
     /// `Some` makes this a made-ground unit: its strata are described
-    /// `MADE GROUND: ` + matrix + constituents, and it never yields a water
-    /// strike or takes a lab test.
+    /// `MADE GROUND: ` + matrix + constituents, and it takes no lab test. It
+    /// never yields a water strike by the table rule or as water-bearing; a
+    /// `strike` block (london-basin v9) gives it perched strikes.
     pub made_ground: Option<MadeGroundSpec>,
     /// `Some` makes the unit water-bearing: a hole that meets it strikes
     /// water at its top with probability `share`, drawn once per site in
@@ -289,8 +290,8 @@ pub struct Unit {
     pub water_bearing: Option<Range>,
     /// `Some` makes the unit strike water along its penetration: a hole that
     /// goes through it meets water at a Poisson-distributed depth below the
-    /// unit's top (ADR 0001, "Water strikes in till"). Never set on a
-    /// made-ground or water-bearing unit.
+    /// unit's top (ADR 0001, "Water strikes in till" and "Water strikes in
+    /// made ground"). Never set on a water-bearing unit.
     pub strike: Option<UnitStrike>,
     pub sampling: Sampling,
     /// Index properties (required).
@@ -301,13 +302,44 @@ pub struct Unit {
 /// till whose strikes come from partings too thin to log).
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnitStrike {
-    /// Strikes per metre penetrated, drawn once per site.
-    pub rate_per_m: Range,
+    /// Strikes per metre penetrated: one rate, or a rate per depth band.
+    pub rate: StrikeRate,
     /// How far the water rises above the strike where the water table is
     /// above it, metres; the optional skew is as for a thickness.
     pub rise_m: Range,
     /// The fraction of strikes whose water does not rise at all.
     pub no_rise_share: Range,
+}
+
+/// The rate of a unit's strike process.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StrikeRate {
+    /// `rate_per_m`: one rate for the whole unit, drawn once per site.
+    PerMetre(Range),
+    /// `rate_by_depth`: a rate for each band of depth below ground level,
+    /// ascending, the first from 0 and the last running on without end.
+    ByDepth(Vec<RateBand>),
+}
+
+/// One band of a `rate_by_depth`: the rate from `from_m` down to the next
+/// band's `from_m`, drawn once per site.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RateBand {
+    /// Depth below ground level at which the band starts, metres.
+    pub from_m: f64,
+    /// Strikes per metre penetrated in the band.
+    pub rate_per_m: Range,
+}
+
+impl StrikeRate {
+    /// Every range the rate is drawn from, in order.
+    #[cfg(test)]
+    pub fn ranges(&self) -> Vec<&Range> {
+        match self {
+            Self::PerMetre(r) => vec![r],
+            Self::ByDepth(bands) => bands.iter().map(|b| &b.rate_per_m).collect(),
+        }
+    }
 }
 
 /// How a made-ground unit names its constituents. Both parts are optional:
@@ -2451,7 +2483,6 @@ fn read_units(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Unit>> {
         );
         let strike = read_unit_strike(
             &mut u,
-            made_ground.as_ref().is_some_and(Option::is_some),
             water_bearing.as_ref().is_some_and(Option::is_some),
             errs,
         );
@@ -2789,7 +2820,7 @@ fn read_water_bearing(
     let at = n.at("water_bearing");
     let refuse = |errs: &mut Vec<String>| {
         errs.push(format!(
-            "{at}: not allowed on a made-ground unit (Made Ground never yields a water strike)"
+            "{at}: not allowed on a made-ground unit (Made Ground strikes only through a `strike` block)"
         ));
         None
     };
@@ -2815,16 +2846,16 @@ fn read_water_bearing(
     }
 }
 
-/// Reads the optional `strike` table of a unit: `rate_per_m` (strikes per
-/// metre penetrated, never negative), `rise_m` (never negative, with an
-/// optional skew) and `no_rise_share` (0 to 1), each cited. It is refused on
-/// a made-ground unit (which never yields water) and on a water-bearing unit
-/// (which already strikes at its top).
+/// Reads the optional `strike` table of a unit: a rate (`rate_per_m`, strikes
+/// per metre penetrated, or `rate_by_depth`, one such rate per band of depth;
+/// never both, never negative), `rise_m` (never negative, with an optional
+/// skew) and `no_rise_share` (0 to 1), each cited. It is refused on a
+/// water-bearing unit (which already strikes at its top). A made-ground unit
+/// may take one.
 // Outer `None` is a reported problem; inner `None` is "not written".
 #[allow(clippy::option_option)]
 fn read_unit_strike(
     u: &mut Node,
-    made_ground: bool,
     water_bearing: bool,
     errs: &mut Vec<String>,
 ) -> Option<Option<UnitStrike>> {
@@ -2836,12 +2867,6 @@ fn read_unit_strike(
         errs.push(format!("{at}: must be a table"));
         return None;
     };
-    if made_ground {
-        errs.push(format!(
-            "{at}: not allowed on a made-ground unit (Made Ground never yields a water strike)"
-        ));
-        return None;
-    }
     if water_bearing {
         errs.push(format!(
             "{at}: not allowed on a water-bearing unit (it already strikes at its top)"
@@ -2850,12 +2875,8 @@ fn read_unit_strike(
     }
     let mut s = Node::new(t, at);
     let mut fine = true;
-    let rate = read_range(&mut s, "rate_per_m", errs);
-    if let Some(r) = &rate {
-        let before = errs.len();
-        check_domain(r, &s.at("rate_per_m"), &props::STRIKE_RATE_PER_M, errs);
-        fine &= errs.len() == before;
-    }
+    let rate = read_strike_rate(&mut s, errs);
+    fine &= rate.is_some();
     let rise = read_thickness(&mut s, "rise_m", errs);
     if let Some(r) = &rise {
         let before = errs.len();
@@ -2876,13 +2897,87 @@ fn read_unit_strike(
     }
     s.finish(errs);
     match (rate, rise, no_rise) {
-        (Some(rate_per_m), Some(rise_m), Some(no_rise_share)) if fine => Some(Some(UnitStrike {
-            rate_per_m,
+        (Some(rate), Some(rise_m), Some(no_rise_share)) if fine => Some(Some(UnitStrike {
+            rate,
             rise_m,
             no_rise_share,
         })),
         _ => None,
     }
+}
+
+/// The rate of a `strike` table: exactly one of `rate_per_m` and
+/// `rate_by_depth`.
+fn read_strike_rate(s: &mut Node, errs: &mut Vec<String>) -> Option<StrikeRate> {
+    let has_flat = s.table.contains_key("rate_per_m");
+    let has_bands = s.table.contains_key("rate_by_depth");
+    if has_flat && has_bands {
+        // Both are consumed so only this error is reported for them.
+        s.get("rate_per_m");
+        s.get("rate_by_depth");
+        errs.push(format!(
+            "{}: has both rate_per_m and rate_by_depth (write one)",
+            s.path
+        ));
+        return None;
+    }
+    if has_bands {
+        return read_rate_by_depth(s, errs).map(StrikeRate::ByDepth);
+    }
+    let rate = read_range(s, "rate_per_m", errs)?;
+    let before = errs.len();
+    check_domain(&rate, &s.at("rate_per_m"), &props::STRIKE_RATE_PER_M, errs);
+    (errs.len() == before).then_some(StrikeRate::PerMetre(rate))
+}
+
+/// `rate_by_depth = [{ from_m, rate_per_m = { min, max, basis } }, ...]`: the
+/// first band from 0, each next from deeper, every rate non-negative.
+fn read_rate_by_depth(s: &mut Node, errs: &mut Vec<String>) -> Option<Vec<RateBand>> {
+    let at = s.at("rate_by_depth");
+    let Some(Value::Array(items)) = s.get("rate_by_depth") else {
+        errs.push(format!("{at}: must be an array of tables"));
+        return None;
+    };
+    if items.is_empty() {
+        errs.push(format!("{at}: must not be empty"));
+        return None;
+    }
+    let mut out: Vec<RateBand> = Vec::new();
+    let mut ok = true;
+    for (i, v) in items.iter().enumerate() {
+        let Value::Table(t) = v else {
+            errs.push(format!("{at}[{i}]: must be a table"));
+            ok = false;
+            continue;
+        };
+        let mut b = Node::new(t, format!("{at}[{i}]"));
+        let from = num(b.get("from_m"), &b.at("from_m"), errs);
+        let rate = read_range(&mut b, "rate_per_m", errs);
+        if let Some(r) = &rate {
+            let before = errs.len();
+            check_domain(r, &b.at("rate_per_m"), &props::STRIKE_RATE_PER_M, errs);
+            ok &= errs.len() == before;
+        }
+        b.finish(errs);
+        let (Some(from_m), Some(rate_per_m)) = (from, rate) else {
+            ok = false;
+            continue;
+        };
+        if i == 0 && from_m != 0.0 {
+            errs.push(format!("{at}[0].from_m: {from_m} must be 0 (ground level)"));
+            ok = false;
+        } else if let Some(prev) = out.last()
+            && from_m <= prev.from_m
+        {
+            errs.push(format!(
+                "{at}[{i}].from_m: {from_m} must be deeper than the band above ({})",
+                prev.from_m
+            ));
+            ok = false;
+        }
+        out.push(RateBand { from_m, rate_per_m });
+    }
+    ok.then_some(out)
 }
 
 /// Reads a unit's optional `made_ground`: `true` for the lane's default
@@ -3781,12 +3876,50 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
         assert!(i.kinds_basis.contains("pp.405-406"));
     }
 
-    /// london-basin (#75) adds installations at v8.
+    /// london-basin (#75) adds installations at v8; v9 (#84) keeps them.
     #[test]
-    fn london_basin_v8_has_a_cited_installation_table() {
+    fn london_basin_v9_has_a_cited_installation_table() {
         let p = resolve("london-basin").unwrap();
-        assert_eq!(p.version, 8);
+        assert_eq!(p.version, 9);
         installation_is_cited(&p, 0.17);
+    }
+
+    /// london-basin v9 (#84): several strikes per hole, and a made-ground
+    /// `strike` block with a banded rate, each range cited to the crawl.
+    #[test]
+    fn london_basin_v9_has_cited_made_ground_strikes() {
+        let p = resolve("london-basin").unwrap();
+        let several = p.site.several_strikes.as_ref().expect("v9 has the key");
+        assert_eq!((several.max_per_hole, several.min_gap_m), (4, 0.5));
+        assert!(several.basis.contains("OGL v3"), "{}", several.basis);
+        let mg = p.units.iter().find(|u| u.id == "MG").unwrap();
+        let s = mg.strike.as_ref().expect("made ground strikes");
+        let StrikeRate::ByDepth(bands) = &s.rate else {
+            panic!("a banded rate");
+        };
+        assert_eq!(
+            bands.iter().map(|b| b.from_m).collect::<Vec<_>>(),
+            [0.0, 1.0, 2.0, 3.0, 5.0]
+        );
+        assert_eq!(
+            bands.iter().map(|b| b.rate_per_m.min).collect::<Vec<_>>(),
+            [0.023, 0.033, 0.056, 0.104, 0.103]
+        );
+        assert_eq!((s.no_rise_share.min, s.no_rise_share.max), (0.34, 0.34));
+        for r in s
+            .rate
+            .ranges()
+            .into_iter()
+            .chain([&s.rise_m, &s.no_rise_share])
+        {
+            assert!(r.basis.contains("OGL v3"), "{}", r.basis);
+        }
+        assert!(
+            p.units
+                .iter()
+                .filter(|u| u.id != "MG")
+                .all(|u| u.strike.is_none())
+        );
     }
 
     /// tyneside-till (#13) loads by name as three tills over one another with
@@ -5577,10 +5710,13 @@ headings = ["TRET_DEVF"]
         let p = Preset::from_toml(&strike_with(STRIKE)).expect("valid");
         assert!(p.units[0].strike.is_none());
         let s = p.units[1].strike.as_ref().expect("LC strikes");
-        assert_eq!((s.rate_per_m.min, s.rate_per_m.max), (0.02, 0.04));
+        assert_eq!(
+            (s.rate.ranges()[0].min, s.rate.ranges()[0].max),
+            (0.02, 0.04)
+        );
         assert_eq!(s.rise_m.skew, Some(2.0));
         assert_eq!((s.no_rise_share.min, s.no_rise_share.max), (0.1, 0.2));
-        assert_eq!(s.rate_per_m.basis, "test fixture");
+        assert_eq!(s.rate.ranges()[0].basis, "test fixture");
     }
 
     #[test]
@@ -5662,16 +5798,13 @@ headings = ["TRET_DEVF"]
     }
 
     #[test]
-    fn a_unit_strike_is_refused_on_a_made_ground_or_water_bearing_unit() {
+    fn a_unit_strike_is_allowed_on_a_made_ground_unit_but_refused_on_a_water_bearing_one() {
         let text = rtd_made_ground(&valid(), "true").replace(
             "made_ground = true",
             &format!("made_ground = true\n{STRIKE}"),
         );
-        let e = errors_of(&text).join("\n");
-        assert!(
-            e.contains("units[0] (RTD).strike: not allowed on a made-ground unit"),
-            "{e}"
-        );
+        let p = Preset::from_toml(&text).expect("made ground may strike");
+        assert!(p.units[0].strike.is_some());
         let text = rtd_made_ground(&valid(), "false").replace(
             "made_ground = false",
             &format!("water_bearing = true\n{STRIKE}"),
@@ -5679,6 +5812,93 @@ headings = ["TRET_DEVF"]
         assert_refused(
             &text,
             "units[0] (RTD).strike: not allowed on a water-bearing unit (it already strikes at its top)",
+        );
+        // Made ground that is also water-bearing is still refused.
+        let text = rtd_made_ground(&valid(), "true").replace(
+            "made_ground = true",
+            &format!("made_ground = true\nwater_bearing = true\n{STRIKE}"),
+        );
+        let e = errors_of(&text).join("\n");
+        assert!(
+            e.contains("units[0] (RTD).water_bearing: not allowed on a made-ground unit (Made Ground strikes only through a `strike` block)"),
+            "{e}"
+        );
+    }
+
+    const BANDS: &str = "rate_by_depth = [\
+        { from_m = 0.0, rate_per_m = { min = 0.02, max = 0.02, basis = \"test fixture\" } }, \
+        { from_m = 1.0, rate_per_m = { min = 0.03, max = 0.05, basis = \"test fixture\" } }, \
+        { from_m = 3.0, rate_per_m = { min = 0.0, max = 0.1, basis = \"test fixture\" } }]";
+
+    fn banded(bands: &str) -> String {
+        strike_with(&STRIKE.replace(
+            "rate_per_m = { min = 0.02, max = 0.04, basis = \"test fixture\" }",
+            bands,
+        ))
+    }
+
+    #[test]
+    fn a_banded_strike_rate_loads_with_a_cited_range_per_band() {
+        let p = Preset::from_toml(&banded(BANDS)).expect("valid");
+        let s = p.units[1].strike.as_ref().expect("LC strikes");
+        let StrikeRate::ByDepth(b) = &s.rate else {
+            panic!("banded");
+        };
+        assert_eq!(
+            b.iter().map(|b| b.from_m).collect::<Vec<_>>(),
+            [0.0, 1.0, 3.0]
+        );
+        assert_eq!((b[1].rate_per_m.min, b[1].rate_per_m.max), (0.03, 0.05));
+        assert_eq!(s.rate.ranges().len(), 3);
+        assert!(s.rate.ranges().iter().all(|r| r.basis == "test fixture"));
+    }
+
+    #[test]
+    fn a_strike_block_with_both_rates_or_neither_is_refused() {
+        let both = strike_with(&STRIKE.replace("rise_m", &format!("{BANDS}, rise_m")));
+        assert_refused(
+            &both,
+            "units[1] (LC).strike: has both rate_per_m and rate_by_depth (write one)",
+        );
+        let neither = strike_with(&STRIKE.replace(
+            "rate_per_m = { min = 0.02, max = 0.04, basis = \"test fixture\" }, ",
+            "",
+        ));
+        assert_refused(&neither, "units[1] (LC).strike.rate_per_m: missing");
+    }
+
+    #[test]
+    fn a_banded_strike_rate_starts_at_ground_ascends_and_is_cited_and_non_negative() {
+        assert_refused(
+            &banded(&BANDS.replace("from_m = 0.0", "from_m = 0.5")),
+            "units[1] (LC).strike.rate_by_depth[0].from_m: 0.5 must be 0 (ground level)",
+        );
+        assert_refused(
+            &banded(&BANDS.replace("from_m = 3.0", "from_m = 1.0")),
+            "units[1] (LC).strike.rate_by_depth[2].from_m: 1 must be deeper than the band above (1)",
+        );
+        assert_refused(
+            &banded(&BANDS.replace("min = 0.0, max = 0.1", "min = -0.1, max = 0.1")),
+            "units[1] (LC).strike.rate_by_depth[2].rate_per_m: min -0.1 is outside its domain (>= 0)",
+        );
+        assert_refused(
+            &banded(&BANDS.replace(
+                "{ min = 0.02, max = 0.02, basis = \"test fixture\" }",
+                "{ min = 0.02, max = 0.02 }",
+            )),
+            "units[1] (LC).strike.rate_by_depth[0].rate_per_m: no basis",
+        );
+        assert_refused(
+            &banded("rate_by_depth = []"),
+            "units[1] (LC).strike.rate_by_depth: must not be empty",
+        );
+        assert_refused(
+            &banded("rate_by_depth = 0.02"),
+            "units[1] (LC).strike.rate_by_depth: must be an array of tables",
+        );
+        assert_refused(
+            &banded(&BANDS.replace("from_m = 1.0, ", "")),
+            "units[1] (LC).strike.rate_by_depth[1].from_m: missing",
         );
     }
 
@@ -5695,12 +5915,25 @@ headings = ["TRET_DEVF"]
         for id in ["WT", "RT", "GT"] {
             let u = p.units.iter().find(|u| u.id == id).unwrap();
             let s = u.strike.as_ref().unwrap_or_else(|| panic!("{id} strikes"));
-            for r in [&s.rate_per_m, &s.rise_m, &s.no_rise_share] {
+            for r in s
+                .rate
+                .ranges()
+                .into_iter()
+                .chain([&s.rise_m, &s.no_rise_share])
+            {
                 assert!(r.basis.contains("OGL v3"), "{id}: {}", r.basis);
             }
-            assert!(s.rate_per_m.basis.contains("practice note"), "{id}");
-            assert!(s.rate_per_m.basis.contains("CIRIA C504 Fig 6.3, p.117"));
-            assert!(s.rate_per_m.basis.contains("Eyles & Sladen 1981, p.134"));
+            assert!(s.rate.ranges()[0].basis.contains("practice note"), "{id}");
+            assert!(
+                s.rate.ranges()[0]
+                    .basis
+                    .contains("CIRIA C504 Fig 6.3, p.117")
+            );
+            assert!(
+                s.rate.ranges()[0]
+                    .basis
+                    .contains("Eyles & Sladen 1981, p.134")
+            );
         }
         assert!(p.lenses.iter().all(|l| l.water_bearing.is_some()));
     }

@@ -790,3 +790,162 @@ installation sample (`docs/research/tyneside-till-sources.md`).
   on the zone and rarely binds.
 - The zone cannot start above the 1.2 m inspection pit, so the file's P10 for a
   zone top is 1.2 m.
+
+## Made-ground water strikes (london-basin v9, #84), 2026-10-24
+
+v9 gives the Made Ground unit a `strike` block (ADR 0001, "Ground", "Water
+strikes in made ground") and turns on `site.several_strikes` (4, 0.5). Contains
+data supplied by UKRI, OGL v3. Aggregates only; forge analysis. No raw rows,
+hole IDs, project names or remarks.
+
+### Method
+
+- Sample: the London crawl, 161 unique AGS4 files de-duplicated by content
+  hash (AGS3 files carry WSTK and no WSTD, so they are out), holes de-duplicated
+  by project and `LOCA_ID`, 653 holes, 627 with GEOL, 119 projects. The NE
+  England crawl is the cross-check (`docs/research/tyneside-till-sources.md`).
+- A made-ground (MG) hole is a hole whose GEOL log has an MG layer (534 of 627,
+  85%). The MG block is the run of contiguous MG layers; its base is the "MG
+  thickness". The London classifier counts topsoil layers as MG (44 layers, no
+  strike is hosted by one).
+- An MG strike is a strike whose host layer is MG, or that lies within 0.01 m of
+  the MG base (9 London strikes, in 8 projects). Rates use the 430 MG holes of
+  the 73 projects that report WSTG (a project that never reports a strike says
+  nothing about MG), over the MG metres inside each band of depth below ground.
+- THIN is under 20 holes or under 5 projects. Strikes cluster by project (the top
+  project holds 8 of the 67 MG-strike holes, the top three 23), and project
+  effects are not separated. The London crawl was selected for water strikes
+  and terrace and London Clay sequences, so its rates are not random-sample
+  rates.
+
+### The crawl
+
+MG holes in WSTG-reporting projects: 430 holes, 68 projects. Strikes: 78 (MG
+hosted or at the base), in 75 holes and 27 projects. 16% of the 430 holes (67)
+have an MG-hosted strike.
+
+| Band below ground (m) | MG metres | MG strikes | per m | Strikes in | NE per m (strikes / metres) |
+|---|---|---|---|---|---|
+| 0-1 | 399 | 9 | 0.023 | 9 holes, 4 projects, THIN | 0.021 (9 / 429, THIN) |
+| 1-2 | 299 | 10 | 0.033 | 10 holes, 6 projects, THIN | 0.038 (14 / 368, THIN) |
+| 2-3 | 215 | 12 | 0.056 | 12 holes, 9 projects, THIN | 0.048 (13 / 270, THIN) |
+| 3-5 | 249 | 26 | 0.104 | 26 holes, 12 projects | 0.076 (29 / 382) |
+| below 5 | 203 | 21 | 0.103 | 21 holes, 8 projects | 0.080 (48 / 599) |
+
+Rise of the MG strikes (strike depth less the level at 20 minutes, else the last
+reading; WSTG has no rise column):
+
+| Set | Strikes with readings | No rise (0.05 m or less) | Rising strikes P10 / P25 / P50 / P75 / P90 (m) | Max (m) |
+|---|---|---|---|---|
+| London | 35 (35 holes, 13 projects) | 12 (34%, THIN) | 0.20 / 0.30 / 0.50 / 0.88 / 1.38 (23 strikes, 8 projects) | 2.50 |
+| NE England | 58 (53 holes, 13 projects) | 5 (9%) | 0.10 / 0.10 / 0.30 / 0.60 / 1.16 (53 strikes, 12 projects) | 6.80 |
+
+None of the London MG strikes fell, and none settled at or above ground level.
+
+Other London figures, MG holes in WSTG-reporting projects:
+
+| Quantity | Crawl |
+|---|---|
+| MG holes with an MG strike | 67 of 430 (16%) |
+| MG base, all MG holes, P10 / P50 / P90 (m) | 0.62 / 2.20 / 6.00 (534 holes) |
+| MG base, holes with an MG strike, P10 / P50 / P90 (m) | 2.12 / 5.00 / 10.62 (67 holes) |
+| Strike depth over MG base, P10 / P50 / P90 | 0.35 / 0.82 / 1.00 (78 strikes) |
+| MG-strike holes that also strike deeper | 35 of 67 (52%) |
+| Multi-strike holes whose first strike is in MG | 36 of 76 (47%) |
+| MG water above the deeper strike's water (holes with both read) | 20 of 20 |
+| Holes with an MG strike by MG base: under 1, 1-2, 2-3, 3-5, over 5 m | 4%, 3%, 9%, 20%, 40% |
+| WSTG_SEAL recorded at MG strikes | 10 of 69 (14%, THIN: 7 projects) |
+
+Strikes per hole in the whole London crawl (the `several_strikes` evidence):
+300 holes with a strike in 73 projects: 224 with one (74.7%), 62 with two
+(20.7%), 12 with three (4.0%, THIN: 8 projects), 2 with four (0.7%, THIN); 76
+holes (12.1% of the 627 with GEOL, 20 projects) have two or more. Gap between
+consecutive strikes (92 pairs) P10 / P50 / P90 1.80 / 5.30 / 23.60 m; 1 pair is
+0.5 m or closer.
+
+### What the preset takes
+
+- `rate_by_depth`, bands from 0, 1, 2, 3 and 5 m, at the crawl's 0.023, 0.033,
+  0.056, 0.104 and 0.103 per m, each band's range with min = max.
+- `no_rise_share` 0.34 (12 of 35, THIN).
+- `rise_m` min 0.2 (the crawl's P10), max 2.5 (the crawl's maximum, 2.50) and a
+  skew fitted to the P50 of the rising strikes (skew 2.4).
+- `site.several_strikes = { max_per_hole = 4, min_gap_m = 0.5 }`, the casing and
+  seal rules as built, and no `seal` block.
+- An MG event at or below the hole's water table is dropped, so MG water is
+  perched by construction, and the gap rule drops (rather than pushes to or
+  below the table) an MG strike. This is for made-ground units only.
+- An MG unit's process runs from the top of its stratum and the events in a
+  cover are dropped without counting toward the cap, so a cover moves no MG
+  strike below its base.
+
+### Fit (3,000 seeds, 14,855 holes, 13,670 of them with MG)
+
+The file's MG base figures are measured over its 13,670 holes with made ground,
+not over every hole, and they are the written base of the first MG block. The
+`thickness_m` basis above fits the generator's draw (about 10% absent), so its
+figures differ from these.
+
+| Quantity | Crawl | File |
+|---|---|---|
+| Rate per m, 0-1 m | 0.023 | 0.0246 (271 strikes in 11,023 m) |
+| Rate per m, 1-2 m | 0.033 | 0.0337 (274 in 8,137 m) |
+| Rate per m, 2-3 m | 0.056 | 0.0593 (277 in 4,675 m) |
+| Rate per m, 3-5 m | 0.104 | 0.0942 (255 in 2,706 m) |
+| Rate per m, below 5 m | 0.103 | 0.0334 (3 in 90 m) |
+| MG holes with an MG strike | 16% | 7.4% (1,012 of 13,670) |
+| MG base, all MG holes, P10 / P50 / P90 (m) | 0.62 / 2.20 / 6.00 | 0.41 / 1.87 / 3.87 |
+| MG base, holes with an MG strike, P10 / P50 / P90 (m) | 2.12 / 5.00 / 10.62 | 1.58 / 3.24 / 4.94 |
+| Strike depth over MG base, P10 / P50 / P90 | 0.35 / 0.82 / 1.00 | 0.17 / 0.65 / 0.93 |
+| No rise (0.05 m or less) | 34% (12 of 35) | 34.4% (372 of 1,080) |
+| Rising strikes P10 / P25 / P50 / P75 / P90 (m) | 0.20 / 0.30 / 0.50 / 0.88 / 1.38 | 0.20 / 0.25 / 0.49 / 1.00 / 1.58 |
+| Rise max (m) | 2.50 | 2.45 |
+| MG-strike holes that also strike deeper | 52% (35 of 67) | 62.0% (627 of 1,012) |
+| Multi-strike holes whose first strike is in MG | 47% (36 of 76) | 100% (643 of 643) |
+| MG water above the deeper strike's water | 20 of 20 | 627 of 627 |
+| Struck holes with 1 / 2 / 3 / 4 strikes | 74.7 / 20.7 / 4.0 / 0.7% | 92.0 / 7.4 / 0.6 / 0.04% |
+| Holes with 2 or more strikes | 12.1% | 4.3% (643) |
+| Gap between consecutive strikes P10 / P50 / P90 (m) | 1.80 / 5.30 / 23.60 | 1.50 / 3.82 / 5.86 |
+| Holes with any strike | 61.5% of holes in WSTG-reporting projects | 54.1% (51.5% at v8) |
+
+The file's rate per m is strikes over all the MG metres in the band, as the
+crawl's is, so metres under the water table count against the file, where the
+events are dropped.
+
+### Known misses
+
+- **Rate below 5 m (0.0334 against 0.103) and 3-5 m (0.0942 against 0.104).**
+  The file drops an MG event at or below the hole's water table (2.7 to 7.2 m),
+  and the crawl counts the metres under the water. The file's MG is also
+  thinner (P90 3.87 m against 6.00 m), so it has 90 m of MG below 5 m in 14,855
+  holes against the crawl's 203 m in 430. The bands at 0 to 3 m match within
+  Poisson noise (0.0246, 0.0337 and 0.0593 against 0.023, 0.033 and 0.056).
+- **MG holes with an MG strike (7.4% against 16%).** The chance scales with
+  thickness. The crawl's holes with an MG strike have a median MG base of 5.00
+  m; the file's whole population has a median of 1.87 m.
+- **Strike depth over the MG base (P50 0.65 against 0.82).** The crawl counts 9
+  strikes exactly at the MG base (fraction 1.00), and the file drops the made-ground
+  events at or below the water table, which are its deepest.
+- **Rise (P75 1.00 against 0.88 m, P90 1.58 against 1.38 m, P25 0.25 against
+  0.30 m).** One skew cannot match the centre and the tail of a distribution as
+  flat in the middle as the crawl's, and the file caps a rise at ground level.
+- **Multi-strike holes whose first strike is in MG (100% against 47%) and the
+  spread of strikes per hole.** The terrace deposits are not water-bearing in
+  this preset and the clays have no strike block, so the only second source is
+  MG: every multi-strike hole has an MG first strike. The crawl's strikes in
+  alluvium, Lambeth and Thanet beds, chalk and rock are not modelled.
+- **MG-strike holes that also strike deeper (62% against 52%).** Not fitted.
+  The file's deeper strike can only come from the table rule, so the share
+  follows the table's depth against the MG thickness.
+- **Casing and seal.** Not refitted: each strike keeps the casing rules as
+  built for v7 to v9. London MG strikes record WSTG_SEAL for 14% (THIN), so
+  there is no `seal` block.
+
+### Keys
+
+New tags `strike-band-rate` (keyed by the unit and the band) draws each band's
+rate. The MG strike's other draws reuse the till keys (`till-strike`,
+`till-strike-rise`, `till-strike-rise-n`, `till-strike-norise`), keyed by hole and
+unit, so no existing stream is consumed. A preset without the MG block and
+without `several_strikes` writes v8's bytes
+(`a_preset_without_its_made_ground_strikes_writes_the_previous_versions_bytes`).

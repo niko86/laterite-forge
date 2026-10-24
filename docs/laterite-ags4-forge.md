@@ -171,10 +171,28 @@ sources: []
 > water always rises by a draw from `rise_m`, whatever the depth of the water
 > table, but not above ground level (a draw under `no_rise_share` stays at the
 > strike), and `WSTD` follows the same decay to the settled level at 20 minutes. The loader refuses the table on a
-> made-ground or water-bearing unit, a negative rate or rise, a share outside 0
+> water-bearing unit, a negative rate or rise, a share outside 0
 > to 1 and a missing basis. A preset without the table writes the bytes of the
 > version before (`docs/research/tyneside-till-sources.md`, "Water strikes in
 > till (v8, #77)", has the fit).
+>
+> The table is also allowed on a made-ground unit (ADR 0001, "Ground";
+> `london-basin` v9, #84), with a rate that can vary with depth:
+> `rate_by_depth = [{ from_m, rate_per_m = { min, max, basis } }, ...]` in
+> place of `rate_per_m` (the loader refuses a block with both). The bands are
+> measured from ground level, ascending, the first from 0 and the last running
+> on without end; the rate is constant within a band, so the strike is still a
+> Poisson process along the penetration, and each band draws its rate once per
+> site from a stream keyed by the unit and the band. A made-ground unit's
+> strikes are perched: an event at or below the hole's water table is dropped
+> (the table rule still never strikes made ground), so the water in a
+> made-ground strike stands above the water in any deeper strike that settles
+> at or below the table. The process
+> runs from the top of the stratum and the events in a cover are dropped, so a
+> cover moves no strike below it. A preset without the block writes the bytes
+> of the version before (`docs/research/london-basin-sources.md`,
+> "Made-ground water strikes (london-basin v9, #84)", has the fit and the known
+> misses).
 >
 > `site.several_strikes = { max_per_hole, min_gap_m, basis }` (ADR 0001,
 > "Ground"; `tyneside-till` v9) lets a hole record every strike its sources

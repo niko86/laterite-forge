@@ -1,7 +1,8 @@
 //! Water strikes: `WSTG` and `WSTD` rows where a hole meets water (ADR 0001,
 //! "Ground").
 //!
-//! Three rules give a hole its strikes. By default a hole has at most one
+//! Three rules give a hole its strikes (a made-ground unit takes the third, see
+//! "Made-ground strikes"). By default a hole has at most one
 //! (see "One strike per hole"): the shallowest of a lens-top (water-bearing)
 //! strike and a till strike wins, and the table rule counts only when neither
 //! occurs. With `site.several_strikes` a hole records every strike the rules
@@ -60,6 +61,30 @@
 //!   rule above. The rise draws are keyed by (hole, unit).
 //! - The first unit down that strikes is the hole's till strike.
 //!
+//! **Made-ground strikes** (london-basin v9, #84). A made-ground unit may take
+//! the same `strike` block as a till, and the table rule still never strikes
+//! it: the exclusion in the table rule is unchanged, so a made-ground unit
+//! without a block never strikes. Three things differ from a till:
+//!
+//! - The rate may be a `rate_by_depth`: bands of depth below ground level,
+//!   constant within a band, so the process stays Poisson. An event is placed
+//!   by walking the bands in turn with one exponential draw of exposure
+//!   ([`SiteRate`]). Each band draws its rate once per site from a stream keyed
+//!   by (unit, band) (`strike-band-rate`), so changing one unit's bands moves
+//!   no other stream. A flat `rate_per_m` draws and walks exactly as before.
+//! - The water is perched, so an event at or below the hole's water table is
+//!   dropped (for made ground only, never a till), and the gap rule drops a
+//!   made-ground strike rather than push it to the table. The water in a
+//!   made-ground strike is above its depth, which is above the table, so it
+//!   stands above the water in any deeper strike that settles at or below the
+//!   table. This "perched" is not the lens's: a perched lens strike stays at
+//!   its strike depth, while made-ground water rises by its own draw (not
+//!   above ground) from a strike that is above the table.
+//! - The process runs from the top of the stratum, not its written top, and
+//!   drops the events in the cover above the written top (counting them in
+//!   the unit's stream), so a cover moves none of the strikes below it. A
+//!   till's process starts at its written top, as before.
+//!
 //! **One strike per hole.** Without `site.several_strikes` a hole records the
 //! shallowest of its lens-top strike (the first water-bearing stratum that
 //! yields) and its till strike, the lens on a tie. A table strike in a coarse
@@ -74,7 +99,8 @@
 //! sources:
 //!
 //! - every water-bearing stratum that yields strikes once, at its top;
-//! - every till's Poisson process runs on past its first event, using draws
+//! - every till's (and made ground's) Poisson process runs on past its first
+//!   event, using draws
 //!   the one-strike rule never makes, so the first event is where it was. A
 //!   second event in the same unit draws its rise from a new key
 //!   (`till-strike-rise-n`, by the event's index);
@@ -101,7 +127,7 @@ use laterite_ags4_validator::{DictVersion, Dictionary};
 use super::build::Site;
 use super::construction::Plan;
 use super::draw::{Key, uniform};
-use super::preset::{Preset, Range, SeveralStrikes, UnitStrike};
+use super::preset::{Preset, Range, SeveralStrikes, StrikeRate, UnitStrike};
 use crate::synth::model::{Group, Row};
 
 /// The default strike rise range, metres, used when the preset gives none:
@@ -164,8 +190,9 @@ pub(super) fn strikes(site: &Site, preset: &Preset, seed: u64) -> Vec<Strike> {
             .iter()
             .find(|s| table >= s.top && table < s.base)
             .filter(|_| table >= cover_base)
-            // Made Ground yields no strike, whatever its properties: perched
-            // water is out of scope (niko86/laterite-forge#42, M2).
+            // The table rule never strikes Made Ground, whatever its
+            // properties (niko86/laterite-forge#42, M2); a made-ground unit's
+            // own perched strikes come from its `strike` block.
             .filter(|s| !preset.is_made_ground(&s.unit) && site.properties.is_coarse(&s.unit));
         // The first water-bearing stratum down the hole that yields water,
         // struck at its written top (below the cover).
@@ -219,7 +246,8 @@ enum Source<'a> {
     Table,
     /// The top of a water-bearing stratum; `rise` is its drawn rise.
     Lens { rise: f64 },
-    /// A Poisson event in a till unit; `n` is its index in the unit's stream.
+    /// A Poisson event in a till or made-ground unit; `n` is its index in the
+    /// unit's stream.
     Till { ts: TillStrike<'a>, n: u64 },
 }
 
@@ -307,9 +335,16 @@ fn several_strikes(
             });
         }
         for e in till_events(site, hi, &rates, seed, max, false) {
+            // A made-ground strike is perched, so the gap rule may not push it
+            // to the water table or below: it is dropped instead.
+            let base = if preset.is_made_ground(e.ts.unit) {
+                e.base.min(table)
+            } else {
+                e.base
+            };
             cands.push(Candidate {
                 depth: e.ts.depth,
-                limit: limit(e.base),
+                limit: limit(base),
                 source: Source::Till { ts: e.ts, n: e.n },
             });
         }
@@ -351,38 +386,103 @@ fn several_strikes(
     out
 }
 
-/// A till unit's strike rate on this site, with its spec.
+/// A strike unit's rate on this site, with its spec. A till or, from #84, a
+/// made-ground unit: the till names also carry made ground.
 struct TillRate<'a> {
     unit: &'a str,
     spec: &'a UnitStrike,
     /// Strikes per metre penetrated, drawn once per site.
-    rate: f64,
+    rate: SiteRate,
     /// The share of strikes whose water does not rise, drawn once per site.
     no_rise: f64,
+    /// Whether the unit is made ground, whose strikes are perched: an event at
+    /// or below the hole's water table is dropped.
+    made_ground: bool,
 }
 
-/// The site's rate for each unit with a `strike` table, drawn once in the
-/// unit's range from a stream keyed by its id.
+/// A unit's strike rate once drawn for the site.
+enum SiteRate {
+    Flat(f64),
+    /// `(from_m, rate)` per band, ascending, the first from 0.
+    Banded(Vec<(f64, f64)>),
+}
+
+impl SiteRate {
+    /// Whether no depth has a rate above zero.
+    fn is_dead(&self) -> bool {
+        match self {
+            Self::Flat(r) => *r <= 0.0,
+            Self::Banded(b) => b.iter().all(|&(_, r)| r <= 0.0),
+        }
+    }
+
+    /// Where a banded process that has gathered `e` units of exposure (an
+    /// exponential draw) from `depth` down has its next event: constant rate
+    /// within each band, so the bands are walked in turn. Infinite when the
+    /// rest of the hole has no event.
+    fn banded_advance(bands: &[(f64, f64)], depth: f64, mut e: f64) -> f64 {
+        let mut d = depth;
+        for (i, &(from, rate)) in bands.iter().enumerate() {
+            let end = bands.get(i + 1).map_or(f64::INFINITY, |next| next.0);
+            if d >= end {
+                continue;
+            }
+            let start = d.max(from);
+            if rate > 0.0 {
+                let room = rate * (end - start);
+                if e <= room {
+                    return start + e / rate;
+                }
+                e -= room;
+            }
+            d = end;
+        }
+        f64::INFINITY
+    }
+}
+
+/// The site's rate for each unit with a `strike` table (a till or made
+/// ground), drawn once in the
+/// unit's range from a stream keyed by its id (a banded rate draws each band
+/// from its own stream, keyed by the unit and the band).
 fn till_rates(preset: &Preset, seed: u64) -> Vec<TillRate<'_>> {
     preset
         .units
         .iter()
         .filter_map(|u| {
             let spec = u.strike.as_ref()?;
-            let (r, n) = (&spec.rate_per_m, &spec.no_rise_share);
-            Some(TillRate {
-                unit: &u.id,
-                spec,
-                rate: uniform(
+            let n = &spec.no_rise_share;
+            let rate = match &spec.rate {
+                StrikeRate::PerMetre(r) => SiteRate::Flat(uniform(
                     &mut Key::unit("till-strike-rate", &u.id).rng(seed),
                     r.min,
                     r.max,
+                )),
+                StrikeRate::ByDepth(bands) => SiteRate::Banded(
+                    bands
+                        .iter()
+                        .enumerate()
+                        .map(|(i, b)| {
+                            let key = Key {
+                                test: i as u64,
+                                ..Key::unit("strike-band-rate", &u.id)
+                            };
+                            let r = &b.rate_per_m;
+                            (b.from_m, uniform(&mut key.rng(seed), r.min, r.max))
+                        })
+                        .collect(),
                 ),
+            };
+            Some(TillRate {
+                unit: &u.id,
+                spec,
+                rate,
                 no_rise: uniform(
                     &mut Key::unit("till-strike-norise", &u.id).rng(seed),
                     n.min,
                     n.max,
                 ),
+                made_ground: preset.is_made_ground(&u.id),
             })
         })
         .collect()
@@ -457,7 +557,7 @@ struct TillEvent<'a> {
     n: u64,
 }
 
-/// The hole's till events going down. With `first_only` the walk stops at the
+/// The hole's till and made-ground events going down. With `first_only` the walk stops at the
 /// first event of any unit, which is [`till_strike`]. Otherwise each unit's
 /// stream runs on past its first event, up to `per_unit` events: the draws
 /// after the first are ones the first-only walk never makes. Events are in
@@ -472,37 +572,65 @@ fn till_events<'a>(
 ) -> Vec<TillEvent<'a>> {
     let h = &site.holes[hole];
     // Per unit: its stream and how many events it has had.
-    let mut streams: Vec<(&str, Rng, usize)> = Vec::new();
+    let mut streams: Vec<(&str, Rng, usize, u64)> = Vec::new();
     let mut out = Vec::new();
     for (i, s) in h.strata.iter().enumerate() {
         let Some(t) = rates.iter().find(|t| t.unit == s.unit) else {
             continue;
         };
-        let at = if let Some(at) = streams.iter().position(|(u, _, _)| *u == s.unit) {
+        let at = if let Some(at) = streams.iter().position(|(u, _, _, _)| *u == s.unit) {
             at
         } else {
             streams.push((
                 t.unit,
                 Key::stratum("till-strike", hole, t.unit).rng(seed),
                 0,
+                0,
             ));
             streams.len() - 1
         };
         // One draw per piece of the unit, hit or not.
         let mut u = uniform(&mut streams[at].1, 0.0, 1.0);
-        let top = h.written_top(i);
-        if t.rate <= 0.0 || s.base - top < 0.02 {
+        let written = h.written_top(i);
+        if t.rate.is_dead() || s.base - written < 0.02 {
             continue;
         }
+        // A made-ground unit's process runs from the stratum's own top, and
+        // the events in the cover above its written top are dropped, so a
+        // cover moves none of the strikes below it. A till's process starts
+        // at its written top.
+        let top = if t.made_ground { s.top } else { written };
+        // A made-ground strike is perched, so it is above the hole's water
+        // table; an event at or below it is dropped.
+        let table = t
+            .made_ground
+            .then(|| round2(site.properties.groundwater_depth(h)));
         // Distance down from the stratum's top to the latest event.
         let mut off = 0.0;
         loop {
-            off += -(1.0 - u).ln() / t.rate;
+            let exposure = -(1.0 - u).ln();
+            off = match &t.rate {
+                SiteRate::Flat(r) => off + exposure / r,
+                SiteRate::Banded(bands) => {
+                    SiteRate::banded_advance(bands, top + off, exposure) - top
+                }
+            };
             if off >= s.base - top {
                 break;
             }
             let depth = round2(top + off).clamp(round2(top + 0.01), round2(s.base - 0.01));
-            let n = streams[at].2 as u64;
+            if table.is_some_and(|w| depth >= w) {
+                break;
+            }
+            // The event's index in the unit's stream, covered or not, keys its
+            // rise; only recorded events count toward the cap.
+            let n = streams[at].3;
+            streams[at].3 += 1;
+            if depth < written {
+                // In the cover: not recorded and not counted toward the cap.
+                u = uniform(&mut streams[at].1, 0.0, 1.0);
+                continue;
+            }
             streams[at].2 += 1;
             out.push(TillEvent {
                 ts: TillStrike {
@@ -935,7 +1063,7 @@ headings = []
     }
 
     #[test]
-    fn made_ground_never_yields_a_strike_even_with_coarse_properties() {
+    fn made_ground_without_a_strike_block_never_yields_a_strike_even_with_coarse_properties() {
         let plain = made_ground_wet("");
         let made = made_ground_wet("made_ground = true");
         let mut struck_plain = 0;
@@ -1540,12 +1668,12 @@ particle_density_ratio = {{ min = 2.6, max = 2.7, basis = "test fixture" }}
     /// and `no_rise` share.
     fn till_settle(depth: f64, rise: (f64, f64), no_rise: f64, seed: u64) -> f64 {
         let spec = UnitStrike {
-            rate_per_m: Range {
+            rate: StrikeRate::PerMetre(Range {
                 min: 0.1,
                 max: 0.1,
                 basis: "t".into(),
                 skew: None,
-            },
+            }),
             rise_m: Range {
                 min: rise.0,
                 max: rise.1,
@@ -2109,5 +2237,343 @@ mod several_tests {
             std::fs::write(&path, text).unwrap();
             assert_eq!(rust_check(&path).0, RustResult::Clean, "seed {seed}");
         }
+    }
+}
+
+/// Water strikes in made ground (a `strike` block on a made-ground unit,
+/// london-basin v9, #84), and the banded rate behind them.
+#[cfg(test)]
+#[allow(clippy::float_cmp)]
+mod made_ground_strike_tests {
+    use super::super::build::{self, Grid, default_hole_count};
+    use super::super::preset::{Preset, resolve};
+    use super::*;
+    use crate::pipeline::rust_check;
+    use crate::synth::emit::emit_to_string;
+    use laterite_ags4_parity::RustResult;
+
+    const WATER: &str = r#"
+[[suite]]
+group = "WSTG"
+headings = []
+
+[[suite]]
+group = "WSTD"
+headings = []
+"#;
+
+    /// The made-ground line and a `strike` block with the given rate keys.
+    fn block(rate: &str) -> String {
+        format!(
+            "made_ground = true\nstrike = {{ {rate}, \
+             rise_m = {{ min = 0.2, max = 1.0, basis = \"test fixture\" }}, \
+             no_rise_share = {{ min = 0.0, max = 0.0, basis = \"test fixture\" }} }}"
+        )
+    }
+
+    fn flat(rate: f64) -> String {
+        format!("rate_per_m = {{ min = {rate}, max = {rate}, basis = \"test fixture\" }}")
+    }
+
+    fn band(from: f64, rate: f64) -> String {
+        format!(
+            "{{ from_m = {from}, rate_per_m = {{ min = {rate}, max = {rate}, basis = \"test fixture\" }} }}"
+        )
+    }
+
+    const DEEP: &str = "min = 60.0, max = 60.0";
+
+    /// The fixture's 2-3 m of made ground over the terrace deposits, with the
+    /// unit's `made_ground` and `strike` lines `spec` and the water table
+    /// `table` metres down.
+    fn preset(spec: &str, table: &str) -> Preset {
+        let text = format!(
+            "{}{WATER}",
+            build::made_ground_tests::with_made_ground(spec)
+        )
+        .replace(
+            "groundwater_depth_m = { min = 1.0, max = 4.0,",
+            &format!("groundwater_depth_m = {{ {table},"),
+        );
+        Preset::from_toml(&text).expect("made-ground strike fixture loads")
+    }
+
+    fn in_mg(hole: &build::Hole, s: &Strike) -> bool {
+        hole.strata
+            .iter()
+            .any(|st| st.unit == "MG" && s.depth >= st.top && s.depth < st.base)
+    }
+
+    #[test]
+    fn a_banded_rate_walks_the_bands_in_turn() {
+        let bands = [(0.0, 1.0), (1.0, 2.0), (3.0, 0.0), (4.0, 4.0)];
+        let go = SiteRate::banded_advance;
+        assert!((go(&bands, 0.0, 0.5) - 0.5).abs() < 1e-12);
+        // 1 of exposure in the first band, then 0.5 at 2 per m.
+        assert!((go(&bands, 0.0, 1.5) - 1.25).abs() < 1e-12);
+        // Starting inside a band.
+        assert!((go(&bands, 1.5, 0.5) - 1.75).abs() < 1e-12);
+        // 1 + 4 of exposure to reach 3 m, a dead band, then 4 per m from 4 m.
+        assert!((go(&bands, 0.0, 5.0 + 2.0) - 4.5).abs() < 1e-12);
+        // Nothing below a last band with no rate.
+        assert!(go(&[(0.0, 1.0), (1.0, 0.0)], 0.0, 2.0).is_infinite());
+    }
+
+    #[test]
+    fn a_one_band_rate_draws_the_same_events_as_the_flat_rate() {
+        let flat_p = preset(&block(&flat(0.7)), DEEP);
+        let band_p = preset(
+            &block(&format!("rate_by_depth = [{}]", band(0.0, 0.7))),
+            DEEP,
+        );
+        let mut seen = 0;
+        for seed in 0..20 {
+            let a = strikes(&build::build(&flat_p, seed, 6), &flat_p, seed);
+            let b = strikes(&build::build(&band_p, seed, 6), &band_p, seed);
+            let depths = |v: &[Strike]| v.iter().map(|s| (s.hole, s.depth)).collect::<Vec<_>>();
+            assert_eq!(depths(&a), depths(&b), "seed {seed}");
+            seen += a.len();
+        }
+        assert!(seen > 20, "{seen}");
+    }
+
+    #[test]
+    fn a_banded_rate_strikes_only_in_bands_with_a_rate() {
+        let upper = preset(
+            &block(&format!(
+                "rate_by_depth = [{}, {}]",
+                band(0.0, 3.0),
+                band(1.0, 0.0)
+            )),
+            DEEP,
+        );
+        let lower = preset(
+            &block(&format!(
+                "rate_by_depth = [{}, {}]",
+                band(0.0, 0.0),
+                band(1.0, 3.0)
+            )),
+            DEEP,
+        );
+        let (mut up, mut down) = (0, 0);
+        for seed in 0..20 {
+            for s in strikes(&build::build(&upper, seed, 6), &upper, seed) {
+                assert!(s.depth < 1.0, "seed {seed}: {}", s.depth);
+                up += 1;
+            }
+            for s in strikes(&build::build(&lower, seed, 6), &lower, seed) {
+                assert!(s.depth >= 1.0, "seed {seed}: {}", s.depth);
+                down += 1;
+            }
+        }
+        assert!(up > 30 && down > 30, "{up} / {down}");
+    }
+
+    #[test]
+    fn made_ground_strikes_are_above_the_water_table_and_rise_to_ground_at_most() {
+        // A high rate, so an unconstrained hole would strike in its 2-3 m of
+        // made ground, and a table 1.2-2.4 m down that cuts it.
+        let p = preset(&block(&flat(2.0)), "min = 1.2, max = 2.4");
+        let (mut struck, mut cut) = (0, 0);
+        for seed in 0..40 {
+            let site = build::build(&p, seed, 6);
+            let all = strikes(&site, &p, seed);
+            for (hi, hole) in site.holes.iter().enumerate() {
+                let table = round2(site.properties.groundwater_depth(hole));
+                for s in all.iter().filter(|s| s.hole == hi && in_mg(hole, s)) {
+                    assert!(
+                        s.depth < table,
+                        "seed {seed} hole {hi}: {} >= {table}",
+                        s.depth
+                    );
+                    assert!(s.settle >= 0.0 && s.settle <= s.depth);
+                    struck += 1;
+                }
+                cut += usize::from(table < 2.0);
+            }
+        }
+        assert!(struck > 30 && cut > 30, "{struck} / {cut}");
+    }
+
+    #[test]
+    fn a_made_ground_strike_block_is_all_that_lets_it_strike() {
+        // The table rule still excludes made ground: with the table in the
+        // made ground and no block there is no strike, and with the block the
+        // strikes are the block's, all above the table.
+        let none = preset("made_ground = true", "min = 1.0, max = 1.0");
+        let some = preset(&block(&flat(2.0)), "min = 1.0, max = 1.0");
+        let mut got = 0;
+        for seed in 0..10 {
+            assert!(strikes(&build::build(&none, seed, 6), &none, seed).is_empty());
+            for s in strikes(&build::build(&some, seed, 6), &some, seed) {
+                assert!(s.depth < 1.0);
+                got += 1;
+            }
+        }
+        assert!(got > 20, "{got}");
+    }
+
+    #[test]
+    fn one_units_bands_move_no_other_units_rate() {
+        let rate_of = |p: &Preset, id: &str| {
+            till_rates(p, 7)
+                .into_iter()
+                .find(|t| t.unit == id)
+                .map(|t| match t.rate {
+                    SiteRate::Flat(r) => vec![r],
+                    SiteRate::Banded(b) => b.into_iter().map(|(_, r)| r).collect(),
+                })
+        };
+        let bands = |lo: f64, hi: f64| {
+            let r = format!("rate_per_m = {{ min = {lo}, max = {hi}, basis = \"t\" }}");
+            format!("rate_by_depth = [{{ from_m = 0.0, {r} }}, {{ from_m = 2.0, {r} }}]")
+        };
+        let lc = "strike = { rate_per_m = { min = 0.05, max = 0.2, basis = \"t\" }, \
+                  rise_m = { min = 0.1, max = 1.0, basis = \"t\" }, \
+                  no_rise_share = { min = 0.1, max = 0.1, basis = \"t\" } }";
+        let text = |mg: &str| {
+            format!(
+                "{}{WATER}",
+                build::made_ground_tests::with_made_ground(&block(mg))
+            )
+            .replacen(
+                "name = \"London Clay\"\n",
+                &format!("name = \"London Clay\"\n{lc}\n"),
+                1,
+            )
+        };
+        let a = Preset::from_toml(&text(&bands(0.1, 0.3))).unwrap();
+        let b = Preset::from_toml(&text(&bands(0.5, 0.9))).unwrap();
+        assert_ne!(rate_of(&a, "MG"), rate_of(&b, "MG"));
+        assert_eq!(rate_of(&a, "LC"), rate_of(&b, "LC"));
+        // And one unit's bands are drawn apart from each other.
+        let r = rate_of(&a, "MG").unwrap();
+        assert_ne!(r[0], r[1]);
+    }
+
+    fn london() -> Preset {
+        resolve("london-basin").expect("shipped preset loads")
+    }
+
+    #[test]
+    fn london_basin_made_ground_water_stands_above_the_deeper_strikes_water() {
+        let p = london();
+        assert!(p.site.several_strikes.is_some());
+        let (mut mg_holes, mut pairs) = (0, 0);
+        for seed in 0..40 {
+            let site = build::build(&p, seed, 40);
+            let all = strikes(&site, &p, seed);
+            for (hi, hole) in site.holes.iter().enumerate() {
+                let mine: Vec<&Strike> = all.iter().filter(|s| s.hole == hi).collect();
+                let Some(first) = mine.iter().find(|s| in_mg(hole, s)) else {
+                    continue;
+                };
+                mg_holes += 1;
+                for deeper in mine
+                    .iter()
+                    .filter(|s| !in_mg(hole, s) && s.depth > first.depth)
+                {
+                    // Perched: the made-ground water is shallower than the
+                    // water in any deeper strike.
+                    assert!(
+                        first.settle < deeper.settle,
+                        "seed {seed} hole {hi}: {} vs {}",
+                        first.settle,
+                        deeper.settle
+                    );
+                    pairs += 1;
+                }
+            }
+        }
+        assert!(mg_holes > 20 && pairs > 10, "{mg_holes} / {pairs}");
+    }
+
+    #[test]
+    fn london_basin_files_with_made_ground_strikes_are_clean_by_construction() {
+        let p = london();
+        let mut mg = 0;
+        for seed in 0..40 {
+            let site = build::build(&p, seed, default_hole_count(seed));
+            let text = emit_to_string(&build::lower(&site, &p, seed, Grid::Local));
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("site.ags");
+            std::fs::write(&path, text).unwrap();
+            assert_eq!(rust_check(&path).0, RustResult::Clean, "seed {seed}");
+            mg += strikes(&site, &p, seed)
+                .iter()
+                .filter(|s| in_mg(&site.holes[s.hole], s))
+                .count();
+        }
+        assert!(mg > 10, "{mg} made-ground strikes");
+    }
+
+    #[test]
+    fn the_gap_rule_never_pushes_a_made_ground_strike_to_the_water_table() {
+        // Many close events (4 per m, a 0.5 m gap) in 2-3 m of made ground,
+        // with the table 1.5-3.5 m down: a push would reach the table often.
+        let mut p = preset(&block(&flat(4.0)), "min = 1.5, max = 3.5");
+        p.site.several_strikes = Some(SeveralStrikes {
+            max_per_hole: 4,
+            min_gap_m: 0.5,
+            basis: "test fixture".into(),
+        });
+        let (mut mg, mut pairs) = (0, 0);
+        for seed in 0..60 {
+            let site = build::build(&p, seed, 8);
+            let all = strikes(&site, &p, seed);
+            for (hi, hole) in site.holes.iter().enumerate() {
+                let table = round2(site.properties.groundwater_depth(hole));
+                let mine: Vec<&Strike> = all.iter().filter(|s| s.hole == hi).collect();
+                for m in mine.iter().filter(|s| in_mg(hole, s)) {
+                    assert!(
+                        m.depth < table,
+                        "seed {seed} hole {hi}: {} >= {table}",
+                        m.depth
+                    );
+                    mg += 1;
+                    for d in mine.iter().filter(|s| !in_mg(hole, s) && s.depth > m.depth) {
+                        assert!(m.settle < d.settle, "seed {seed} hole {hi}");
+                        pairs += 1;
+                    }
+                }
+            }
+        }
+        assert!(mg > 100 && pairs > 20, "{mg} / {pairs}");
+    }
+
+    #[test]
+    fn a_cover_moves_no_made_ground_strike_below_its_base() {
+        let preset = london();
+        let mut bare = preset.clone();
+        bare.cover = None;
+        let (mut covered, mut compared) = (0, 0);
+        for seed in 0..60 {
+            let (a, b) = (
+                build::build(&preset, seed, 20),
+                build::build(&bare, seed, 20),
+            );
+            let (sa, sb) = (strikes(&a, &preset, seed), strikes(&b, &bare, seed));
+            for (hi, hole) in a.holes.iter().enumerate() {
+                let Some(cover) = &hole.cover else { continue };
+                covered += 1;
+                let below = |all: &[Strike], site: &Site| {
+                    all.iter()
+                        .filter(|s| {
+                            s.hole == hi && s.depth > cover.base && in_mg(&site.holes[hi], s)
+                        })
+                        .copied()
+                        .collect::<Vec<_>>()
+                };
+                // The cap can differ in a hole the bare file fills with
+                // shallower strikes; compare the holes under it.
+                if sb.iter().filter(|s| s.hole == hi).count() >= 4 {
+                    continue;
+                }
+                let (with, without) = (below(&sa, &a), below(&sb, &b));
+                assert_eq!(with, without, "seed {seed} hole {hi}");
+                compared += with.len();
+            }
+        }
+        assert!(covered > 20 && compared > 10, "{covered} / {compared}");
     }
 }
