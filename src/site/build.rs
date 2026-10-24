@@ -1792,6 +1792,9 @@ mod shipped_pins {
     /// installations: PIPE, and the installed holes' own BKFL
     /// (`a_preset_without_its_installation_writes_the_previous_versions_bytes`
     /// holds the rest of the file to the v7 and v6 pins).
+    /// Re-taken for tyneside-till v8 (#77), which adds water strikes in till
+    /// (`a_preset_without_its_till_strikes_writes_the_previous_versions_bytes`
+    /// holds the rest of the file to the v7 pins; london-basin stays at v8).
     #[test]
     fn shipped_preset_output_bytes_are_pinned() {
         use sha2::{Digest, Sha256};
@@ -1817,20 +1820,20 @@ mod shipped_pins {
             (
                 "tyneside-till",
                 0,
-                "962eeb79f812b52a8dfc134415ca3c94899a9ea548a9729f1d455c1d46ab0442",
-                33710,
+                "4f8d6ffcc650ab5cc96201b136c5c3d553e1b0619c22d91f2459a16cf1a9bd1b",
+                34284,
             ),
             (
                 "tyneside-till",
                 1,
-                "6e7b81dbf31a369e17999ca002203f97069b965730d16d0ecefff47cd521322a",
+                "231ffbc54eb05485f29221245822bbd99353060e635e949f05f2a760bd5b3284",
                 23484,
             ),
             (
                 "tyneside-till",
                 2,
-                "238207c4075ae6d4f9c3a8cc4c832f9dd76643222b112cf357384fff69cf5955",
-                40773,
+                "70fbf665f1f3753f92f365b39831612385317b1ba78bcf6bc55389bcb424abbb",
+                41357,
             ),
         ] {
             let text = shipped(name, seed);
@@ -1917,6 +1920,10 @@ mod shipped_pins {
             preset
                 .suite
                 .retain(|e| e.group != "TREG" && e.group != "TRET");
+            // And v8's till strikes (#77): no strike table on any unit.
+            for u in &mut preset.units {
+                u.strike = None;
+            }
             preset.version = version;
             let site = build(&preset, seed, default_hole_count(seed));
             let text = emit_to_string(&lower(&site, &preset, seed, Grid::Local));
@@ -1981,6 +1988,10 @@ mod shipped_pins {
         ] {
             let mut preset = resolve(name).expect("shipped preset loads");
             preset.construction = None;
+            // And v8's till strikes (#77): no strike table on any unit.
+            for u in &mut preset.units {
+                u.strike = None;
+            }
             preset.version = version;
             let site = build(&preset, seed, default_hole_count(seed));
             let text = emit_to_string(&lower(&site, &preset, seed, Grid::Local));
@@ -2050,6 +2061,77 @@ mod shipped_pins {
                 .as_mut()
                 .expect("a construction block")
                 .installation = None;
+            // And v8's till strikes (#77): no strike table on any unit.
+            for u in &mut preset.units {
+                u.strike = None;
+            }
+            preset.version = version;
+            let site = build(&preset, seed, default_hole_count(seed));
+            let text = emit_to_string(&lower(&site, &preset, seed, Grid::Local));
+            let got = crate::synth::hex(&Sha256::digest(text.as_bytes()));
+            assert_eq!(
+                (got.as_str(), text.len()),
+                (sha, len),
+                "{name} v{version} seed {seed}"
+            );
+        }
+    }
+
+    /// A preset without its `strike` tables, at the version before them,
+    /// writes the bytes that version pinned (london-basin v8, which has none
+    /// and did not change, and tyneside-till v7): till strikes move nothing in
+    /// a preset that has none.
+    #[test]
+    fn a_preset_without_its_till_strikes_writes_the_previous_versions_bytes() {
+        use sha2::{Digest, Sha256};
+        for (name, version, seed, sha, len) in [
+            (
+                "london-basin",
+                8,
+                0u64,
+                "6cc9c72be03891c9fb3cf3222f3296a6fe8d1455f1896653dc36568da9b7de56",
+                21355usize,
+            ),
+            (
+                "london-basin",
+                8,
+                1,
+                "5cddfccace03f5c48117e63e3284c429842ae47f2702c43e439beb4fe67e510d",
+                16410,
+            ),
+            (
+                "london-basin",
+                8,
+                2,
+                "7686d64a5df38a684b88e9bfb9a6ac6a59c34f1715f87f7e706ad87e01e649cc",
+                30802,
+            ),
+            (
+                "tyneside-till",
+                7,
+                0,
+                "962eeb79f812b52a8dfc134415ca3c94899a9ea548a9729f1d455c1d46ab0442",
+                33710,
+            ),
+            (
+                "tyneside-till",
+                7,
+                1,
+                "6e7b81dbf31a369e17999ca002203f97069b965730d16d0ecefff47cd521322a",
+                23484,
+            ),
+            (
+                "tyneside-till",
+                7,
+                2,
+                "238207c4075ae6d4f9c3a8cc4c832f9dd76643222b112cf357384fff69cf5955",
+                40773,
+            ),
+        ] {
+            let mut preset = resolve(name).expect("shipped preset loads");
+            for u in &mut preset.units {
+                u.strike = None;
+            }
             preset.version = version;
             let site = build(&preset, seed, default_hole_count(seed));
             let text = emit_to_string(&lower(&site, &preset, seed, Grid::Local));

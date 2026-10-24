@@ -150,6 +150,17 @@ the preset's test suite. `--site` and `--scaffold` are mutually exclusive.
   cap (906), bentonite (903), a gravel (902) or sand (901) filter from 0.5 m
   above the slotted section to 0.5 m below it, bentonite to final depth. There
   is no `MONG`. Every other group is as v7 and v6 wrote it.
+  tyneside-till v8 adds **water strikes in the tills**. Each till (weathered,
+  red, grey) strikes water along its depth at a rate per metre penetrated,
+  fitted so that 7.2%, 14.9% and 17.8% of the holes through each strike in it
+  (the NE crawl's 7.3%, 15.0% and 17.7%); the strike falls evenly through the
+  stratum. A hole still records one strike: the shallowest of a lens-top
+  strike and a till strike, with a water-table strike counted only when
+  neither occurs. The water rises as in the lens, by a drawn amount but not
+  above the water table, and stays at the strike (perched) where the table is
+  deeper. Holes with any strike rise from about 7% to about 34%, and
+  `WSTG`, `WSTD`, `WSTG_CAS`, the installation zone and `BKFL` follow the
+  strikes. london-basin is unchanged.
 
 ## Finding python-ags4
 

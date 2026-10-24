@@ -124,7 +124,9 @@ consumer can replace.
   at the strike depth. A hole records one strike, and the water-bearing rule
   takes precedence over a table strike in a shallower coarse stratum (AGS
   allows several `WSTG` rows per hole; one keeps the file shape and the draw
-  count of the table rule, `forge judgement`). Without the flag nothing moves.
+  count of the table rule, `forge judgement`). From tyneside-till v8 a till
+  strike joins the water-bearing strike in that precedence (below). Without
+  the flag nothing moves.
   Not every hole that meets such a stratum records a strike in it (a BGS
   crawl of NE England found 89 of 249 holes meeting a granular layer, 36%), so
   the flag may instead be a table, `water_bearing = { share = { min, max,
@@ -136,6 +138,53 @@ consumer can replace.
   under the share. A hole that does not yield gets no strike from that stratum
   (the next water-bearing stratum down is tried, then the table rule). `true`
   is share 1 and makes no draw, so it stays byte-identical.
+- Water strikes in till (#77, tyneside-till v8). A unit may take a `strike`
+  table: `rate_per_m` (strikes per metre penetrated, drawn once per site in its
+  range), `rise_m` (a cited range with an optional skew, as a thickness has)
+  and `no_rise_share` (0 to 1). Each is cited, and the loader refuses a rate or
+  rise below 0, a share outside 0 to 1, a missing basis, and the table on a
+  made-ground unit (which never yields water) or a water-bearing unit (which
+  already strikes at its top). A lens takes none. In the crawl of NE England
+  (793 holes, 38 projects) 129 of 437 strikes are in till, in 112 holes
+  (18.7% of the 598 that go through till), yet the tills gave no strike before
+  v8, so only about 7% of generated holes struck against 41% in the crawl. The
+  strikes follow penetrated thickness, about 0.3 per 10 m of till, not a flat
+  share per hole.
+  - **Placement.** A hole is a Poisson process along its penetration of each
+    such unit, keyed by (hole, unit): the first event below the written top of
+    the unit's stratum (below the cover, and continuing one stream across the
+    pieces of a unit a lens splits) is the strike, so it falls evenly through
+    the stratum, as the crawl's strikes do (median 0.43 to 0.62 of the way
+    down). The rate is drawn once per site from a stream keyed by the unit id.
+    The rates are fitted to the share of holes through each unit that strike in
+    it, not to the crawl's per-metre rate, because the units differ in what the
+    holes cross: the grey till runs to final depth, so the file's holes cross
+    19 m of it against the crawl's 4.6 m.
+  - **One strike per hole.** The shallowest of a lens-top strike and a till
+    strike wins (the lens on a tie), and a water-table strike in a coarse
+    stratum counts only when neither occurs. In the crawl the till strike is
+    the hole's first in 74% of holes that have one. Several strikes per hole
+    remain out of scope.
+  - **Rise.** The lens rule applies. Where the table is above the strike the
+    settled level is `max(table, strike - rise)`, the rise drawn from the
+    unit's `rise_m` (a stream keyed by hole and unit), and a draw under
+    `no_rise_share` (drawn once per site) leaves the water at the strike;
+    where the table is at or below the strike the water is perched and stays
+    at the strike. The readings follow the same decay as every strike, so they
+    are monotone and settle exactly at the 20-minute level. The tills carry
+    the same pooled rise (crawl n 90, 17 projects), because weathered till has
+    10 readings.
+  - **Basis.** The crawl, plus the owner's practice note (`forge judgement`):
+    strikes in clay till come from thin sand or silt partings and fissures too
+    small to log separately. Only 5 to 14% of the crawl's till strikes have a
+    logged parting. The note sits beside the lens citations above (Eyles &
+    Sladen 1981, p.134; CIRIA C504 Fig 6.3, p.117), which are about lenses.
+  - **Keys.** New tags `till-strike-rate`, `till-strike-norise`,
+    `till-strike` and `till-strike-rise` draw the new values and no existing
+    stream is consumed, so a preset without the table writes the bytes of the
+    version before it, and changing one unit's rate moves only the strike-
+    dependent rows (`WSTG`, `WSTD`, `WSTG_CAS`, the installation zone, `BKFL`
+    and `PIPE`) of holes whose strike changes.
 - Coordinates are on a local grid by default. `--grid bng --origin <E>,<N>`
   adds national-grid coordinates for tools that only plot BNG, at an origin the
   consumer chooses and is responsible for. No shipped preset carries a real
