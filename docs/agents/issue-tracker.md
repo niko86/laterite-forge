@@ -37,13 +37,18 @@ assumes about how work lands.
   number as a suffix when there is one, e.g. `fix/oracle-path-5`) and open the PR
   against `main`. Title the PR like a conventional commit, ending with the issue
   it closes: `fix(oracle): … (#5)`.
-- **The maintainer merges.** Do not run `gh pr merge`. "Go ahead" authorises the
-  work, not the merge behind it.
+- **The maintainer merges** any PR that touches preset values or bases,
+  citations, vocabulary or data tables. "Go ahead" authorises the work, not
+  the merge behind it. The one exception: a code-only PR whose CI is green may
+  be merged by the agent, with `gh api --method PUT
+  repos/niko86/laterite-forge/pulls/<n>/merge -f merge_method=merge`.
 - **Commit messages and PR bodies carry no AI-assistant references.** No
   `Co-Authored-By` trailer, no "Generated with" footer. This is a public repo.
 - **PR body shape:** `Closes #N.` first when an issue exists, then one bullet per
   change saying what it does and how it was proved, then a `**Gates run
-  locally:**` line listing the CI gates that were run before pushing.
+  locally:**` line listing the CI gates that were run before pushing. Name
+  each proving test in backticks, by its full `fn` name: CI's `pr-body` job
+  (`tools/check_pr_test_names.py`) fails when a named test does not exist.
 - **Never paste real private-corpus values** into committed code, tests, or PR
   text. Grep the diff before pushing.
 

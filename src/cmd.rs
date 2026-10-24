@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use anyhow::Result;
 use laterite_cliutil::report::{Ctx, Plan, emit, note};
 
-use crate::artifacts::{forge_dir, guard_out_dir, new_run_id, run_dir, set_latest_run};
+use crate::artifacts::{claim_run, forge_dir, guard_out_dir, run_dir, set_latest_run};
 use crate::cli::{
     CheckArgs, ConfidenceArgs, EditArgs, GenArgs, MineArgs, MinimizeArgs, RunArgs, StrategyArgs,
     VendorArgs,
@@ -191,9 +191,8 @@ pub fn generate(args: &GenArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
         return Ok(0);
     }
 
-    let run_id = new_run_id();
+    let run_id = claim_run(&out)?;
     let dir = run_dir(&out, &run_id);
-    std::fs::create_dir_all(&dir)?;
 
     let oracle = if args.validate && !args.no_oracle {
         site.build_oracle(args.timeout, "gen: Rust-only verdicts (optional QA)")
@@ -399,7 +398,7 @@ pub fn run(args: &RunArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
         (None, "none".to_string())
     };
 
-    let run_id = new_run_id();
+    let run_id = claim_run(&out)?;
     let outcome = evolve(&strat, oracle.as_ref(), &oracle_ver, &out, &run_id, true)?;
     set_latest_run(&out, &run_id)?;
 
@@ -529,9 +528,8 @@ pub fn mine(args: &MineArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
         .map(|(o, _)| o)
     };
 
-    let run_id = new_run_id();
+    let run_id = claim_run(&out)?;
     let dir = run_dir(&out, &run_id);
-    std::fs::create_dir_all(&dir)?;
 
     let cfg = MineCfg {
         scaffold,

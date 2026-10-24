@@ -3101,6 +3101,49 @@ fn read_sampling(u: &mut Node, samp: &[&str], errs: &mut Vec<String>) -> Option<
 mod tests {
     use super::*;
 
+    /// Every string under a `*basis*` key in `v`, with its path.
+    fn bases<'a>(v: &'a Value, path: &str, out: &mut Vec<(String, &'a str)>) {
+        match v {
+            Value::Table(t) => {
+                for (k, v) in t {
+                    let at = format!("{path}.{k}");
+                    match v {
+                        Value::String(s) if k.contains("basis") => out.push((at, s)),
+                        _ => bases(v, &at, out),
+                    }
+                }
+            }
+            Value::Array(a) => {
+                for (i, v) in a.iter().enumerate() {
+                    bases(v, &format!("{path}[{i}]"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// BGS NGDC data are OGL v3, which requires the attribution wherever they
+    /// are used, so a basis citing the NGDC must carry it.
+    #[test]
+    fn every_shipped_basis_citing_the_bgs_ngdc_carries_the_ogl_attribution() {
+        for (name, text) in SHIPPED {
+            let root = Value::Table(text.parse().expect("shipped preset parses"));
+            let mut all = Vec::new();
+            bases(&root, name, &mut all);
+            assert!(all.len() > 50, "{name}: only {} bases found", all.len());
+            for (at, b) in all {
+                if b.contains("NGDC") {
+                    assert!(
+                        b.to_lowercase()
+                            .contains("contains data supplied by ukri, ogl v3"),
+                        "{at}: cites the BGS NGDC without \
+                         \"Contains data supplied by UKRI, OGL v3\""
+                    );
+                }
+            }
+        }
+    }
+
     /// Obviously fake: no real citation belongs in a test fixture. Without
     /// properties or groundwater, which the loader requires; [`valid`] adds
     /// them.

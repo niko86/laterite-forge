@@ -51,7 +51,13 @@ cargo deny check
 
 ### Issue tracker
 
-Issues live in this repo's GitHub Issues (`niko86/laterite-forge`), managed with the `gh` CLI. See `docs/agents/issue-tracker.md`, which also carries the PR rules: every change goes through a PR, the maintainer merges, and commits and PR bodies carry no AI-assistant references.
+Issues live in this repo's GitHub Issues (`niko86/laterite-forge`), managed with the `gh` CLI. See `docs/agents/issue-tracker.md`, which also carries the PR rules: every change goes through a PR, the maintainer merges (code-only PRs excepted), and commits and PR bodies carry no AI-assistant references.
+
+### Build agents and review
+
+- A sub-agent building an issue follows `docs/agents/build-brief.md`.
+- Before editing `data/presets/`, or reviewing a diff that does, read `CODING_STANDARDS.md`.
+- `tools/preset_outline.py <preset> [filter]` prints a preset's values with the bases cut short.
 
 ### Triage labels
 
