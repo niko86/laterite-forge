@@ -121,7 +121,8 @@ consumer can replace.
   rise from the strike to `max(table, strike - rise)`, the rise drawn from
   `site.strike_rise_m` or its default with the same keyed draw. Where the
   table is at or below the strike, the water is perched and the readings stay
-  at the strike depth. A hole records one strike, and the water-bearing rule
+  at the strike depth. Without `site.several_strikes` a hole records one
+  strike, and the water-bearing rule
   takes precedence over a table strike in a shallower coarse stratum (AGS
   allows several `WSTG` rows per hole; one keeps the file shape and the draw
   count of the table rule, `forge judgement`). From tyneside-till v8 a till
@@ -194,8 +195,9 @@ consumer can replace.
   before. In the crawl of NE England (51 unique AGS4 files, 955 holes with
   GEOL, 38 projects) 24% of struck holes record more than one strike: 75.9% of
   struck holes have one, 19.1% two, 4.2% three and 0.7% four, 10.7% of holes
-  with GEOL have two or more. Of holes with a till strike, 55 of 112 record
-  more than one, but only 15 more than one in till.
+  with GEOL have two or more. In the earlier 793-hole sample, of holes with a
+  till strike, 55 of 112 record more than one, but only 15 more than one in
+  till.
   - **Which strikes.** The sources are the existing ones, sorted by depth, with
     no drawn count: each water-bearing stratum that yields strikes once at its
     top, each till's Poisson process runs on past its first event, and the

@@ -1057,7 +1057,8 @@ strikes alone give P50 0.71 m and P90 4.25 m, a mean of 1.46 m, 43% over 1 m and
   in the crawl 31 of the 102 first strikes are in made ground and 14 of the
   second strikes in rock. Made-ground water is #84.
 - The same-stratum share (47.5% against 15%). The grey till is one thick
-  stratum with a lens in it, so most pairs of grey-till events are in the same
+  stratum with a lens in it, running to final depth with no rock below it
+  (the file's holes cross 19 m of it against the crawl's 4.6 m), so most pairs of grey-till events are in the same
   stratum.
 - The gap between consecutive strikes is wider at the upper end (P90 14.9 m
   against 12.2 m) and closer at the lower (P10 0.94 m against 1.75 m); the

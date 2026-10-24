@@ -113,7 +113,7 @@ sources: []
 > sandy TOPSOIL with rootlets.`); `tyneside-till` v3 has topsoil only.
 > `tyneside-till` v3 writes the same groups for NE England glacial till:
 > weathered, red and grey till with a glaciofluvial sand and gravel lens in
-> the grey till, water-bearing in a 0.44 share of the holes it reaches,
+> the grey till, water-bearing in a 0.36 share of the holes it reaches,
 > calibrated to Clarke et al. 2008 and a BGS NGDC crawl
 > (`docs/research/tyneside-till-sources.md`).
 > A unit's optional `triaxial` table (ADR 0001, "Multi-stage UU") makes a
