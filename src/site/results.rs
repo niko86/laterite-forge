@@ -34,6 +34,7 @@
 
 use super::build::{Hole, Sample, Site};
 use super::draw::{Key, uniform};
+use super::effective;
 use super::properties::{
     Band, Evaluated, IndexQuantity, OUTLIER_OVERSHOOT, UNDRAINED_STRENGTH_KPA, beyond_range,
 };
@@ -201,12 +202,12 @@ pub(super) fn scatter(
 
 /// A whole number, rounded half away from zero.
 #[allow(clippy::cast_possible_truncation)]
-fn whole(v: f64) -> i64 {
+pub(super) fn whole(v: f64) -> i64 {
     v.round() as i64
 }
 
 /// One quantity of `spec` scattered under `group`.
-fn quantity(
+pub(super) fn quantity(
     site: &Site,
     spec: &Specimen<'_>,
     group: &str,
@@ -593,6 +594,69 @@ pub(super) const PRODUCERS: &[Producer] = &[
         group: "TRIT",
         heading: "TRIT_IMC",
         value: |s, h, x| text(trit_density(s, h, x).map(|(_, mc)| mc)),
+    },
+    // TREG headings are the set's. A TRET producer gives the first stage's
+    // value (the single-stage row); the suite writes the other stages from the
+    // whole set (see `effective`).
+    Producer {
+        group: "TREG",
+        heading: "TREG_TYPE",
+        value: |s, h, x| text(effective::set(s, h, x).map(|e| e.kind.code())),
+    },
+    Producer {
+        group: "TREG",
+        heading: "TREG_COND",
+        value: |s, h, x| text(effective::set(s, h, x).map(|_| "UNDISTURBED")),
+    },
+    Producer {
+        group: "TREG",
+        heading: "TREG_COH",
+        value: |s, h, x| text(effective::set(s, h, x).map(|e| e.coh)),
+    },
+    Producer {
+        group: "TREG",
+        heading: "TREG_PHI",
+        value: |s, h, x| text(effective::set(s, h, x).map(|e| format!("{:.1}", e.phi_deg))),
+    },
+    Producer {
+        group: "TREG",
+        heading: "TREG_FCR",
+        value: |s, h, x| text(effective::set(s, h, x).map(|e| e.kind.failure_criterion())),
+    },
+    Producer {
+        group: "TRET",
+        heading: "TRET_CELL",
+        value: |s, h, x| text(effective::first_stage(s, h, x, "TRET_CELL")),
+    },
+    Producer {
+        group: "TRET",
+        heading: "TRET_PWPI",
+        value: |s, h, x| text(effective::first_stage(s, h, x, "TRET_PWPI")),
+    },
+    Producer {
+        group: "TRET",
+        heading: "TRET_DEVF",
+        value: |s, h, x| text(effective::first_stage(s, h, x, "TRET_DEVF")),
+    },
+    Producer {
+        group: "TRET",
+        heading: "TRET_PWPF",
+        value: |s, h, x| text(effective::first_stage(s, h, x, "TRET_PWPF")),
+    },
+    Producer {
+        group: "TRET",
+        heading: "TRET_CONP",
+        value: |s, h, x| text(effective::first_stage(s, h, x, "TRET_CONP")),
+    },
+    Producer {
+        group: "TRET",
+        heading: "TRET_BDEN",
+        value: |s, h, x| text(effective::first_stage(s, h, x, "TRET_BDEN")),
+    },
+    Producer {
+        group: "TRET",
+        heading: "TRET_IMC",
+        value: |s, h, x| text(effective::first_stage(s, h, x, "TRET_IMC")),
     },
     Producer {
         group: "ISPT",

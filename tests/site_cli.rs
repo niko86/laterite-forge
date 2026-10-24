@@ -360,3 +360,54 @@ fn strength_and_spt_problems_exit_5_naming_the_field() {
         );
     }
 }
+
+/// A generated tyneside-till file, with its TREG and TRET groups, passes dual
+/// validation: Rust and python-ags4 both find nothing (#68). Without the
+/// oracle the test skips, or under `FORGE_REQUIRE_ORACLE=1` fails.
+#[test]
+fn a_tyneside_till_file_with_effective_stress_triaxial_agrees_with_python_ags4() {
+    let dir = tempfile::tempdir().unwrap();
+    for seed in ["1", "4", "9"] {
+        let out = dir.path().join(format!("out{seed}"));
+        let made = forge(&[
+            "gen",
+            "--site",
+            "tyneside-till",
+            "--seed",
+            seed,
+            "--json",
+            "--out-dir",
+            out.to_str().unwrap(),
+        ]);
+        assert_eq!(made.status.code(), Some(0), "{}", stderr(&made));
+        let doc: serde_json::Value = serde_json::from_slice(&made.stdout).unwrap();
+        let path = doc["candidates"][0]["path"].as_str().unwrap().to_string();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            text.contains("\"GROUP\",\"TREG\"") && text.contains("\"GROUP\",\"TRET\""),
+            "seed {seed} has no TREG and TRET"
+        );
+        let checked = forge(&["check", &path, "--json"]);
+        let verdict: serde_json::Value = serde_json::from_slice(&checked.stdout).unwrap();
+        if verdict["oracle"] == false {
+            assert!(
+                std::env::var_os("FORGE_REQUIRE_ORACLE").is_none(),
+                "FORGE_REQUIRE_ORACLE is set but there is no oracle: {}",
+                stderr(&checked)
+            );
+            eprintln!(
+                "SKIP tyneside-till dual validation: {}",
+                stderr(&checked).trim()
+            );
+            return;
+        }
+        assert_eq!(checked.status.code(), Some(0), "seed {seed}: {verdict}");
+        assert_eq!(verdict["verdict"], "AGREE", "seed {seed}: {verdict}");
+        assert_eq!(verdict["rust_rules"], serde_json::json!([]), "seed {seed}");
+        assert_eq!(
+            verdict["python_rules"],
+            serde_json::json!([]),
+            "seed {seed}"
+        );
+    }
+}

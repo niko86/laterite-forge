@@ -294,6 +294,9 @@ struct UnitModel {
     /// The share of this unit's TRIG tests that are multi-stage and the
     /// stage gain, each drawn once per site from the preset's ranges.
     multi_stage: Option<(f64, f64)>,
+    /// The unit's effective-stress strength for this site (c', phi', `A_f`),
+    /// each drawn once per site from the preset's ranges.
+    effective: Option<EffectiveValues>,
     /// The outlier rate over the site, when the preset gives one.
     rate: Option<(Range, Field)>,
 }
@@ -385,6 +388,15 @@ impl UnitModel {
                     t.stage_gain.as_ref().map_or(0.0, |g| draw("uum-gain", g)),
                 )
             }),
+            effective: p.effective_strength.as_ref().map(|e| {
+                let draw =
+                    |tag: &str, r: &Range| uniform(&mut Key::unit(tag, id).rng(seed), r.min, r.max);
+                EffectiveValues {
+                    c_kpa: draw("eff-c", &e.c_eff_kpa),
+                    phi_deg: draw("eff-phi", &e.phi_eff_deg),
+                    af: draw("eff-af", &e.skempton_af),
+                }
+            }),
             rate: p.outlier_rate.as_ref().map(|r| {
                 let field = Field::new(
                     &mut Key::unit("property:outlier_rate", id).rng(seed),
@@ -464,6 +476,19 @@ pub struct Evaluated {
     /// and the fractional rise in cu per stage after the first.
     pub uum_share: Option<f64>,
     pub uum_stage_gain: f64,
+    /// This site's effective-stress strength of the unit, where it has an
+    /// `effective_strength`.
+    pub effective: Option<EffectiveValues>,
+}
+
+/// A unit's effective-stress strength for one site: the effective cohesion
+/// c' (kPa), the effective friction angle phi' (degrees) and Skempton's `A_f`
+/// for its undrained tests, each drawn once per site.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EffectiveValues {
+    pub c_kpa: f64,
+    pub phi_deg: f64,
+    pub af: f64,
 }
 
 /// Undrained strength at a depth, kPa: cu = `cu_top` + `per_m` x z, z metres
@@ -765,6 +790,7 @@ impl PropertyModel {
                 .map(|(top, per_m)| (top + per_m * depth).clamp(0.0, 1.0)),
             uum_share: model.multi_stage.map(|(share, _)| share),
             uum_stage_gain: model.multi_stage.map_or(0.0, |(_, gain)| gain),
+            effective: model.effective,
         })
     }
 }

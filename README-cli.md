@@ -112,6 +112,18 @@ the preset's test suite. `--site` and `--scaffold` are mutually exclusive.
   value, `TRIT_CU` rising from stage to stage, and the specimen's density and
   moisture content repeated). Single-stage tests are as v3 wrote them;
   london-basin is unchanged.
+  tyneside-till v5 adds **effective-stress triaxial** results: about as many
+  `TREG` sets as `TRIG` tests, each a `TREG_TYPE` of `CUM`, `CDM`, `CU` or `CD`
+  with three `TRET` rows (`TRET_TESN` 1 to 3: three stages on one specimen
+  for `CUM` and `CDM`, three specimens for `CU` and `CD`). The effective
+  confining stress is 10 kPa per metre of depth for stage 1 and twice and four
+  times that for stages 2 and 3, on a 300 kPa back pressure (`TRET_PWPI`), so
+  `TRET_CELL` is the two added and `TRET_CONP` the effective stress. The
+  deviator stress `TRET_DEVF` is on the Mohr-Coulomb envelope of the till's
+  c' and phi'; in `CU` and `CUM` the pore pressure `TRET_PWPF` rises by
+  Skempton's A_f times it, and in `CD` and `CDM` it does not. `TREG_COH` and
+  `TREG_PHI` are the line through the set's three failure points. Every other
+  group is as v4 wrote it; london-basin is unchanged.
 
 ## Finding python-ags4
 

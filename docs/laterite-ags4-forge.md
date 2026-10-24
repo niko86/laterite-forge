@@ -120,6 +120,16 @@ sources: []
 > (`TRIT_TESN` 1 to 3, cell pressure x1/x2/x4, cu rising by a `stage_gain`
 > per stage, density and moisture content repeated). `tyneside-till` v4 sets
 > a share of about 0.54 and a gain of about 0.20; `london-basin` sets none.
+> A unit's optional `effective_strength` table (ADR 0001, "Effective-stress
+> triaxial") holds ranges of c', phi' and Skempton's A_f, and a suite with a
+> `TREG` entry (and `TRET`, scheduled with it) writes effective-stress sets on
+> that unit's samples: one TREG row of type `CUM`, `CDM`, `CU` or `CD` and three
+> TRET rows (`TRET_TESN` 1 to 3), the stages of one specimen or three
+> specimens, at effective confining stresses of 10 kPa per metre of depth and
+> twice and four times that, on a 300 kPa back pressure. Failure is on the
+> Mohr-Coulomb envelope; `TREG_COH` and `TREG_PHI` are the least-squares line
+> through the set's three failure points. `tyneside-till` v5 adopts it;
+> `london-basin` has no source for c' and phi' and none.
 > `--site` and `--scaffold` are mutually exclusive, and the loader refuses a
 > preset with a missing basis, an unknown key, or a suite heading no producer
 > can make, naming the field (exit 5). Every file carries a SYNTHETIC marker in

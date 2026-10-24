@@ -13,6 +13,9 @@
 //!   KEY plus `SPEC_REF = 1` and `SPEC_DPTH` at the sample's mid-depth.
 //! - TRIT is scheduled with TRIG: one row (`TRIT_TESN = 1`) per TRIG row, or
 //!   three (`TESN` 1 to 3) for a multi-stage test (`TRIG_TYPE = UUM`).
+//! - TREG is a `SAMP` child like TRIG, and TRET goes with it: three rows
+//!   (`TRET_TESN` 1 to 3) per TREG row, the stages of one specimen or three
+//!   specimens (see `effective`).
 //! - ISPT is a LOCA child keyed (`LOCA_ID`, `ISPT_TOP`): one test at the top of
 //!   each D sample, thinned by the rate. Sample tops are unique in a hole, so
 //!   no two SPTs share a top.
@@ -29,6 +32,7 @@ use laterite_ags4_validator::{DictVersion, Dictionary};
 
 use super::build::{Hole, Numbered, Sample, Site, numbered};
 use super::draw::{Key, uniform};
+use super::effective;
 use super::preset::{Preset, SUITE_GROUPS, SuiteEntry};
 use super::results;
 use super::water;
@@ -80,8 +84,8 @@ pub(super) fn groups(
         let Some(entry) = preset.suite.iter().find(|e| e.group == code) else {
             continue;
         };
-        if code == "TRIT" {
-            continue; // written with TRIG
+        if code == "TRIT" || code == "TRET" {
+            continue; // written with TRIG and TREG
         }
         if code == "WSTG" || code == "WSTD" {
             // Not scheduled on samples: a strike follows the water table.
@@ -102,19 +106,27 @@ pub(super) fn groups(
                 permitted.contains(&s.code.as_str())
             }
         };
-        let tested = schedule(site, entry, index, seed, &eligible);
+        let mut tested = schedule(site, entry, index, seed, &eligible);
+        if code == "TREG" {
+            // A unit with no effective strength has no set to write; the
+            // loader refuses a preset that tests one.
+            tested.retain(|(hi, n)| effective::set(site, &site.holes[*hi], n.sample).is_some());
+        }
         let ctx = Ctx {
             dict: &dict,
             site,
             producers,
         };
-        let trit = preset.suite.iter().find(|e| e.group == "TRIT");
+        let child = match code {
+            "TRIG" => "TRIT",
+            "TREG" => "TRET",
+            _ => "",
+        };
+        let child = preset.suite.iter().find(|e| e.group == child);
         if let Some(g) = ctx.group(entry, &tested) {
             out.push(g);
         }
-        if code == "TRIG"
-            && let Some(g) = trit.and_then(|t| ctx.group(t, &tested))
-        {
+        if let Some(g) = child.and_then(|t| ctx.group(t, &tested)) {
             out.push(g);
         }
     }
@@ -234,6 +246,10 @@ impl Ctx<'_> {
                     && let Some(gain) = results::uum_gain(self.site, hole, n.sample)
                 {
                     self.stages(&cols, &row, hole, n.sample, gain)
+                } else if code == "TRET"
+                    && let Some(set) = effective::set(self.site, hole, n.sample)
+                {
+                    Self::effective_stages(&cols, &row, &set)
                 } else {
                     vec![Row::owned(row)]
                 }
@@ -285,6 +301,23 @@ impl Ctx<'_> {
             .collect()
     }
 
+    /// The three TRET rows of `set` from its first row `row`: each stage
+    /// writes its own `TRET_TESN` and results, and the KEY columns (the
+    /// specimen's) are the same.
+    fn effective_stages(cols: &[&str], row: &[String], set: &effective::Set) -> Vec<Row> {
+        set.stages
+            .iter()
+            .map(|stage| {
+                let values = cols
+                    .iter()
+                    .zip(row)
+                    .map(|(h, v)| stage.value(h).unwrap_or_else(|| v.clone()))
+                    .collect();
+                Row::owned(values)
+            })
+            .collect()
+    }
+
     fn value(&self, code: &str, heading: &str, hole: &Hole, n: &Numbered<'_>) -> String {
         let s = n.sample;
         match heading {
@@ -293,7 +326,7 @@ impl Ctx<'_> {
             "SAMP_REF" => n.reference.clone(),
             "SAMP_TYPE" => s.code.clone(),
             "SAMP_ID" => format!("{}-{}", hole.id, n.reference),
-            "SPEC_REF" | "TRIT_TESN" => "1".to_string(),
+            "SPEC_REF" | "TRIT_TESN" | "TRET_TESN" => "1".to_string(),
             "SPEC_DPTH" => m2(round2(f64::midpoint(s.top, s.base))),
             "TRIG_TYPE" => if results::uum_gain(self.site, hole, s).is_some() {
                 "UUM"
@@ -432,7 +465,12 @@ rate = { min = 0.5, max = 0.5, basis = "test fixture" }
         }
         let m = file(&p, 1, 6);
         // The water groups are not in this suite; `water` tests them.
-        for g in SUITE_GROUPS.iter().filter(|g| !g.starts_with("WST")) {
+        // TREG and TRET need a unit with effective strength, which this
+        // fixture lacks; `effective` tests them.
+        for g in SUITE_GROUPS
+            .iter()
+            .filter(|g| !g.starts_with("WST") && !g.starts_with("TRE"))
+        {
             assert!(!rows(&m, g).is_empty(), "{g} has no rows at seed 1");
         }
     }
