@@ -1,9 +1,11 @@
 //! Water strikes: `WSTG` and `WSTD` rows where a hole meets water (ADR 0001,
 //! "Ground").
 //!
-//! Three rules decide a hole's strike. A hole has at most one strike group
-//! (see below): the shallowest of a lens-top (water-bearing) strike and a till
-//! strike wins, and the table rule counts only when neither occurs.
+//! Three rules give a hole its strikes. By default a hole has at most one
+//! (see "One strike per hole"): the shallowest of a lens-top (water-bearing)
+//! strike and a till strike wins, and the table rule counts only when neither
+//! occurs. With `site.several_strikes` a hole records every strike the rules
+//! give (see "Several strikes").
 //!
 //! **The water table.** The table is the site's smooth field
 //! (`groundwater_depth`). A hole strikes when the table falls inside one of its
@@ -58,14 +60,37 @@
 //!   rule above. The rise draws are keyed by (hole, unit).
 //! - The first unit down that strikes is the hole's till strike.
 //!
-//! **One strike per hole.** AGS allows several `WSTG` rows per hole, but one
-//! strike per hole keeps the keyed draw count and the file shape of the
-//! table-only rule. A hole records the shallowest of its lens-top strike (the
-//! first water-bearing stratum that yields) and its till strike, the lens on a
-//! tie. A table strike in a coarse stratum counts only when neither occurs,
-//! even if the table is shallower (`forge judgement`; in the crawl the till
-//! strike is the hole's first in 74% of holes that have one). Multiple strikes
-//! per hole are out of scope.
+//! **One strike per hole.** Without `site.several_strikes` a hole records the
+//! shallowest of its lens-top strike (the first water-bearing stratum that
+//! yields) and its till strike, the lens on a tie. A table strike in a coarse
+//! stratum counts only when neither occurs, even if the table is shallower
+//! (`forge judgement`; in the crawl the till strike is the hole's first in 74%
+//! of holes that have one). This keeps the keyed draw count and the file shape
+//! of the table-only rule.
+//!
+//! **Several strikes** (`site.several_strikes`, tyneside-till v9, #79). A hole
+//! records every strike the rules give, shallowest first, up to
+//! `max_per_hole`. There is no drawn count; the strikes come from the same
+//! sources:
+//!
+//! - every water-bearing stratum that yields strikes once, at its top;
+//! - every till's Poisson process runs on past its first event, using draws
+//!   the one-strike rule never makes, so the first event is where it was. A
+//!   second event in the same unit draws its rise from a new key
+//!   (`till-strike-rise-n`, by the event's index);
+//! - the water table strikes a coarse stratum that has no strike of its own.
+//!   With no lens strike in the hole it draws its rise from the key the
+//!   one-strike rule uses.
+//!
+//! The strikes are sorted by depth. One closer than `min_gap_m` to the strike
+//! above is pushed down to it, or dropped when its stratum has no room, and
+//! strikes beyond `max_per_hole` are dropped. Each strike settles by its own
+//! source's rule (the lens and table rule, or the till rule) and has its own
+//! `WSTD` rows. A lens strike no longer gives way to a shallower till strike,
+//! so the lens's `water_bearing` share is the share of holes with the lens
+//! that strike in it. Construction (`WSTG_CAS`, `WSTG_SEAL`, the final casing
+//! and the installation zone) follows each hole's strikes: see
+//! `construction.rs`.
 //!
 //! The default rise, the logging minutes and the decay are `forge judgement`: the
 //! ordinary UK 5-minute, 20-minute logging pattern, not a published curve.
@@ -76,7 +101,7 @@ use laterite_ags4_validator::{DictVersion, Dictionary};
 use super::build::Site;
 use super::construction::Plan;
 use super::draw::{Key, uniform};
-use super::preset::{Preset, Range, UnitStrike};
+use super::preset::{Preset, Range, SeveralStrikes, UnitStrike};
 use crate::synth::model::{Group, Row};
 
 /// The default strike rise range, metres, used when the preset gives none:
@@ -114,13 +139,17 @@ impl Strike {
     }
 }
 
-/// The strikes of every hole in file order: at most one per hole.
+/// The strikes of every hole in file order, shallowest first within a hole:
+/// at most one per hole, or with `site.several_strikes` up to its cap.
 pub(super) fn strikes(site: &Site, preset: &Preset, seed: u64) -> Vec<Strike> {
     let (rise_min, rise_max) = preset
         .site
         .strike_rise_m
         .as_ref()
         .map_or(DEFAULT_RISE_M, |r| (r.min, r.max));
+    if let Some(several) = &preset.site.several_strikes {
+        return several_strikes(site, preset, seed, several, (rise_min, rise_max));
+    }
     let shares = site_shares(preset, seed);
     let rates = till_rates(preset, seed);
     let mut out = Vec::new();
@@ -172,7 +201,7 @@ pub(super) fn strikes(site: &Site, preset: &Preset, seed: u64) -> Vec<Strike> {
                 top
             },
         });
-        let by_till = by_till.map(|t| t.strike(hi, seed));
+        let by_till = by_till.map(|t| t.strike(hi, seed, 0));
         // The shallowest of a lens-top strike and a till strike wins, the lens
         // on a tie; a table strike counts only when neither occurs.
         let first = match (by_stratum, by_till) {
@@ -180,6 +209,144 @@ pub(super) fn strikes(site: &Site, preset: &Preset, seed: u64) -> Vec<Strike> {
             (a, b) => a.or(b),
         };
         out.extend(first.or(by_table));
+    }
+    out
+}
+
+/// Where a candidate strike came from, with what its settled level needs.
+enum Source<'a> {
+    /// The water table inside a coarse stratum.
+    Table,
+    /// The top of a water-bearing stratum; `rise` is its drawn rise.
+    Lens { rise: f64 },
+    /// A Poisson event in a till unit; `n` is its index in the unit's stream.
+    Till { ts: TillStrike<'a>, n: u64 },
+}
+
+/// A strike before the gap rule: its depth, the deepest it may be pushed to
+/// (just above its stratum's base) and its source.
+struct Candidate<'a> {
+    depth: f64,
+    limit: f64,
+    source: Source<'a>,
+}
+
+/// The strikes of every hole when the preset allows several. The sources are
+/// the single-strike rule's, each yielding all its strikes: every
+/// water-bearing stratum that yields strikes once at its top, every till's
+/// Poisson process runs on past its first event, and the water table strikes
+/// a coarse stratum that has no strike of its own. They are sorted by depth;
+/// one closer than `min_gap_m` to the strike above is pushed down to it, or
+/// dropped when its stratum has no room; the deepest beyond `max_per_hole`
+/// are dropped. Each strike settles by its own source's rule, from its own
+/// keyed draws.
+fn several_strikes(
+    site: &Site,
+    preset: &Preset,
+    seed: u64,
+    rule: &SeveralStrikes,
+    (rise_min, rise_max): (f64, f64),
+) -> Vec<Strike> {
+    let shares = site_shares(preset, seed);
+    let rates = till_rates(preset, seed);
+    let max = rule.max_per_hole as usize;
+    let mut out = Vec::new();
+    for (hi, hole) in site.holes.iter().enumerate() {
+        let table = round2(site.properties.groundwater_depth(hole));
+        let cover_base = hole.cover.as_ref().map_or(0.0, |c| c.base);
+        let limit = |base: f64| round2(base - 0.01);
+        let mut cands: Vec<Candidate> = Vec::new();
+        let mut bearing_in_table = false;
+        let mut lenses = 0_u64;
+        for (i, s) in hole.strata.iter().enumerate() {
+            if !yields(&shares, seed, hi, &s.unit) {
+                continue;
+            }
+            // The first lens strike draws from the key a single-strike hole
+            // uses; each later one has its own.
+            let key = if lenses == 0 {
+                Key::hole("strike", hi)
+            } else {
+                Key {
+                    test: lenses,
+                    ..Key::hole("strike", hi)
+                }
+            };
+            lenses += 1;
+            let rise = uniform(&mut key.rng(seed), rise_min, rise_max);
+            bearing_in_table |= table >= s.top && table < s.base;
+            cands.push(Candidate {
+                depth: hole.written_top(i),
+                limit: limit(s.base),
+                source: Source::Lens { rise },
+            });
+        }
+        // The table strikes a coarse stratum only where that stratum has no
+        // strike of its own.
+        if !bearing_in_table
+            && table >= cover_base
+            && let Some(s) = hole
+                .strata
+                .iter()
+                .find(|s| table >= s.top && table < s.base)
+                .filter(|s| !preset.is_made_ground(&s.unit) && site.properties.is_coarse(&s.unit))
+        {
+            // A table strike with no lens strike in the hole draws its rise
+            // from the key a single-strike hole uses; beside a lens strike it
+            // has its own.
+            let key = if lenses == 0 {
+                Key::hole("strike", hi)
+            } else {
+                Key::hole("strike-table", hi)
+            };
+            let rise = uniform(&mut key.rng(seed), rise_min, rise_max);
+            cands.push(Candidate {
+                depth: round2(table + rise).min(s.base),
+                limit: limit(s.base),
+                source: Source::Table,
+            });
+        }
+        for e in till_events(site, hi, &rates, seed, max, false) {
+            cands.push(Candidate {
+                depth: e.ts.depth,
+                limit: limit(e.base),
+                source: Source::Till { ts: e.ts, n: e.n },
+            });
+        }
+        cands.sort_by(|a, b| a.depth.total_cmp(&b.depth));
+        let mut kept = 0;
+        let mut above: Option<f64> = None;
+        for c in cands {
+            if kept >= max {
+                break;
+            }
+            let mut depth = c.depth;
+            if let Some(a) = above {
+                depth = depth.max(round2(a + rule.min_gap_m));
+                if depth > c.limit.max(c.depth) {
+                    continue;
+                }
+            }
+            above = Some(depth);
+            kept += 1;
+            out.push(match c.source {
+                Source::Table => Strike {
+                    hole: hi,
+                    depth,
+                    settle: table,
+                },
+                Source::Lens { rise } => Strike {
+                    hole: hi,
+                    depth,
+                    settle: if table < depth {
+                        table.max(round2(depth - rise))
+                    } else {
+                        depth
+                    },
+                },
+                Source::Till { ts, n } => TillStrike { depth, ..ts }.strike(hi, seed, n),
+            });
+        }
     }
     out
 }
@@ -235,8 +402,18 @@ impl TillStrike<'_> {
     /// no-rise draw (the unit's share of strikes) leaves the water at the
     /// strike. The head on a parting in a clay till is not the site's water
     /// table, so the table bounds nothing.
-    fn strike(&self, hole: usize, seed: u64) -> Strike {
-        let mut rng = Key::stratum("till-strike-rise", hole, self.unit).rng(seed);
+    fn strike(&self, hole: usize, seed: u64, n: u64) -> Strike {
+        // The unit's first event has always drawn from this key; a later one
+        // in the same unit has its own.
+        let key = if n == 0 {
+            Key::stratum("till-strike-rise", hole, self.unit)
+        } else {
+            Key {
+                test: n,
+                ..Key::stratum("till-strike-rise-n", hole, self.unit)
+            }
+        };
+        let mut rng = key.rng(seed);
         let rise = skewed(&self.spec.rise_m, uniform(&mut rng, 0.0, 1.0));
         let none = uniform(&mut rng, 0.0, 1.0) < self.no_rise;
         let rise = if none { 0.0 } else { rise };
@@ -266,36 +443,87 @@ fn till_strike<'a>(
     rates: &[TillRate<'a>],
     seed: u64,
 ) -> Option<TillStrike<'a>> {
+    till_events(site, hole, rates, seed, 1, true)
+        .into_iter()
+        .next()
+        .map(|e| e.ts)
+}
+
+/// A Poisson event along a till unit, with the base of its stratum and its
+/// index in the unit's stream.
+struct TillEvent<'a> {
+    ts: TillStrike<'a>,
+    base: f64,
+    n: u64,
+}
+
+/// The hole's till events going down. With `first_only` the walk stops at the
+/// first event of any unit, which is [`till_strike`]. Otherwise each unit's
+/// stream runs on past its first event, up to `per_unit` events: the draws
+/// after the first are ones the first-only walk never makes. Events are in
+/// the order the strata meet them.
+fn till_events<'a>(
+    site: &Site,
+    hole: usize,
+    rates: &[TillRate<'a>],
+    seed: u64,
+    per_unit: usize,
+    first_only: bool,
+) -> Vec<TillEvent<'a>> {
     let h = &site.holes[hole];
-    let mut streams: Vec<(&str, Rng)> = Vec::new();
+    // Per unit: its stream and how many events it has had.
+    let mut streams: Vec<(&str, Rng, usize)> = Vec::new();
+    let mut out = Vec::new();
     for (i, s) in h.strata.iter().enumerate() {
         let Some(t) = rates.iter().find(|t| t.unit == s.unit) else {
             continue;
         };
-        let at = if let Some(at) = streams.iter().position(|(u, _)| *u == s.unit) {
+        let at = if let Some(at) = streams.iter().position(|(u, _, _)| *u == s.unit) {
             at
         } else {
-            streams.push((t.unit, Key::stratum("till-strike", hole, t.unit).rng(seed)));
+            streams.push((
+                t.unit,
+                Key::stratum("till-strike", hole, t.unit).rng(seed),
+                0,
+            ));
             streams.len() - 1
         };
         // One draw per piece of the unit, hit or not.
-        let u = uniform(&mut streams[at].1, 0.0, 1.0);
+        let mut u = uniform(&mut streams[at].1, 0.0, 1.0);
         let top = h.written_top(i);
         if t.rate <= 0.0 || s.base - top < 0.02 {
             continue;
         }
-        let gap = -(1.0 - u).ln() / t.rate;
-        if gap < s.base - top {
-            let depth = round2(top + gap).clamp(round2(top + 0.01), round2(s.base - 0.01));
-            return Some(TillStrike {
-                unit: t.unit,
-                spec: t.spec,
-                no_rise: t.no_rise,
-                depth,
+        // Distance down from the stratum's top to the latest event.
+        let mut off = 0.0;
+        loop {
+            off += -(1.0 - u).ln() / t.rate;
+            if off >= s.base - top {
+                break;
+            }
+            let depth = round2(top + off).clamp(round2(top + 0.01), round2(s.base - 0.01));
+            let n = streams[at].2 as u64;
+            streams[at].2 += 1;
+            out.push(TillEvent {
+                ts: TillStrike {
+                    unit: t.unit,
+                    spec: t.spec,
+                    no_rise: t.no_rise,
+                    depth,
+                },
+                base: s.base,
+                n,
             });
+            if first_only {
+                return out;
+            }
+            if streams[at].2 >= per_unit {
+                break;
+            }
+            u = uniform(&mut streams[at].1, 0.0, 1.0);
         }
     }
-    None
+    out
 }
 
 /// The strike share of each water-bearing unit or lens on this site, drawn
@@ -334,21 +562,26 @@ fn yields(shares: &[(&str, f64)], seed: u64, hole: usize, unit: &str) -> bool {
 pub(super) fn wstg(site: &Site, strikes: &[Strike], construction: Option<&Plan>) -> Option<Group> {
     let rows = strikes
         .iter()
-        .map(|s| {
+        .enumerate()
+        .map(|(at, s)| {
             let mut v = vec![site.holes[s.hole].id.clone(), m2(s.depth)];
             if let Some(plan) = construction {
-                let cas = plan.holes[s.hole]
-                    .strike_casing
-                    .expect("construction plans casing at every strike");
-                v.push(m2(cas));
+                // This strike's place among its hole's strikes.
+                let k = strikes[..at].iter().filter(|p| p.hole == s.hole).count();
+                let hole = &plan.holes[s.hole];
+                // The dictionary lists WSTG_SEAL before WSTG_CAS.
+                if plan.has_seal {
+                    v.push(hole.strike_seal[k].map_or_else(String::new, m2));
+                }
+                v.push(m2(hole.strike_casing[k]));
             }
             Row::owned(v)
         })
         .collect();
-    let headings: &[&str] = if construction.is_some() {
-        &["LOCA_ID", "WSTG_DPTH", "WSTG_CAS"]
-    } else {
-        &["LOCA_ID", "WSTG_DPTH"]
+    let headings: &[&str] = match construction {
+        Some(plan) if plan.has_seal => &["LOCA_ID", "WSTG_DPTH", "WSTG_SEAL", "WSTG_CAS"],
+        Some(_) => &["LOCA_ID", "WSTG_DPTH", "WSTG_CAS"],
+        None => &["LOCA_ID", "WSTG_DPTH"],
     };
     build("WSTG", headings, strikes, rows)
 }
@@ -1332,7 +1565,7 @@ particle_density_ratio = {{ min = 2.6, max = 2.7, basis = "test fixture" }}
             no_rise,
             depth,
         };
-        t.strike(0, seed).settle
+        t.strike(0, seed, 0).settle
     }
 
     #[test]
@@ -1529,6 +1762,352 @@ particle_density_ratio = {{ min = 2.6, max = 2.7, basis = "test fixture" }}
             for g in ["TRAN", "LOCA", "GEOL", "SAMP"] {
                 assert_eq!(text(&with, g), text(&without, g), "{g} at seed {seed}");
             }
+        }
+    }
+}
+
+/// Several strikes per hole (`site.several_strikes`, #79), on the shipped
+/// tyneside-till.
+#[cfg(test)]
+// Depths are written to 2 decimal places and compared as the exact values
+// the plan rounded to.
+#[allow(clippy::float_cmp)]
+mod several_tests {
+    use super::super::build::{self, Grid, default_hole_count};
+    use super::super::construction;
+    use super::super::preset::{Preset, resolve};
+    use super::*;
+    use crate::pipeline::rust_check;
+    use crate::synth::emit::emit_to_string;
+    use laterite_ags4_parity::RustResult;
+
+    fn shipped() -> Preset {
+        resolve("tyneside-till").expect("shipped preset loads")
+    }
+
+    /// The preset with the key removed: the single-strike rule.
+    fn single(p: &Preset) -> Preset {
+        let mut q = p.clone();
+        q.site.several_strikes = None;
+        q
+    }
+
+    fn site_of(p: &Preset, seed: u64) -> Site {
+        build::build(p, seed, default_hole_count(seed))
+    }
+
+    fn of_hole(all: &[Strike], hole: usize) -> Vec<Strike> {
+        all.iter().filter(|s| s.hole == hole).copied().collect()
+    }
+
+    #[test]
+    fn a_hole_records_several_strikes_in_order_within_the_cap_and_the_gap() {
+        let p = shipped();
+        let rule = p.site.several_strikes.clone().expect("v9 has the key");
+        let mut by_count = [0_usize; 5];
+        for seed in 0..600 {
+            let site = site_of(&p, seed);
+            let all = strikes(&site, &p, seed);
+            for (hi, hole) in site.holes.iter().enumerate() {
+                let mine = of_hole(&all, hi);
+                assert!(mine.len() <= rule.max_per_hole as usize, "seed {seed}");
+                by_count[mine.len()] += 1;
+                for s in &mine {
+                    assert!(s.depth > 0.0 && s.depth <= hole.final_depth, "{s:?}");
+                    let host = hole
+                        .strata
+                        .iter()
+                        .any(|u| u.top <= s.depth && s.depth <= u.base);
+                    assert!(host, "seed {seed}: {s:?} is in no stratum");
+                    assert!(s.settle <= s.depth && s.settle >= 0.0, "{s:?}");
+                }
+                for w in mine.windows(2) {
+                    assert!(
+                        w[1].depth - w[0].depth >= rule.min_gap_m - 1e-9,
+                        "seed {seed} hole {hi}: {w:?}"
+                    );
+                }
+            }
+        }
+        assert!(by_count[2] > 50, "{by_count:?}");
+        assert!(by_count[3] > 10, "{by_count:?}");
+        assert!(by_count[4] > 0, "{by_count:?}");
+    }
+
+    #[test]
+    fn a_lower_cap_keeps_the_shallowest_strikes_and_a_wider_gap_spaces_them() {
+        let p = shipped();
+        let mut two = p.clone();
+        two.site.several_strikes.as_mut().unwrap().max_per_hole = 2;
+        let mut wide = p.clone();
+        wide.site.several_strikes.as_mut().unwrap().min_gap_m = 3.0;
+        let mut dropped = 0;
+        for seed in 0..400 {
+            let site = site_of(&p, seed);
+            let four = strikes(&site, &p, seed);
+            let capped = strikes(&site, &two, seed);
+            let spaced = strikes(&site, &wide, seed);
+            for hi in 0..site.holes.len() {
+                let (a, b) = (of_hole(&four, hi), of_hole(&capped, hi));
+                assert!(b.len() <= 2);
+                assert_eq!(b[..], a[..b.len()], "seed {seed} hole {hi}");
+                dropped += a.len() - b.len();
+                for w in of_hole(&spaced, hi).windows(2) {
+                    assert!(w[1].depth - w[0].depth >= 3.0 - 1e-9, "seed {seed}: {w:?}");
+                }
+            }
+        }
+        assert!(dropped > 5, "{dropped} strikes were dropped by the cap");
+    }
+
+    /// The Poisson stream continues past its first event using draws the
+    /// single-strike rule never made, so every strike that rule records is
+    /// still there (unless the one above it pushed it by under the gap), and a
+    /// till strike settles where it did.
+    #[test]
+    fn every_strike_of_the_single_rule_is_still_struck() {
+        let p = shipped();
+        let one = single(&p);
+        let (mut kept, mut extra) = (0, 0);
+        for seed in 0..400 {
+            let site = site_of(&p, seed);
+            let (many, old) = (strikes(&site, &p, seed), strikes(&site, &one, seed));
+            for o in &old {
+                let mine = of_hole(&many, o.hole);
+                let same = mine.iter().find(|s| s.depth == o.depth);
+                let above = mine
+                    .iter()
+                    .any(|s| s.depth < o.depth && o.depth - s.depth < 0.5);
+                assert!(
+                    same.is_some() || above,
+                    "seed {seed}: {o:?} lost from {mine:?}"
+                );
+                if let Some(s) = same {
+                    kept += 1;
+                    let hole = &site.holes[o.hole];
+                    let in_till = hole
+                        .strata
+                        .iter()
+                        .any(|u| u.top <= o.depth && o.depth < u.base && u.unit != "GFSG");
+                    if in_till {
+                        assert_eq!(s.settle, o.settle, "seed {seed}");
+                    }
+                }
+            }
+            extra += many.len() - old.len();
+        }
+        assert!(
+            kept > 100 && extra > 50,
+            "{kept} kept, {extra} more strikes"
+        );
+    }
+
+    #[test]
+    fn a_second_strike_in_a_till_has_its_own_rise_draw() {
+        let p = shipped();
+        let (mut pairs, mut equal) = (0, 0);
+        for seed in 0..2000 {
+            let site = site_of(&p, seed);
+            let all = strikes(&site, &p, seed);
+            for (hi, hole) in site.holes.iter().enumerate() {
+                let mine = of_hole(&all, hi);
+                let unit = |d: f64| {
+                    hole.strata
+                        .iter()
+                        .find(|u| u.top <= d && d < u.base)
+                        .map(|u| u.unit.as_str())
+                };
+                for w in mine.windows(2) {
+                    let u = unit(w[0].depth);
+                    if u == unit(w[1].depth) && u != Some("GFSG") {
+                        pairs += 1;
+                        let rise = |s: &Strike| round2(s.depth - s.settle);
+                        equal += usize::from(rise(&w[0]) == rise(&w[1]));
+                    }
+                }
+            }
+        }
+        assert!(pairs > 100, "{pairs} pairs in one till");
+        // Zero rises (the no-rise share, and ground level) are equal, but not
+        // most pairs.
+        assert!(equal * 5 < pairs, "{equal} of {pairs} pairs rise alike");
+    }
+
+    #[test]
+    fn a_later_strike_has_its_own_wstd_rows() {
+        let p = shipped();
+        for seed in 0..40 {
+            let site = site_of(&p, seed);
+            let m = build::lower(&site, &p, seed, Grid::Local);
+            let rows = |code: &str| -> Vec<Vec<String>> {
+                m.groups
+                    .iter()
+                    .find(|g| g.code == code)
+                    .map_or(Vec::new(), |g| {
+                        g.rows.iter().map(|r| r.values.clone()).collect()
+                    })
+            };
+            let (wstg, wstd) = (rows("WSTG"), rows("WSTD"));
+            assert_eq!(wstd.len(), wstg.len() * MINUTES.len(), "seed {seed}");
+            // Each WSTG key (hole, depth) has its four readings.
+            for g in &wstg {
+                let n = wstd.iter().filter(|d| d[0] == g[0] && d[1] == g[1]).count();
+                assert_eq!(n, MINUTES.len(), "seed {seed}: {g:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn wstg_lists_the_seal_before_the_casing_as_the_dictionary_does() {
+        let p = shipped();
+        let m = build::lower(&site_of(&p, 1), &p, 1, Grid::Local);
+        let g = m.groups.iter().find(|g| g.code == "WSTG").expect("WSTG");
+        assert_eq!(
+            g.headings,
+            ["LOCA_ID", "WSTG_DPTH", "WSTG_SEAL", "WSTG_CAS"]
+        );
+        // No seal key, no seal column.
+        let mut bare = p.clone();
+        bare.construction.as_mut().unwrap().seal = None;
+        let m = build::lower(&site_of(&bare, 1), &bare, 1, Grid::Local);
+        let g = m.groups.iter().find(|g| g.code == "WSTG").expect("WSTG");
+        assert_eq!(g.headings, ["LOCA_ID", "WSTG_DPTH", "WSTG_CAS"]);
+    }
+
+    /// The seal key adds a column and raises a later strike's casing to the
+    /// seal above it; every other group is the same.
+    #[test]
+    fn the_seal_key_moves_no_group_but_wstg() {
+        let p = shipped();
+        let mut bare = p.clone();
+        bare.construction.as_mut().unwrap().seal = None;
+        for seed in 0..15 {
+            let site = site_of(&p, seed);
+            let (a, b) = (
+                build::lower(&site, &p, seed, Grid::Local),
+                build::lower(&site, &bare, seed, Grid::Local),
+            );
+            assert_eq!(a.groups.len(), b.groups.len(), "seed {seed}");
+            for (x, y) in a.groups.iter().zip(&b.groups) {
+                if x.code != "WSTG" {
+                    assert_eq!(x, y, "{} at seed {seed}", x.code);
+                }
+            }
+        }
+    }
+
+    /// The casing and the seal against the strikes, for every hole.
+    #[test]
+    fn casing_and_seals_lie_where_the_rules_put_them() {
+        let p = shipped();
+        let (mut sealed, mut later, mut passing) = (0, 0, 0);
+        for seed in 0..600 {
+            let site = site_of(&p, seed);
+            let all = strikes(&site, &p, seed);
+            let plan = construction::plan(&site, &p, seed).expect("a construction block");
+            for (hi, b) in plan.holes.iter().enumerate() {
+                let mine = of_hole(&all, hi);
+                assert_eq!(b.strike_casing.len(), mine.len());
+                assert_eq!(b.strike_seal.len(), mine.len());
+                let fc = b.casing.last().expect("a casing string").0;
+                if let Some((last, earlier)) = mine.split_last() {
+                    passing += usize::from(fc > last.depth);
+                    for e in earlier {
+                        assert!(fc > e.depth, "seed {seed}: casing {fc} stops above {e:?}");
+                    }
+                }
+                for (j, s) in mine.iter().enumerate() {
+                    let cas = b.strike_casing[j];
+                    assert!(cas <= s.depth && cas <= fc && cas >= 0.0, "seed {seed}");
+                    if let Some(prev) = j.checked_sub(1) {
+                        later += 1;
+                        let floor = b.strike_seal[prev].unwrap_or(mine[prev].depth);
+                        assert!(cas >= floor, "seed {seed}: casing {cas} above {floor}");
+                    }
+                    let Some(seal) = b.strike_seal[j] else {
+                        continue;
+                    };
+                    sealed += 1;
+                    assert!(seal >= cas, "seed {seed}: seal {seal} above casing {cas}");
+                    match b.strike_casing.get(j + 1) {
+                        Some(next) => assert!(seal <= *next, "seed {seed}: seal past the casing"),
+                        None => assert!(seal <= fc, "seed {seed}: seal {seal} below casing {fc}"),
+                    }
+                }
+            }
+        }
+        assert!(sealed > 100 && later > 50 && passing > 100);
+    }
+
+    #[test]
+    fn a_zone_follows_the_first_or_the_deepest_strike_at_the_share() {
+        let p = shipped();
+        let with_share = |share: Option<f64>| {
+            let mut changed = p.clone();
+            let install = changed
+                .construction
+                .as_mut()
+                .unwrap()
+                .installation
+                .as_mut()
+                .unwrap();
+            match share {
+                Some(v) => {
+                    let range = install.zone_follows_first_share.as_mut().unwrap();
+                    (range.min, range.max) = (v, v);
+                }
+                None => install.zone_follows_first_share = None,
+            }
+            changed
+        };
+        let (first, deepest, bare) = (
+            with_share(Some(1.0)),
+            with_share(Some(0.0)),
+            with_share(None),
+        );
+        let (mut deeper, mut multi) = (0, 0);
+        for seed in 0..200 {
+            let site = site_of(&p, seed);
+            let all = strikes(&site, &p, seed);
+            let zones = |q: &Preset| -> Vec<Option<(f64, f64)>> {
+                construction::plan(&site, q, seed)
+                    .unwrap()
+                    .holes
+                    .iter()
+                    .map(|b| b.installation.as_ref().map(|i| i.zone))
+                    .collect()
+            };
+            let (f, d, none) = (zones(&first), zones(&deepest), zones(&bare));
+            // Following the first strike is what a preset without the share
+            // does.
+            assert_eq!(f, none, "seed {seed}");
+            for (hi, (zf, zd)) in f.iter().zip(&d).enumerate() {
+                assert_eq!(zf.is_some(), zd.is_some(), "seed {seed}");
+                let (Some(zf), Some(zd)) = (zf, zd) else {
+                    continue;
+                };
+                assert!(zd.0 >= zf.0, "seed {seed} hole {hi}");
+                if of_hole(&all, hi).len() < 2 {
+                    assert_eq!(zf, zd, "one strike, one zone");
+                } else {
+                    multi += 1;
+                    deeper += usize::from(zd.0 > zf.0);
+                }
+            }
+        }
+        assert!(multi > 20 && deeper * 2 > multi, "{deeper} of {multi}");
+    }
+
+    #[test]
+    fn several_strikes_files_are_clean_by_construction() {
+        let p = shipped();
+        for seed in 0..60 {
+            let site = site_of(&p, seed);
+            let text = emit_to_string(&build::lower(&site, &p, seed, Grid::Local));
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("site.ags");
+            std::fs::write(&path, text).unwrap();
+            assert_eq!(rust_check(&path).0, RustResult::Clean, "seed {seed}");
         }
     }
 }

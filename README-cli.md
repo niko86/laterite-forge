@@ -154,14 +154,29 @@ the preset's test suite. `--site` and `--scaffold` are mutually exclusive.
   red, grey) strikes water along its depth at a rate per metre penetrated,
   fitted so that 7.3%, 14.9% and 17.7% of the holes through each strike in it
   (the NE crawl's 7.3%, 15.0% and 17.7%); the strike falls evenly through the
-  stratum. A hole still records one strike: the shallowest of a lens-top
+  stratum. A v8 hole still records one strike: the shallowest of a lens-top
   strike and a till strike, with a water-table strike counted only when
   neither occurs. The water always rises by a drawn amount, whatever the
   depth of the water table, but not above ground level (12% of strikes draw no
-  rise). The lens share is raised to 0.44 so holes with the lens strike in it
-  at the crawl's 36%. Holes with any strike rise from about 7% to about 35%, and
+  rise). In v8 the lens share is raised to 0.44 so holes with the lens strike in
+  it at the crawl's 36% (v9 returns it to 0.36). Holes with any strike rise from about 7% to about 35%, and
   `WSTG`, `WSTD`, `WSTG_CAS`, the installation zone and `BKFL` follow the
   strikes. london-basin is unchanged.
+  tyneside-till v9 adds **several strikes per hole**. A hole records every
+  strike its sources give, shallowest first, up to four and never closer than
+  0.5 m: each water-bearing lens that yields (at its top), each till's strikes
+  (the rate now runs on past the first), and the water table in a coarse
+  stratum with no strike of its own. A shallower till strike no longer takes
+  precedence over the lens, so the lens share goes back to 0.36, and the till
+  rates are re-fitted to the same 7.3%, 15.0% and 17.7%. Each strike has its
+  own `WSTD` rows. A later strike's `WSTG_CAS` is at least the strike above it,
+  or that strike's seal, and the final casing passes every strike but the last.
+  `WSTG` gains `WSTG_SEAL` (48% of earlier strikes, 25% of last strikes, a
+  drawn gap below the strike). The installation zone in a hole with several
+  strikes follows the first strike or the deepest. About 19% of struck holes
+  have two strikes or more (the crawl's 24%); the file has no made-ground,
+  laminated-clay, alluvium or rock strikes, so it falls short of the crawl's
+  multi-strike share. london-basin is unchanged.
 
 ## Finding python-ags4
 

@@ -936,3 +936,161 @@ surface cannot have a gap larger than its own depth. A refit of
 rate (83.9% against 82%) and the zone offsets are within a point or two of the
 crawl. The final depth less the pipe base is as far from the crawl as it was
 (the file's holes are deeper than the crawl's).
+
+## Several strikes per hole (v9, #79), 2026-10-24
+
+v9 lets a hole record several strikes (`site.several_strikes`), writes
+`WSTG_SEAL` (a `[construction]` `seal` key) and lets a multi-strike hole's
+installation zone follow the first or the deepest strike
+(`zone_follows_first_share`). Contains data supplied by UKRI, OGL v3.
+Aggregates only; forge analysis.
+
+### The crawl
+
+51 unique AGS4 files from the NE England crawl, de-duplicated by content hash
+(one AGS3 file has no `WSTG` group and is left out), 996 holes de-duplicated
+by (`PROJ_NAME`, `LOCA_ID`), 955 with GEOL, 38 projects. This sample is larger
+than v8's 793 holes because it includes the `orig` accessions and the `prior`
+folders, so its figures are not directly comparable with the v8 section above.
+The accessions that hold multi-strike holes are 42158, 121869, 126770, 128125,
+163565, 163688, 163846, 165951, 169655, 173968, 173969, 173971, 174053, 174059,
+186779 and 186814. A strike is a distinct `WSTG_DPTH` in a hole; strikes are
+ordered by depth; the host stratum is the layer holding the depth (the layer
+below at a boundary). Rise is the strike depth less `WSTD_POST` at 20 minutes,
+else the last reading. A figure is THIN under 20 holes or under 5 projects.
+The scripts read the files as untrusted data (read-only, `python3 -I`, outside
+the data directories) and write statistics only.
+
+- Holes with any `WSTG`: 424 in 29 projects. Strikes per struck hole: 1 in
+  322 (75.9%), 2 in 81 (19.1%), 3 in 18 (4.2%, 11 projects: THIN), 4 in 3
+  (0.7%, THIN); the maximum is 4. Of all 955 holes with GEOL, 10.7% have two or
+  more strikes (102 holes, 21 projects; the top project holds 24 of them).
+- Hosts of the first and second strike in the 102 multi-strike holes: made
+  ground 31 and 5, granular 17 and 28, weathered till 4 and 2, red till 16 and
+  20, grey till 8 and 16, laminated clay 11 and 9, alluvium 11 and 4, rock 0
+  and 14, other 4 and 4, untyped till 1 and 0. The second strike is in the same
+  stratum (a contiguous run of one class) as the first in 15 of 102 (15%), the
+  same logged GEOL row in 8, the same unit class in 21.
+- Gap between consecutive strikes, P10 / P50 / P90: 1.75 / 4.71 / 12.23 m (126
+  pairs, 102 holes, 21 projects); none is 0.5 m or closer. Within one stratum
+  1.59 / 3.30 / 5.62 m (20 pairs: THIN).
+- Casing: 57 later strikes have `WSTG_CAS` (45 holes, 13 projects); it is at or
+  below the strike above in 54 (95%). Casing less the strike above, P10 / P50 /
+  P90: 0.50 / 2.50 / 9.10 m. Casing less the strike's own depth: -5.38 / -0.60
+  / 0.00 m.
+- Seals: `WSTG_SEAL` is on 60 of 126 earlier strikes (48%) and 25 of 102 last
+  strikes (25%). Seal less strike, P10 / P50 / P90: 0.00 / 1.00 / 3.44 m (85
+  seals, 58 holes, 13 projects), with 8 seals above the strike and 2 level. Of
+  32 sealed strikes whose next strike has a casing, 31 (97%) are sealed at or
+  above that casing.
+- Readings: 83% of first strikes (85 of 102) and of later strikes (105 of 126)
+  have `WSTD`. Rise P10 / P50 / P90: first strikes 0.01 / 0.25 / 1.60 m (19
+  projects), later strikes 0.20 / 1.50 / 5.40 m (17 projects); no rise (0.05 m
+  or less) in 14% and 4%.
+- Installations: 39 multi-strike holes have `PIPE`, 26 of them (6 projects:
+  THIN) a slotted or piezometer zone. The zone top is nearest the first strike
+  in 14 and the deepest in 12; none is nearest a middle strike.
+
+### The final casing, re-measured
+
+The decisions ask for the share of holes whose final casing passes the last
+strike, re-measured on multi-strike holes. The deepest `CDIA_DPTH` is below the
+last strike in 61 of 84 multi-strike holes with `CDIA` (72.6%, 17 projects), 221
+of 297 struck holes with `CDIA` (74.4%, 23 projects) and 160 of 213 single-strike
+holes (75.1%). It is below the first strike in 83 of the 84 multi-strike holes
+and below every earlier strike in 81 (96.4%); in 22 the casing passes the first
+strike but not the last. The preset's 0.82 (376 of 458 holes with `CDIA` and a
+strike, the v6 sample) is kept, as the decisions say; this sample, de-duplicated
+by project and `LOCA_ID`, gives a lower share, both in multi-strike holes (72.6%)
+and overall (74.4%), so the difference is not a multi-strike effect.
+
+### The fit
+
+Rates, per metre penetrated (WT, RT, GT): v8 0.0375, 0.0425, 0.0116. With the
+lens share back at 0.36 and the same rates, the file gives 7.18%, 15.59% and
+20.04% of holes striking in each till (10,000 seeds), because the grey till's
+later events now count and a shallower till strike no longer pre-empts the
+lens. The rates are re-fitted to 0.0376, 0.0415 and 0.00995 (0.376, 0.415 and
+0.0995 per 10 m). The seal gap (`gap_m`, 0 to 4.5 m, skew 1.4) is fitted to the
+median and P90 of the crawl's seal gap; the cap of 4 and the 0.5 m gap are the
+crawl's. Nothing else is fitted: the other figures below are reported.
+
+### The file against the crawl
+
+The file figures are over 40,000 seeds of 3 to 7 holes (200,336 holes, 64,122
+with a strike); a second 40,000 seeds (200,150 holes) gives 7.28%, 15.04% and
+17.79% in the tills and 36.69% in the lens.
+
+| Quantity | Crawl | v9 file |
+|---|---|---|
+| Holes striking in WT | 7.3% | 7.30% (5,411 of 74,109) |
+| Holes striking in RT | 15.0% | 14.98% (17,224 of 115,017) |
+| Holes striking in GT | 17.7% | 17.71% (35,370 of 199,688) |
+| Holes with the lens striking in it | 36% | 36.04% (13,062 of 36,244) |
+| Holes with a strike | 44.4% of holes with GEOL | 32.0% |
+| Struck holes with 1 / 2 / 3 / 4 strikes | 75.9 / 19.1 / 4.2 / 0.7% | 81.0 / 16.3 / 2.3 / 0.4% |
+| Holes with 2 or more strikes | 10.7% | 6.1% (12,160 holes) |
+| Later strike in the same stratum as the one above | 15% | 47.5% (5,771 of 12,160); same unit 49.1% |
+| Gap between consecutive strikes, P10 / P50 / P90 (m) | 1.75 / 4.71 / 12.23 | 0.94 / 5.61 / 14.90 (14,126 pairs; least 0.50) |
+| Casing at or below the strike above | 95% | 100% |
+| Casing less the strike above, P10 / P50 / P90 (m) | 0.50 / 2.50 / 9.10 | 0.50 / 4.47 / 13.71 |
+| Earlier strikes sealed | 48% | 47.6% (6,729 of 14,126) |
+| Last strikes sealed | 25% | 24.9% (15,953 of 64,122); 25.3% in multi-strike holes |
+| Seal less strike, P10 / P50 / P90 (m) | 0.00 / 1.00 / 3.44 | -0.46 / 1.09 / 3.51 (22,682 seals); 11.8% above the strike (crawl 9%) |
+| Seal at or above the next strike's casing | 97% | 100% |
+| Last seal at or above the final casing | not measured | 100% |
+| Final casing passes the last strike | 82% in v6; 74.4% (multi-strike 72.6%) re-measured | 83.3% (multi-strike 82.1%) |
+| Final casing passes every earlier strike | 96.4% | 100% |
+| Rise at first strikes of multi-strike holes, P10 / P50 / P90 (m) | 0.01 / 0.25 / 1.60 | 0.00 / 0.59 / 3.54 |
+| Rise at later strikes, P10 / P50 / P90 (m) | 0.20 / 1.50 / 5.40 | 0.00 / 0.94 / 4.74 |
+| Installed multi-strike holes, zone nearest the first / the deepest strike | 14 / 12 (54% / 46%) | 2,625 / 2,102 (55.5% / 44.5%) |
+
+The file's rise rows are for every source (lens, table and till); its till
+strikes alone give P50 0.71 m and P90 4.25 m, a mean of 1.46 m, 43% over 1 m and
+12.1% with no rise (65,185 strikes), against v8's fitted 0.68 and 4.11 m, 1.74 m,
+40% and 12%.
+
+### Known misses
+
+- The multi-strike share (6.1% of holes against 10.7%) and the strikes-per-hole
+  spread. The file has no made-ground, laminated-clay, alluvium or rock strikes;
+  in the crawl 31 of the 102 first strikes are in made ground and 14 of the
+  second strikes in rock. Made-ground water is #84.
+- The same-stratum share (47.5% against 15%). The grey till is one thick
+  stratum with a lens in it, running to final depth with no rock below it
+  (the file's holes cross 19 m of it against the crawl's 4.6 m), so most pairs of grey-till events are in the same
+  stratum.
+- The gap between consecutive strikes is wider at the upper end (P90 14.9 m
+  against 12.2 m) and closer at the lower (P10 0.94 m against 1.75 m); the
+  rise at first strikes is higher than the crawl's (0.59 against 0.25 m) and
+  at later strikes lower (0.94 against 1.5 m). Both draw from one rise range
+  per source, as the decisions set (not fitted).
+- Casing less the strike above, P50 4.47 m against 2.50 m. Each strike keeps
+  #77's strike-gap draw, and the crawl's later strikes sit nearer to their own
+  depth with a longer upper tail (-5.38 / -0.60 / 0.00 m) than the draw gives.
+- The seal gap's P10 (-0.46 m against 0.00 m): the last strike's seal is held
+  at or above the final casing, so where the final casing stops above the strike
+  the seal lies above it (11.8% of seals against the crawl's 9%).
+- The final casing passes the last strike in 83% of struck holes, from the
+  preset's 0.82; this sample's 74.4% is lower (see above).
+- The zone's offset from the first strike has a higher upper tail in multi-strike
+  holes (all struck holes P10 / P50 / P90 -3.11 / +0.24 / +3.69 m against the
+  crawl's -2.7 / 0.0 / +3.0 m), because 45% follow the deepest strike.
+
+### Figures re-measured for other bases
+
+Over the same 40,000 seeds: the final depth less the final casing, P25 / P50 /
+P75 / P90 0.37 / 2.78 / 9.18 / 15.95 m; the strike less `WSTG_CAS`, P10 / P25 /
+P50 / P75 / P90 0.00 / 0.05 / 0.37 / 1.10 / 1.87 m (78,248 strikes; v8 gives
+0.41 m at P50, so the 0.49 m the basis quoted was out of date before v9); the lens
+strike depth, P10 / P50 / P90 3.25 / 9.63 / 16.27 m; the zone top less the
+strike in holes with one strike, -3.58 / -0.10 / +3.08 m (19,760 holes).
+
+### Pins re-taken
+
+`shipped_preset_output_bytes_are_pinned` for tyneside-till seeds 0 to 2:
+`decbeb1d...dc86` (34,478 bytes), `a9d773f9...ced8` (23,513) and
+`f880f79c...9431` (41,562). `a_preset_without_its_several_strikes_writes_the_previous_versions_bytes`
+holds the file without the three keys, and with v8's rates and lens share, to
+the v8 pins (`d51bc607...4e0f`, `231ffbc5...b284`, `a22dafe3...a5a8`).
+london-basin is unchanged.

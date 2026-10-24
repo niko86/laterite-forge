@@ -1795,6 +1795,10 @@ mod shipped_pins {
     /// Re-taken for tyneside-till v8 (#77), which adds water strikes in till
     /// (`a_preset_without_its_till_strikes_writes_the_previous_versions_bytes`
     /// holds the rest of the file to the v7 pins; london-basin stays at v8).
+    /// Re-taken for tyneside-till v9 (#79), which adds several strikes per
+    /// hole and `WSTG_SEAL`
+    /// (`a_preset_without_its_several_strikes_writes_the_previous_versions_bytes`
+    /// holds the rest of the file to the v8 pins; london-basin stays at v8).
     #[test]
     fn shipped_preset_output_bytes_are_pinned() {
         use sha2::{Digest, Sha256};
@@ -1820,20 +1824,20 @@ mod shipped_pins {
             (
                 "tyneside-till",
                 0,
-                "d51bc60794b1fd0873087724eec52afd085a54e3ab580d6e555ecb262e0a4e0f",
-                34284,
+                "decbeb1d630a8ebcbf312d473757dbdd3ef97dc639cb0d7cd5ae5f7c17e0dc86",
+                34478,
             ),
             (
                 "tyneside-till",
                 1,
-                "231ffbc54eb05485f29221245822bbd99353060e635e949f05f2a760bd5b3284",
-                23484,
+                "a9d773f9dd8350628b90df3ce0581e9a098aa73a960e0537c6ceceafd64dced8",
+                23513,
             ),
             (
                 "tyneside-till",
                 2,
-                "a22dafe3c02a0c0c8a9d5e8d255c549b0c3eab15a0ebc482cae848be1a0ea5a8",
-                41357,
+                "f880f79c8346eab48f515940e7507a88daa00821f154ec0eaf2b98dbe2b09431",
+                41562,
             ),
         ] {
             let text = shipped(name, seed);
@@ -1847,6 +1851,19 @@ mod shipped_pins {
             shipped_names, pinned,
             "every shipped preset needs a byte pin"
         );
+    }
+
+    /// A shipped preset as it stood before the several-strikes keys (#79): no
+    /// `site.several_strikes`, no `[construction]` seal and no installation
+    /// zone share.
+    fn without_several_strikes(preset: &mut Preset) {
+        preset.site.several_strikes = None;
+        if let Some(c) = preset.construction.as_mut() {
+            c.seal = None;
+            if let Some(i) = c.installation.as_mut() {
+                i.zone_follows_first_share = None;
+            }
+        }
     }
 
     /// A preset without its `[cover]` block, at the version before it, writes
@@ -1901,6 +1918,7 @@ mod shipped_pins {
             ),
         ] {
             let mut preset = resolve(name).expect("shipped preset loads");
+            without_several_strikes(&mut preset);
             preset.cover = None;
             // And v6 and v7's hole construction (#74).
             preset.construction = None;
@@ -1987,6 +2005,7 @@ mod shipped_pins {
             ),
         ] {
             let mut preset = resolve(name).expect("shipped preset loads");
+            without_several_strikes(&mut preset);
             preset.construction = None;
             // And v8's till strikes (#77): no strike table on any unit.
             for u in &mut preset.units {
@@ -2056,6 +2075,7 @@ mod shipped_pins {
             ),
         ] {
             let mut preset = resolve(name).expect("shipped preset loads");
+            without_several_strikes(&mut preset);
             preset
                 .construction
                 .as_mut()
@@ -2129,8 +2149,97 @@ mod shipped_pins {
             ),
         ] {
             let mut preset = resolve(name).expect("shipped preset loads");
+            without_several_strikes(&mut preset);
             for u in &mut preset.units {
                 u.strike = None;
+            }
+            preset.version = version;
+            let site = build(&preset, seed, default_hole_count(seed));
+            let text = emit_to_string(&lower(&site, &preset, seed, Grid::Local));
+            let got = crate::synth::hex(&Sha256::digest(text.as_bytes()));
+            assert_eq!(
+                (got.as_str(), text.len()),
+                (sha, len),
+                "{name} v{version} seed {seed}"
+            );
+        }
+    }
+
+    /// A preset without its several-strikes keys writes the bytes the
+    /// version before pinned (london-basin v8, which has none and did not
+    /// change, and tyneside-till v8): `site.several_strikes`, the
+    /// `[construction]` seal and the installation zone share move nothing in
+    /// a preset that has none. v9 also re-fitted the till rates and put the
+    /// lens share back to 0.36; the test sets v8's values back.
+    #[test]
+    fn a_preset_without_its_several_strikes_writes_the_previous_versions_bytes() {
+        use sha2::{Digest, Sha256};
+        for (name, version, seed, sha, len) in [
+            (
+                "london-basin",
+                8,
+                0u64,
+                "6cc9c72be03891c9fb3cf3222f3296a6fe8d1455f1896653dc36568da9b7de56",
+                21355usize,
+            ),
+            (
+                "london-basin",
+                8,
+                1,
+                "5cddfccace03f5c48117e63e3284c429842ae47f2702c43e439beb4fe67e510d",
+                16410,
+            ),
+            (
+                "london-basin",
+                8,
+                2,
+                "7686d64a5df38a684b88e9bfb9a6ac6a59c34f1715f87f7e706ad87e01e649cc",
+                30802,
+            ),
+            (
+                "tyneside-till",
+                8,
+                0,
+                "d51bc60794b1fd0873087724eec52afd085a54e3ab580d6e555ecb262e0a4e0f",
+                34284,
+            ),
+            (
+                "tyneside-till",
+                8,
+                1,
+                "231ffbc54eb05485f29221245822bbd99353060e635e949f05f2a760bd5b3284",
+                23484,
+            ),
+            (
+                "tyneside-till",
+                8,
+                2,
+                "a22dafe3c02a0c0c8a9d5e8d255c549b0c3eab15a0ebc482cae848be1a0ea5a8",
+                41357,
+            ),
+        ] {
+            let mut preset = resolve(name).expect("shipped preset loads");
+            without_several_strikes(&mut preset);
+            if name == "tyneside-till" {
+                // v8's values for the three tills' rates and the lens share.
+                for (id, rate) in [("WT", 0.0375), ("RT", 0.0425), ("GT", 0.0116)] {
+                    let strike = preset
+                        .units
+                        .iter_mut()
+                        .find(|u| u.id == id)
+                        .and_then(|u| u.strike.as_mut())
+                        .expect("a till strike table");
+                    strike.rate_per_m.min = rate;
+                    strike.rate_per_m.max = rate;
+                }
+                for share in preset
+                    .lenses
+                    .iter_mut()
+                    .filter_map(|l| l.water_bearing.as_mut())
+                {
+                    share.min = 0.44;
+                    share.max = 0.44;
+                }
             }
             preset.version = version;
             let site = build(&preset, seed, default_hole_count(seed));

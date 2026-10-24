@@ -62,8 +62,16 @@ A stratum of a unit or lens whose preset entry sets `water_bearing`. A hole that
 _Avoid_: aquifer, wet layer
 
 **Till strike**:
-A water strike a hole meets along its depth in a unit whose preset entry sets a `strike` table (`rate_per_m`, `rise_m`, `no_rise_share`, each cited). The hole is a Poisson process along its penetration of the unit, so the strike falls evenly through the stratum. The shallowest of a lens-top strike and a till strike is the hole's one strike; a water-table strike counts only when neither occurs. The water always rises by the drawn rise, whatever the depth of the water table, but not above ground level. Never on a made-ground or water-bearing unit.
+A water strike a hole meets along its depth in a unit whose preset entry sets a `strike` table (`rate_per_m`, `rise_m`, `no_rise_share`, each cited). The hole is a Poisson process along its penetration of the unit, so the strike falls evenly through the stratum. Without `site.several_strikes` the shallowest of a lens-top strike and a till strike is the hole's one strike, and a water-table strike counts only when neither occurs. With it, the Poisson process runs on past its first event and every event is a strike, up to the preset's cap. The water always rises by the drawn rise, whatever the depth of the water table, but not above ground level. Never on a made-ground or water-bearing unit.
 _Avoid_: till lens, partings (a till strike is not tied to a logged parting)
+
+**Several strikes**:
+A hole records every strike its sources give, shallowest first, when the preset sets `site.several_strikes` (`max_per_hole`, `min_gap_m`, cited). A strike closer than the gap to the one above is pushed down or dropped. A preset without it records at most one strike per hole.
+_Avoid_: multiple strikes, strike group
+
+**Seal**:
+`WSTG_SEAL`, the depth to which a strike is sealed by casing, written when the preset's `[construction]` sets `seal`. A drawn gap below the strike, held at or above the next strike's casing or, for the last strike, the final casing.
+_Avoid_: grout depth
 
 **Refusal**:
 An SPT stopped at 50 blows before the full 300 mm main drive, written as N 50 (not extrapolated), `ISPT_MAIN` 50, `ISPT_NPEN` 150 plus the penetration reached, and `ISPT_REP` "50/<mm>". Any drawn N of 50 or more is one (strength), and a unit may add a `spt.refusal_share` for cobble and boulder strikes (obstruction).
