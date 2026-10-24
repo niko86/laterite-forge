@@ -53,6 +53,21 @@ jobs:
           FORGE_REQUIRE_ORACLE: "1"
         run: cargo test --locked
 
+  # A PR body proves each change by naming its tests; a name with no `fn`
+  # behind it is a claim nothing backs. The body goes through env, never
+  # into the script text. A body edited after the last push is checked on
+  # the next push (the trigger has no `edited` type, which would re-run CI).
+  pr-body:
+    name: PR body test names
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: every named test exists
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 tools/check_pr_test_names.py
+
   deny:
     name: cargo deny
     runs-on: ubuntu-latest
