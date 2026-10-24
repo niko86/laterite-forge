@@ -166,7 +166,7 @@ consumer can replace.
     the hole's first in 74% of holes that have one. The GFSG lens share is
     raised from 0.36 to 0.44 so that, with the shallower till strike taking
     precedence in some holes, the holes with the lens strike in it at the
-    crawl's 36%. Several strikes per hole remain out of scope.
+    crawl's 36%. Several strikes per hole are v9's (below).
   - **Rise.** Unlike the lens rule, the table bounds nothing. The settled
     level is `max(0, strike - rise)`, the rise drawn from the unit's `rise_m`
     (a stream keyed by hole and unit), and a draw under `no_rise_share` (drawn
@@ -188,6 +188,57 @@ consumer can replace.
     version before it, and changing one unit's rate moves only the strike-
     dependent rows (`WSTG`, `WSTD`, `WSTG_CAS`, the installation zone, `BKFL`
     and `PIPE`) of holes whose strike changes.
+- Several strikes per hole (#79, tyneside-till v9). A preset may set
+  `site.several_strikes = { max_per_hole, min_gap_m, basis }` (a cap of 2 to 16,
+  a gap above 0, a basis). Without it a hole records at most one strike, as
+  before. In the crawl of NE England (51 unique AGS4 files, 955 holes with
+  GEOL, 38 projects) 24% of struck holes record more than one strike: 75.9% of
+  struck holes have one, 19.1% two, 4.2% three and 0.7% four, 10.7% of holes
+  with GEOL have two or more. Of holes with a till strike, 55 of 112 record
+  more than one, but only 15 more than one in till.
+  - **Which strikes.** The sources are the existing ones, sorted by depth, with
+    no drawn count: each water-bearing stratum that yields strikes once at its
+    top, each till's Poisson process runs on past its first event, and the
+    water table strikes a coarse stratum that has no strike of its own. A
+    strike closer than `min_gap_m` (0.5 m: no two crawl strikes are closer) to
+    the one above is pushed down to it, or dropped when its stratum has no
+    room, and strikes beyond `max_per_hole` (4, the crawl's maximum) are
+    dropped. The first event of each stream is where it was, because the
+    stream only continues into draws never made before; a second event in a
+    unit has its own rise key. No strike takes precedence over another, so the
+    GFSG lens share goes back to 0.36 and the till rates are re-fitted so that
+    the file gives the crawl's 7.3%, 15.0% and 17.7% of holes striking in each
+    till.
+  - **Water.** Each strike has its own `WSTD` rows from its own keyed draws and
+    uses its own source's rise rule.
+  - **Construction.** Each strike keeps #77's strike-gap draw for `WSTG_CAS`;
+    a later strike's casing is raised to the strike above it, or to its seal
+    where one is written, and never passes the strike or the final casing. The
+    final casing passes every earlier strike and the last at
+    `passes_strike_share`. A `[construction]` `seal = { earlier_share,
+    last_share, gap_m, basis }` writes `WSTG_SEAL` (before `WSTG_CAS`, as the
+    dictionary lists it): earlier strikes are sealed at 0.48 and last strikes
+    at 0.25, a drawn gap below the strike, held at or above the next strike's
+    casing, or for the last strike the final casing. An installed hole with
+    several strikes follows the first strike at
+    `zone_follows_first_share` (0.54, THIN: 26 holes in 6 projects) and the
+    deepest otherwise.
+  - **Reported, not fitted.** The spread of strikes per hole, the share of
+    holes with two or more, a later strike's place in the same stratum as the
+    one above (crawl 15%), the gap between consecutive strikes, the casing less
+    the earlier strike and the rise at first against later strikes (crawl P50
+    0.25 against 1.5 m). The file has no made-ground, laminated-clay, alluvium
+    or rock strikes, so its multi-strike share falls short of the crawl's: a
+    known miss (`docs/research/tyneside-till-sources.md`, "Several strikes per
+    hole (v9, #79)").
+  - **Keys.** New tags `till-strike-rise-n`, `strike-table` (beside a lens
+    strike), `cons-seal-has`, `cons-seal-gap` and `cons-install-zone-strike`,
+    each keyed by hole (and strike index), and the site-level
+    `cons-install-follows-share`. No existing stream is consumed, so a preset
+    without the keys writes the bytes of the version before
+    (`a_preset_without_its_several_strikes_writes_the_previous_versions_bytes`).
+    london-basin has none and is unchanged (#83 considers several strikes
+    there, #84 water in made ground).
 - Coordinates are on a local grid by default. `--grid bng --origin <E>,<N>`
   adds national-grid coordinates for tools that only plot BNG, at an origin the
   consumer chooses and is responsible for. No shipped preset carries a real
@@ -474,7 +525,8 @@ standpipes, with their backfill, are the second, below (#75).)
   draws the cut-off at the pit base.
 - **`WSTG_CAS`.** Every strike gets one: the strike depth less a gap from
   `strike_gap_m`, rounded to 2 decimal places, never below 0 and never deeper
-  than the strike or the final casing. `WSTG_SEAL` is left out. The column is
+  than the strike or the final casing. `WSTG_SEAL` is left out unless the block
+  carries a `seal` key (#79, below). The column is
   written only in a preset that has both a `WSTG` suite entry and a
   construction block, and `WSTG` rows are what they were otherwise.
 - **BKFL.** Each site makes one keyed draw on whether its holes carry BKFL

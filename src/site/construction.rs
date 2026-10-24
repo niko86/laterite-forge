@@ -14,7 +14,15 @@
 //!   final depth less a drawn gap, never shallower than the pit base. There is
 //!   no `HDIA`: it is rare in the crawls.
 //! - **`WSTG_CAS`** on every strike: the strike depth less a drawn gap, never
-//!   negative and never deeper than the strike or than the final casing.
+//!   negative and never deeper than the strike or than the final casing. In a
+//!   hole with several strikes (#79) a later strike's casing is then raised to
+//!   at least the strike above it, or to that strike's seal where one is
+//!   written. Each strike has its own keyed gap draw.
+//! - **`WSTG_SEAL`** (a `[construction]` `seal` key, #79). A strike is sealed
+//!   at `earlier_share` when another strike lies below it and at `last_share`
+//!   when it is the hole's last. The seal sits a drawn gap below its strike,
+//!   held at or above the next strike's casing and, for the last strike, the
+//!   final casing. The dictionary lists `WSTG_SEAL` before `WSTG_CAS`.
 //! - **BKFL.** A site draws once whether its holes carry backfill. If so, each
 //!   hole is arisings alone, bentonite alone, or arisings over bentonite, the
 //!   layers tiling 0 to final depth, written as legend codes only.
@@ -24,7 +32,9 @@
 //! distribution cut off where the casing would end at or above the strike
 //! (the same stream, scaled, so it is the distribution conditioned on
 //! passing). A hole that does not pass ends its casing somewhere between the
-//! pit base and the strike.
+//! pit base and the strike. In a hole with several strikes the final casing
+//! passes every strike but the last, and the last at the same rate; a casing
+//! that does not pass ends between the strike above and the last strike.
 //!
 //! **Installations** (`[construction.installation]`, #75). A site draws once
 //! whether it installs at all and, if so, what share of its holes; each hole
@@ -36,6 +46,8 @@
 //!
 //! The response zone is placed in whole centimetres. Its top is the first
 //! strike plus a drawn offset, or a drawn depth when the hole has no strike.
+//! With `zone_follows_first_share` (#79) a hole with several strikes follows
+//! the first at that share and the deepest otherwise, drawn under its own key.
 //! It is then clamped, not resampled, into the room the hole leaves: not above
 //! the pit base, nor so high that the cap, a seal of at least 0.1 m and the
 //! 0.5 m of filter above the slot do not fit; not so low that 0.5 m of filter
@@ -101,6 +113,8 @@ type Layers = Vec<(f64, f64, &'static str)>;
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Plan {
     pub holes: Vec<HoleBuild>,
+    /// Whether `WSTG` carries a `WSTG_SEAL` column.
+    pub has_seal: bool,
 }
 
 /// One hole's construction.
@@ -113,8 +127,12 @@ pub(super) struct HoleBuild {
     /// `(CDIA_DPTH, CDIA_DIAM)` top-down: one string or two, the diameter
     /// never increasing.
     pub casing: Vec<(f64, u32)>,
-    /// `WSTG_CAS` for the hole's strike, when it has one in the file.
-    pub strike_casing: Option<f64>,
+    /// `WSTG_CAS` for each of the hole's strikes in the file, shallowest
+    /// first; empty when it has none.
+    pub strike_casing: Vec<f64>,
+    /// `WSTG_SEAL` for each strike, in the same order; `None` where the
+    /// strike is not sealed. Empty when the preset writes no seals.
+    pub strike_seal: Vec<Option<f64>>,
     /// `(BKFL_TOP, BKFL_BASE, BKFL_LEG)` top-down; empty when the site's holes
     /// carry no backfill.
     /// For an installed hole this is the installed sequence.
@@ -146,6 +164,9 @@ struct SiteDraws {
     has_backfill: bool,
     /// The share of holes installed, when the site installs at all.
     install_share: Option<f64>,
+    /// In a hole with several strikes, the share whose installation follows
+    /// the first strike, when the preset gives one.
+    zone_follows_first: Option<f64>,
 }
 
 impl SiteDraws {
@@ -171,6 +192,17 @@ impl SiteDraws {
                 );
                 (site_u < site_share).then_some(share)
             }),
+            zone_follows_first: c
+                .installation
+                .as_ref()
+                .and_then(|i| i.zone_follows_first_share.as_ref())
+                .map(|r| {
+                    uniform(
+                        &mut Key::site("cons-install-follows-share").rng(seed),
+                        r.min,
+                        r.max,
+                    )
+                }),
         }
     }
 }
@@ -191,7 +223,11 @@ pub(super) fn plan(site: &Site, preset: &Preset, seed: u64) -> Option<Plan> {
         .iter()
         .enumerate()
         .map(|(hi, hole)| {
-            let strike = strikes.iter().find(|s| s.hole == hi).map(|s| s.depth);
+            let depths: Vec<f64> = strikes
+                .iter()
+                .filter(|s| s.hole == hi)
+                .map(|s| s.depth)
+                .collect();
             build_hole(
                 c,
                 &draws,
@@ -199,11 +235,14 @@ pub(super) fn plan(site: &Site, preset: &Preset, seed: u64) -> Option<Plan> {
                 hi,
                 hole.final_depth,
                 &hole.loca_type,
-                strike,
+                &depths,
             )
         })
         .collect();
-    Some(Plan { holes })
+    Some(Plan {
+        holes,
+        has_seal: c.seal.is_some(),
+    })
 }
 
 fn build_hole(
@@ -213,25 +252,32 @@ fn build_hole(
     hi: usize,
     final_depth: f64,
     phase: &str,
-    strike: Option<f64>,
+    strikes: &[f64],
 ) -> HoleBuild {
     let pit_base = round2(uniform(
         &mut Key::hole("cons-pit", hi).rng(seed),
         c.inspection_pit_m.min,
         c.inspection_pit_m.max,
     ));
-    let final_casing = final_casing(c, draws, seed, hi, final_depth, pit_base, strike);
+    let final_casing = final_casing(c, draws, seed, hi, final_depth, pit_base, strikes);
     let casing = casing_strings(c, draws, seed, hi, pit_base, final_casing);
-    let strike_casing = strike.map(|s| {
-        let u = uniform(&mut Key::hole("cons-strike-casing", hi).rng(seed), 0.0, 1.0);
-        let at = round2((s - skewed(&c.casing.strike_gap_m, u)).max(0.0));
-        at.min(final_casing).min(s)
-    });
+    let strike_seal = seals(c, seed, hi, strikes, final_casing);
+    let strike_casing = strike_casings(c, seed, hi, strikes, &strike_seal, final_casing);
     let installed = c
         .installation
         .as_ref()
         .zip(draws.install_share)
-        .and_then(|(i, share)| install(i, share, seed, hi, final_depth, pit_base, strike));
+        .and_then(|(i, share)| {
+            install(
+                i,
+                (share, draws.zone_follows_first),
+                seed,
+                hi,
+                final_depth,
+                pit_base,
+                strikes,
+            )
+        });
     // The site's own backfill draw is made whether or not the hole is
     // installed, so installing it moves nothing else.
     let site_backfill = backfill(c, draws, seed, hi, final_depth);
@@ -244,21 +290,98 @@ fn build_hole(
         phase: phase.to_string(),
         casing,
         strike_casing,
+        strike_seal,
         backfill,
         installation,
     }
+}
+
+/// The `WSTG_CAS` of each strike: the strike depth less a drawn gap, never
+/// negative, never past the strike or the final casing. A later strike's
+/// casing is raised to at least the strike above it, or to that strike's seal
+/// where one is written. The first strike's draw is the one a hole with a
+/// single strike has always made; each later strike has its own keyed draw.
+fn strike_casings(
+    c: &Construction,
+    seed: u64,
+    hi: usize,
+    strikes: &[f64],
+    seals: &[Option<f64>],
+    final_casing: f64,
+) -> Vec<f64> {
+    strikes
+        .iter()
+        .enumerate()
+        .map(|(j, &s)| {
+            let key = if j == 0 {
+                Key::hole("cons-strike-casing", hi)
+            } else {
+                Key {
+                    test: j as u64,
+                    ..Key::hole("cons-strike-casing", hi)
+                }
+            };
+            let u = uniform(&mut key.rng(seed), 0.0, 1.0);
+            let drawn = round2((s - skewed(&c.casing.strike_gap_m, u)).max(0.0));
+            let floor = match j.checked_sub(1) {
+                None => 0.0,
+                Some(k) => seals.get(k).copied().flatten().unwrap_or(strikes[k]),
+            };
+            drawn.max(floor).min(final_casing).min(s)
+        })
+        .collect()
+}
+
+/// The `WSTG_SEAL` of each strike, or nothing when the preset writes none.
+/// A strike is sealed at the preset's share for an earlier strike or for the
+/// last one. The seal sits a drawn gap below its strike, but no deeper than
+/// the next strike (it must not pass it) and the final casing: an earlier
+/// strike's seal then lies at or above the next strike's casing, and the last
+/// strike's at or above the final casing.
+fn seals(
+    c: &Construction,
+    seed: u64,
+    hi: usize,
+    strikes: &[f64],
+    final_casing: f64,
+) -> Vec<Option<f64>> {
+    let Some(seal) = &c.seal else {
+        return Vec::new();
+    };
+    strikes
+        .iter()
+        .enumerate()
+        .map(|(j, &s)| {
+            let at = |tag| Key {
+                test: j as u64,
+                ..Key::hole(tag, hi)
+            };
+            let u_has = uniform(&mut at("cons-seal-has").rng(seed), 0.0, 1.0);
+            let u_gap = uniform(&mut at("cons-seal-gap").rng(seed), 0.0, 1.0);
+            let next = strikes.get(j + 1);
+            let share = if next.is_some() {
+                seal.earlier_share
+            } else {
+                seal.last_share
+            };
+            (u_has < share).then(|| {
+                let drawn = round2(s + skewed(&seal.gap_m, u_gap));
+                drawn.min(next.map_or(final_casing, |n| n.min(final_casing)))
+            })
+        })
+        .collect()
 }
 
 /// The installation of a hole, with its backfill, or `None` when the hole is
 /// not installed. Depths are worked in whole centimetres.
 fn install(
     i: &Installation,
-    share: f64,
+    (share, follows_first): (f64, Option<f64>),
     seed: u64,
     hi: usize,
     final_depth: f64,
     pit_base: f64,
-    strike: Option<f64>,
+    strikes: &[f64],
 ) -> Option<(Installed, Layers)> {
     let u_in = uniform(&mut Key::hole("cons-install-hole", hi).rng(seed), 0.0, 1.0);
     if u_in >= share {
@@ -294,7 +417,20 @@ fn install(
     // The drawn gap, raised to the tail the filter and seal need.
     let gap = cm(skewed(&i.base_gap_m, u_gap)).max(tail);
     let base_max = (fd - gap).max(lo + len);
-    let raw = match strike {
+    // The zone follows the first strike, or in a hole with several (and a
+    // share to draw against) the deepest.
+    let follows = match (strikes, follows_first) {
+        ([first, .., last], Some(share)) => {
+            let u = uniform(
+                &mut Key::hole("cons-install-zone-strike", hi).rng(seed),
+                0.0,
+                1.0,
+            );
+            Some(if u < share { *first } else { *last })
+        }
+        _ => strikes.first().copied(),
+    };
+    let raw = match follows {
         Some(s) => cm(s) + cm(skewed(&i.zone_offset_m, u_top)),
         None => cm(skewed(&i.zone_top_m, u_top)),
     };
@@ -363,8 +499,11 @@ fn final_casing(
     hi: usize,
     final_depth: f64,
     pit_base: f64,
-    strike: Option<f64>,
+    strikes: &[f64],
 ) -> f64 {
+    let strike = strikes.last().copied();
+    // The strike above the last, which the casing always passes.
+    let earlier = strikes.len().checked_sub(2).map(|k| strikes[k]);
     let mut rng = Key::hole("cons-casing", hi).rng(seed);
     let u_gap = uniform(&mut rng, 0.0, 1.0);
     let u_pass = uniform(&mut rng, 0.0, 1.0);
@@ -392,10 +531,12 @@ fn final_casing(
         Some(s) if passes && s + 0.01 <= final_depth => {
             deepest_above(pit_base.max(round2(s + 0.01)))
         }
-        // Not passing: between the pit base and the strike.
+        // Not passing: between the pit base (or, in a hole with several
+        // strikes, the strike above) and the last strike.
         Some(s) => {
             let hi_ = s.min(final_depth);
-            round2(pit_base + (hi_ - pit_base).max(0.0) * u_above).min(final_depth)
+            let lo = earlier.map_or(pit_base, |e| pit_base.max(round2(e + 0.01)));
+            round2(lo + (hi_ - lo).max(0.0) * u_above).min(final_depth)
         }
         None => deepest_above(pit_base),
     }

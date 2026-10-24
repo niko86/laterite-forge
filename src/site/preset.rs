@@ -108,6 +108,21 @@ pub struct Construction {
     /// Installations (`PIPE`, and the backfill an installed hole carries);
     /// `None` when the preset writes none (#75).
     pub installation: Option<Installation>,
+    /// `WSTG_SEAL` on strikes; `None` writes no such column (#79).
+    pub seal: Option<Seal>,
+}
+
+/// The seal of a strike (`WSTG_SEAL`): the depth to which the hole is sealed
+/// after the strike. A strike is sealed at `earlier_share` when another
+/// strike lies below it and at `last_share` when it is the hole's last.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Seal {
+    pub earlier_share: f64,
+    pub last_share: f64,
+    /// Seal depth less strike depth, metres, per sealed strike.
+    pub gap_m: Range,
+    /// The source of the two shares.
+    pub basis: String,
 }
 
 /// The installations a site's holes may carry: a plain riser over a slotted
@@ -129,6 +144,10 @@ pub struct Installation {
     pub zone_offset_m: Range,
     /// Zone top, metres, for a hole with no strike.
     pub zone_top_m: Range,
+    /// In a hole with several strikes, the share whose zone follows the first
+    /// strike (the rest follow the deepest); drawn once per site. `None`: the
+    /// zone follows the first strike (#79).
+    pub zone_follows_first_share: Option<Range>,
     /// Length of the slotted section of a standpipe, metres.
     pub slotted_length_m: Range,
     /// Final depth less the base of the slotted section, metres, before the
@@ -218,6 +237,22 @@ pub struct Site {
     /// the water is noticed (drilling lag). Absent means forge's own 0-0.5 m
     /// default.
     pub strike_rise_m: Option<Range>,
+    /// `Some` lets a hole record several strikes (#79); absent, a hole
+    /// records at most one.
+    pub several_strikes: Option<SeveralStrikes>,
+}
+
+/// The several-strikes rule: a hole records every strike its sources give,
+/// shallowest first, up to a cap (#79).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeveralStrikes {
+    /// The most strikes a hole records; deeper ones are dropped.
+    pub max_per_hole: u32,
+    /// The least depth between consecutive strikes, metres: a later strike
+    /// closer than this is pushed down to it (or dropped when its stratum has
+    /// no room).
+    pub min_gap_m: f64,
+    pub basis: String,
 }
 
 /// Size of the local grid, whose origin is (0, 0).
@@ -1452,13 +1487,46 @@ fn read_construction(n: &mut Node, errs: &mut Vec<String>) -> Option<Option<Cons
         Some(None) => Some(None),
         None => None,
     };
+    let seal = match optional_table(&mut c, "seal", errs) {
+        Some(Some(t)) => read_seal(t, errs).map(Some),
+        Some(None) => Some(None),
+        None => None,
+    };
     c.finish(errs);
     Some(Some(Construction {
         inspection_pit_m: pit?,
         casing: casing?,
         backfill: backfill?,
         installation: installation?,
+        seal: seal?,
     }))
+}
+
+/// `seal = { earlier_share, last_share, gap_m, basis }`: both shares in
+/// `[0, 1]`, a cited gap that is never negative.
+fn read_seal(mut t: Node, errs: &mut Vec<String>) -> Option<Seal> {
+    let mut share = |t: &mut Node, key: &'static str| {
+        let at = t.at(key);
+        num(t.get(key), &at, errs).and_then(|v| {
+            if (0.0..=1.0).contains(&v) {
+                Some(v)
+            } else {
+                errs.push(format!("{at}: {v} is outside 0 to 1"));
+                None
+            }
+        })
+    };
+    let earlier_share = share(&mut t, "earlier_share");
+    let last_share = share(&mut t, "last_share");
+    let gap_m = read_gap(&mut t, "gap_m", errs);
+    let basis = nonempty_str(&mut t, "basis", errs);
+    t.finish(errs);
+    Some(Seal {
+        earlier_share: earlier_share?,
+        last_share: last_share?,
+        gap_m: gap_m?,
+        basis: basis?,
+    })
 }
 
 fn read_installation(mut i: Node, errs: &mut Vec<String>) -> Option<Installation> {
@@ -1468,6 +1536,12 @@ fn read_installation(mut i: Node, errs: &mut Vec<String>) -> Option<Installation
     let kinds_basis = nonempty_str(&mut i, "kinds_basis", errs);
     let zone_offset_m = read_thickness(&mut i, "zone_offset_m", errs);
     let zone_top_m = read_positive(&mut i, "zone_top_m", errs);
+    let zone_follows_first_share = if i.table.contains_key("zone_follows_first_share") {
+        read_unit_range(&mut i, "zone_follows_first_share", errs).map(Some)
+    } else {
+        i.get("zone_follows_first_share");
+        Some(None)
+    };
     let slotted_length_m = read_positive(&mut i, "slotted_length_m", errs);
     let base_gap_m = read_gap(&mut i, "base_gap_m", errs);
     let cap_m = read_positive(&mut i, "cap_m", errs);
@@ -1488,6 +1562,7 @@ fn read_installation(mut i: Node, errs: &mut Vec<String>) -> Option<Installation
         kinds_basis: kinds_basis?,
         zone_offset_m: zone_offset_m?,
         zone_top_m: zone_top_m?,
+        zone_follows_first_share: zone_follows_first_share?,
         slotted_length_m: slotted_length_m?,
         base_gap_m: base_gap_m?,
         cap_m: cap_m?,
@@ -2171,6 +2246,11 @@ fn read_site(n: &mut Node, errs: &mut Vec<String>) -> Option<Site> {
     } else {
         None
     };
+    let several_strikes = match optional_table(&mut s, "several_strikes", errs) {
+        Some(Some(t)) => read_several_strikes(t, errs).map(Some),
+        Some(None) => Some(None),
+        None => None,
+    };
     s.finish(errs);
     let (x, y) = extent?;
     Some(Site {
@@ -2178,6 +2258,40 @@ fn read_site(n: &mut Node, errs: &mut Vec<String>) -> Option<Site> {
         ground_level_m: ground?,
         groundwater_depth_m: groundwater?,
         strike_rise_m: strike_rise,
+        several_strikes: several_strikes?,
+    })
+}
+
+/// The most strikes a hole may record under `several_strikes`.
+const MAX_STRIKES_PER_HOLE: i64 = 16;
+
+/// `several_strikes = { max_per_hole, min_gap_m, basis }`: a cap of 2 to
+/// [`MAX_STRIKES_PER_HOLE`] and a positive gap.
+fn read_several_strikes(mut t: Node, errs: &mut Vec<String>) -> Option<SeveralStrikes> {
+    let at = t.at("max_per_hole");
+    let max = req_int(&mut t, "max_per_hole", errs).and_then(|v| {
+        if (2..=MAX_STRIKES_PER_HOLE).contains(&v) {
+            u32::try_from(v).ok()
+        } else {
+            errs.push(format!("{at}: {v} is outside 2 to {MAX_STRIKES_PER_HOLE}"));
+            None
+        }
+    });
+    let at = t.at("min_gap_m");
+    let gap = num(t.get("min_gap_m"), &at, errs).and_then(|v| {
+        if v > 0.0 {
+            Some(v)
+        } else {
+            errs.push(format!("{at}: {v} must be > 0"));
+            None
+        }
+    });
+    let basis = nonempty_str(&mut t, "basis", errs);
+    t.finish(errs);
+    Some(SeveralStrikes {
+        max_per_hole: max?,
+        min_gap_m: gap?,
+        basis: basis?,
     })
 }
 
@@ -3681,7 +3795,30 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
     #[test]
     fn tyneside_till_loads_with_its_tills_and_lens() {
         let p = resolve("tyneside-till").unwrap();
-        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 8));
+        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 9));
+        // v9: several strikes, and the seal and the zone share that go with
+        // them (#79).
+        let several = p.site.several_strikes.as_ref().expect("v9 has the key");
+        assert_eq!((several.max_per_hole, several.min_gap_m), (4, 0.5));
+        let c = p.construction.as_ref().expect("a construction block");
+        let seal = c.seal.as_ref().expect("v9 has a seal");
+        assert_eq!((seal.earlier_share, seal.last_share), (0.48, 0.25));
+        let follows = c
+            .installation
+            .as_ref()
+            .and_then(|i| i.zone_follows_first_share.as_ref())
+            .expect("v9 has the zone share");
+        assert_eq!((follows.min, follows.max), (0.54, 0.54));
+        assert!(follows.basis.contains("THIN"), "{}", follows.basis);
+        for basis in [
+            &several.basis,
+            &seal.basis,
+            &seal.gap_m.basis,
+            &follows.basis,
+        ] {
+            assert!(basis.contains("OGL v3"), "{basis}");
+            assert!(basis.contains("163565"), "{basis}");
+        }
         // v6: hole construction, with the NE crawl's casing weights.
         let c = p
             .construction
@@ -3732,8 +3869,11 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
         let lens = &p.lenses[0];
         assert_eq!((lens.id.as_str(), lens.host.as_str()), ("GFSG", "GT"));
         let share = lens.water_bearing.as_ref().unwrap();
-        assert_eq!((share.min, share.max), (0.44, 0.44));
+        // v9: no strike takes precedence over the lens any more, so its share
+        // is the crawl's 36% again, without v8's "raised to 0.44".
+        assert_eq!((share.min, share.max), (0.36, 0.36));
         assert!(share.basis.contains("89 of 249"), "{}", share.basis);
+        assert!(!share.basis.contains("0.44"), "{}", share.basis);
         let text = SHIPPED
             .iter()
             .find(|(n, _)| *n == "tyneside-till")
@@ -3860,6 +4000,152 @@ outlier_rate = { min = 0.0, max = 0.05, basis = "test fixture" }
                 "groundwater_depth_m = {{ min = 1.0, max = 4.0, basis = \"test fixture\" }}\n{rise}"
             ),
         )
+    }
+
+    const SEVERAL: &str =
+        "several_strikes = { max_per_hole = 4, min_gap_m = 0.5, basis = \"test fixture\" }\n";
+
+    #[test]
+    fn several_strikes_are_optional_and_load_when_given() {
+        assert_eq!(
+            Preset::from_toml(&valid()).unwrap().site.several_strikes,
+            None
+        );
+        let r = Preset::from_toml(&with_rise(SEVERAL))
+            .unwrap()
+            .site
+            .several_strikes
+            .expect("given");
+        assert_eq!((r.max_per_hole, r.min_gap_m), (4, 0.5));
+        assert_eq!(r.basis, "test fixture");
+    }
+
+    #[test]
+    fn several_strikes_need_a_cap_of_two_to_sixteen_a_positive_gap_and_a_basis() {
+        for (from, to, want) in [
+            (
+                "max_per_hole = 4",
+                "max_per_hole = 1",
+                "site.several_strikes.max_per_hole: 1 is outside 2 to 16",
+            ),
+            (
+                "max_per_hole = 4",
+                "max_per_hole = 17",
+                "site.several_strikes.max_per_hole: 17 is outside 2 to 16",
+            ),
+            (
+                "max_per_hole = 4",
+                "max_per_hole = 4.5",
+                "site.several_strikes.max_per_hole: must be an integer",
+            ),
+            (
+                "min_gap_m = 0.5",
+                "min_gap_m = 0.0",
+                "site.several_strikes.min_gap_m: 0 must be > 0",
+            ),
+            (
+                "min_gap_m = 0.5",
+                "min_gap_m = -1.0",
+                "site.several_strikes.min_gap_m: -1 must be > 0",
+            ),
+            (
+                "basis = \"test fixture\"",
+                "basis = \" \"",
+                "site.several_strikes.basis: empty",
+            ),
+            (
+                ", basis = \"test fixture\"",
+                "",
+                "site.several_strikes.basis: missing",
+            ),
+        ] {
+            let errs = errors_of(&with_rise(&SEVERAL.replace(from, to)));
+            assert!(errs.contains(&want.to_string()), "{want}: {errs:?}");
+        }
+        let missing = with_rise(&SEVERAL.replace("min_gap_m = 0.5, ", ""));
+        assert!(
+            errors_of(&missing).contains(&"site.several_strikes.min_gap_m: missing".to_string())
+        );
+    }
+
+    /// The shipped tyneside-till text with one exact snippet replaced.
+    fn tyneside_with(from: &str, to: &str) -> String {
+        let text = SHIPPED
+            .iter()
+            .find(|(n, _)| *n == "tyneside-till")
+            .unwrap()
+            .1;
+        assert!(text.contains(from), "tyneside-till lacks {from:?}");
+        text.replacen(from, to, 1)
+    }
+
+    #[test]
+    fn a_seal_loads_with_two_shares_a_gap_and_a_basis() {
+        let text = tyneside_with("earlier_share = 0.48", "earlier_share = 0.5");
+        let seal = Preset::from_toml(&text).unwrap().construction.unwrap().seal;
+        let seal = seal.expect("given");
+        assert_eq!((seal.earlier_share, seal.last_share), (0.5, 0.25));
+        assert_eq!((seal.gap_m.min, seal.gap_m.skew), (0.0, Some(1.4)));
+        // A preset without the key has no seal.
+        let text = tyneside_with("seal = {", "unused = {");
+        let errs = errors_of(&text);
+        assert!(
+            errs.iter().any(|e| e.contains("unknown key \"unused\"")),
+            "{errs:?}"
+        );
+    }
+
+    #[test]
+    fn a_seal_share_must_be_a_fraction_and_the_gap_never_negative() {
+        for (from, to, want) in [
+            (
+                "earlier_share = 0.48",
+                "earlier_share = 1.5",
+                "construction.seal.earlier_share: 1.5 is outside 0 to 1",
+            ),
+            (
+                "last_share = 0.25",
+                "last_share = -0.1",
+                "construction.seal.last_share: -0.1 is outside 0 to 1",
+            ),
+            (
+                "gap_m = { min = 0.0,",
+                "gap_m = { min = -0.5,",
+                "construction.seal.gap_m: min -0.5 is negative",
+            ),
+            (
+                "last_share = 0.25, ",
+                "",
+                "construction.seal.last_share: missing",
+            ),
+        ] {
+            let errs = errors_of(&tyneside_with(from, to));
+            assert!(errs.contains(&want.to_string()), "{want}: {errs:?}");
+        }
+    }
+
+    #[test]
+    fn a_zone_share_is_a_fraction_with_a_basis() {
+        let from = "zone_follows_first_share = { min = 0.54, max = 0.54,";
+        let text = tyneside_with(from, "zone_follows_first_share = { min = 0.4, max = 0.6,");
+        let r = Preset::from_toml(&text)
+            .unwrap()
+            .construction
+            .unwrap()
+            .installation
+            .unwrap()
+            .zone_follows_first_share
+            .unwrap();
+        assert_eq!((r.min, r.max), (0.4, 0.6));
+        let text = tyneside_with(from, "zone_follows_first_share = { min = 0.4, max = 1.6,");
+        let errs = errors_of(&text);
+        assert!(
+            errs.contains(
+                &"construction.installation.zone_follows_first_share: max 1.6 is outside 0 to 1"
+                    .to_string()
+            ),
+            "{errs:?}"
+        );
     }
 
     #[test]
