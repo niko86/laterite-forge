@@ -50,6 +50,7 @@
 use laterite_ags4_validator::{DictVersion, Dictionary};
 
 use super::build::Site;
+use super::construction::Plan;
 use super::draw::{Key, uniform};
 use super::preset::Preset;
 use crate::synth::model::{Group, Row};
@@ -175,13 +176,29 @@ fn yields(shares: &[(&str, f64)], seed: u64, hole: usize, unit: &str) -> bool {
         ) < share
 }
 
-/// The `WSTG` group, or `None` when no hole strikes water.
-pub(super) fn wstg(site: &Site, strikes: &[Strike]) -> Option<Group> {
+/// The `WSTG` group, or `None` when no hole strikes water. With hole
+/// construction each row also carries `WSTG_CAS`, the casing depth at the
+/// strike.
+pub(super) fn wstg(site: &Site, strikes: &[Strike], construction: Option<&Plan>) -> Option<Group> {
     let rows = strikes
         .iter()
-        .map(|s| Row::owned(vec![site.holes[s.hole].id.clone(), m2(s.depth)]))
+        .map(|s| {
+            let mut v = vec![site.holes[s.hole].id.clone(), m2(s.depth)];
+            if let Some(plan) = construction {
+                let cas = plan.holes[s.hole]
+                    .strike_casing
+                    .expect("construction plans casing at every strike");
+                v.push(m2(cas));
+            }
+            Row::owned(v)
+        })
         .collect();
-    build("WSTG", &["LOCA_ID", "WSTG_DPTH"], strikes, rows)
+    let headings: &[&str] = if construction.is_some() {
+        &["LOCA_ID", "WSTG_DPTH", "WSTG_CAS"]
+    } else {
+        &["LOCA_ID", "WSTG_DPTH"]
+    };
+    build("WSTG", headings, strikes, rows)
 }
 
 /// The `WSTD` group: four readings per strike.

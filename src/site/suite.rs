@@ -31,6 +31,7 @@ use laterite_ags4_parity::Rng;
 use laterite_ags4_validator::{DictVersion, Dictionary};
 
 use super::build::{Hole, Numbered, Sample, Site, numbered};
+use super::construction::Plan;
 use super::draw::{Key, uniform};
 use super::effective;
 use super::preset::{Preset, SUITE_GROUPS, SuiteEntry};
@@ -73,6 +74,7 @@ pub(super) fn groups(
     preset: &Preset,
     seed: u64,
     producers: &[Producer],
+    construction: Option<&Plan>,
 ) -> Vec<Group> {
     if preset.suite.is_empty() {
         return Vec::new();
@@ -91,7 +93,7 @@ pub(super) fn groups(
             // Not scheduled on samples: a strike follows the water table.
             let strikes = water::strikes(site, preset, seed);
             let made = if code == "WSTG" {
-                water::wstg(site, &strikes)
+                water::wstg(site, &strikes, construction)
             } else {
                 water::wstd(site, &strikes)
             };
@@ -778,7 +780,7 @@ rate = { min = 0.5, max = 0.5, basis = "test fixture" }
             .unwrap()
             .headings = vec![heading.to_string()];
         let site = build::build(&p, 1, 6);
-        let groups = groups(&site, &p, 1, &producers);
+        let groups = groups(&site, &p, 1, &producers, None);
         let llpl = groups.iter().find(|g| g.code == "LLPL").unwrap();
         assert_eq!(llpl.headings.last().map(String::as_str), Some(heading));
         let id = llpl.col("LOCA_ID").unwrap();

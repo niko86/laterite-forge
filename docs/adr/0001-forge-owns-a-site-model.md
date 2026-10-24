@@ -381,6 +381,74 @@ consumer can replace.
   0.97 of its TRIG rate. Versions of a preset without `effective_strength`
   and a TREG entry keep their bytes.
 
+## Hole construction
+
+(Added 2026-10-24, #74; the decisions are the owner's R1 Q1-Q2 and R2 Q1-Q7.
+This is the first of two slices: holes with no installation. Pipes and
+standpipes, with their backfill, are the second.)
+
+- **Block.** A preset may carry a `[construction]` block: an
+  `inspection_pit_m` range, a `[construction.casing]` table (weighted
+  `diameters` with a `diameters_basis`, `telescope_share`,
+  `telescope_depth_fraction`, `final_gap_m`, `passes_strike_share` and
+  `strike_gap_m`) and a `[construction.backfill]` table (`site_share`, a
+  `sequence` of three weights with a basis, and `boundary_m`). Every range has
+  a basis. Shares are in 0 to 1, gaps are not negative, the telescope fraction
+  is strictly between 0 and 1, and the diameters are whole millimetres, each
+  once, with weights that sum above 0. The pit and boundary maxima must be
+  shallower than the shortest final depth any hole type allows, and every hole type's code must be an `HDPH_TYPE` pick-list code other than
+  `IP`. A preset without the block draws nothing and keeps its bytes.
+- **HDPH.** Two rows per hole: `IP` from 0 to the pit depth (a keyed draw per
+  hole; 1.2 m in both shipped presets), then the hole's type (`CP`) to final
+  depth, so the phases tile the hole. `LOCA_TYPE` is the phases joined by `+`
+  (`IP+CP`), as the crawls write it. Both the Rust validator and python-ags4
+  accept the joined code when `ABBR` lists each part, so `ABBR` is built from
+  the parts (`collect_abbr` splits a value that is not itself a pick-list code
+  when every part is one). There is no `HDIA`: it is rare in the crawls.
+- **CDIA.** Every hole is cased. The first string's diameter is drawn by
+  weight; with probability `telescope_share` (drawn once per site; it applies
+  only where a smaller diameter exists in the list) the hole steps down to a
+  smaller diameter, drawn by weight among the smaller ones, ending the larger
+  string at `telescope_depth_fraction` of the way from the pit base to the
+  final casing. A diameter never increases with depth, and the final casing is
+  never shallower than the pit base or deeper than final depth.
+- **Casing and the strike.** The final casing depth is the final depth less a
+  gap drawn from `final_gap_m` (`min + (max - min) x u^skew`). With
+  probability `passes_strike_share` (drawn once per site) the casing passes
+  the strike, and the gap is drawn from the same distribution cut off where the
+  casing would end at or above the strike (the same uniform, scaled, so it is
+  the distribution conditioned on passing). Otherwise the casing ends at a
+  uniform depth between the pit base and the strike. A hole with no strike
+  draws the cut-off at the pit base.
+- **`WSTG_CAS`.** Every strike gets one: the strike depth less a gap from
+  `strike_gap_m`, rounded to 2 decimal places, never below 0 and never deeper
+  than the strike or the final casing. `WSTG_SEAL` is left out. The column is
+  written only in a preset that has both a `WSTG` suite entry and a
+  construction block, and `WSTG` rows are what they were otherwise.
+- **BKFL.** Each site makes one keyed draw on whether its holes carry BKFL
+  (`site_share` is itself drawn once per site in its range). If they do, each
+  hole draws a sequence by weight: arisings alone, bentonite alone, or arisings
+  over bentonite with the boundary from `boundary_m`. The layers tile 0 to final
+  depth exactly, in `BKFL_LEG` legend codes 905 (arisings) and 903 (bentonite)
+  only, with no `BKFL_DESC`. The next slice replaces the backfill of installed
+  holes.
+- **Draws and order.** Every construction draw has a `cons-` tag of its own
+  (`cons-pit`, `cons-casing`, `cons-diameter`, `cons-strike-casing`,
+  `cons-backfill`, and the site-level `cons-telescope-share`,
+  `cons-pass-share`, `cons-backfill-share`, `cons-backfill-site`), each a fixed
+  number of draws, so hole k is the same whatever the hole count and changing the
+  block moves only construction rows (HDPH, CDIA, BKFL, the `WSTG_CAS` column and
+  `LOCA_TYPE`). The groups are written after the suite and are not suite
+  entries, so no existing draw is re-keyed. Plan: `src/site/construction.rs`.
+- **Dictionary values only.** Codes the crawls write that are not in the
+  dictionary's pick lists (HDPH_TYPE COM, SB, SC; BKFL_LEG 001-005) are never
+  written.
+- **Versions.** london-basin v7 and tyneside-till v6 adopt it, calibrated to
+  the London and NE crawls (`docs/research/*-sources.md`): casing diameters and
+  step-down share, the final casing gap, the rate at which the casing passes the
+  strike, the `WSTG_CAS` gap, the BKFL site share and sequence weights.
+  Versions without the block keep the previous bytes.
+
 ## Presets
 
 `london-basin` comes first, starting in natural ground: River Terrace

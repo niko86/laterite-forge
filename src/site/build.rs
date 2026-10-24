@@ -9,6 +9,7 @@
 use laterite_ags4_parity::Rng;
 use laterite_ags4_validator::{DictVersion, Dictionary};
 
+use super::construction;
 use super::cover::{CoverLayer, SiteCover};
 use super::draw::{Key, uniform};
 use super::ground::Field;
@@ -552,10 +553,24 @@ pub fn marker(preset: &Preset) -> String {
 /// TRAN, LOCA, GEOL, SAMP, the preset's suite (if any), then ABBR/UNIT/TYPE covering exactly what those use.
 pub fn lower(site: &Site, preset: &Preset, seed: u64, grid: Grid) -> ProjectModel {
     let dict = Dictionary::bundled(DictVersion::V4_2);
-    let mut groups = vec![proj(preset, seed), tran(seed), loca(site, grid)];
+    let plan = construction::plan(site, preset, seed);
+    let mut groups = vec![
+        proj(preset, seed),
+        tran(seed),
+        loca(site, grid, plan.as_ref()),
+    ];
     groups.push(geol(site));
     groups.push(samp(site));
-    groups.extend(suite::groups(site, preset, seed, suite::PRODUCERS));
+    groups.extend(suite::groups(
+        site,
+        preset,
+        seed,
+        suite::PRODUCERS,
+        plan.as_ref(),
+    ));
+    if let Some(plan) = &plan {
+        groups.extend(construction::groups(site, plan));
+    }
     let abbr = collect_abbr(&groups, &dict);
     let unit = collect_unit(&groups);
     let types = collect_type(&groups);
@@ -619,7 +634,7 @@ fn tran(seed: u64) -> Group {
 
 /// LOCA, in dictionary heading order. National-grid columns only with
 /// `Grid::Bng`.
-fn loca(site: &Site, grid: Grid) -> Group {
+fn loca(site: &Site, grid: Grid, construction: Option<&construction::Plan>) -> Group {
     let mut columns = vec![("LOCA_ID", "", "ID"), ("LOCA_TYPE", "", "PA")];
     if matches!(grid, Grid::Bng { .. }) {
         columns.extend([
@@ -638,8 +653,12 @@ fn loca(site: &Site, grid: Grid) -> Group {
     let rows = site
         .holes
         .iter()
-        .map(|h| {
-            let mut v = vec![h.id.clone(), h.loca_type.clone()];
+        .enumerate()
+        .map(|(i, h)| {
+            // With construction the type is the phases, `IP+CP`.
+            let loca_type =
+                construction.map_or_else(|| h.loca_type.clone(), |p| p.holes[i].loca_type());
+            let mut v = vec![h.id.clone(), loca_type];
             if let Grid::Bng { easting, northing } = grid {
                 v.extend([m2(easting + h.x), m2(northing + h.y), "OSGB".to_string()]);
             }
@@ -1765,6 +1784,10 @@ mod shipped_pins {
     /// Re-taken for tyneside-till v5 (#68), which adds TREG and TRET to the
     /// suite: the file grows by those two groups and the version in the marker
     /// moves. london-basin has none and is not re-taken.
+    /// Re-taken for london-basin v7 and tyneside-till v6 (#74), which add hole
+    /// construction: HDPH, CDIA and BKFL, `WSTG_CAS`, and a joined `LOCA_TYPE`
+    /// (`a_preset_without_its_construction_writes_the_previous_versions_bytes`
+    /// holds the rest of the file to the v6 and v5 pins).
     #[test]
     fn shipped_preset_output_bytes_are_pinned() {
         use sha2::{Digest, Sha256};
@@ -1772,38 +1795,38 @@ mod shipped_pins {
             (
                 "london-basin",
                 0u64,
-                "de3114e4cb7bfc1cb9d144e6f119d59790fae69d4968da0b0dbfd50e3a0991ad",
-                20115usize,
+                "8b9b58c6874a5b27b393c7abc40c01c2decf8559af3cd5cc4d77c797388cc105",
+                21355usize,
             ),
             (
                 "london-basin",
                 1,
-                "6e8a903ab5ddb8988c11533cc916247d711264b9a2ed019c9567afb38660be58",
-                15378,
+                "1ecf4d875bb7a08cb3358ad8ab1f6cc1a0a1ebce640d47689878f3d4d2987ae2",
+                16410,
             ),
             (
                 "london-basin",
                 2,
-                "b8fd1d966322a8d6b5c807b0a6992ee8d276d6ae8aa4c926059c5cbdbe48a26c",
-                28219,
+                "a5a9255a0b2f1c4f16b2c0e2bbc23d01f90be2f120903a22b47a39ab5ddddc97",
+                29577,
             ),
             (
                 "tyneside-till",
                 0,
-                "0df73e8de31e7b86b369b22ae3533b381705d41c68a5b2f4994cda09d248240a",
-                31497,
+                "8d18dcc67fb77ba27d357b5f6a765feabab72d8ed0975c05f477e476044ecb6a",
+                32675,
             ),
             (
                 "tyneside-till",
                 1,
-                "dc9a0cf79dd85582949f764655f0a23e1e3af4fde42d9826f2e12b0aa84d8683",
-                22453,
+                "8d6e7b5fd3d004f858c0a558ecf0be88ad28bd55b372b0cd27f86b905c004692",
+                23484,
             ),
             (
                 "tyneside-till",
                 2,
-                "8ad47c0c1b8ff3407a95fef972c12c6e0623eb690b273c040f329a5225fa58b2",
-                38233,
+                "00a73ad4f60ee059c67a81f6b0dabc782da03da41e1ec8091ec9e08957d05ed8",
+                39537,
             ),
         ] {
             let text = shipped(name, seed);
@@ -1872,6 +1895,8 @@ mod shipped_pins {
         ] {
             let mut preset = resolve(name).expect("shipped preset loads");
             preset.cover = None;
+            // And v6 and v7's hole construction (#74).
+            preset.construction = None;
             // tyneside-till v4's multi-stage share (#2) is the other thing
             // since v2 that changes bytes; without it the bytes are v2's.
             for p in preset
@@ -1888,6 +1913,70 @@ mod shipped_pins {
             preset
                 .suite
                 .retain(|e| e.group != "TREG" && e.group != "TRET");
+            preset.version = version;
+            let site = build(&preset, seed, default_hole_count(seed));
+            let text = emit_to_string(&lower(&site, &preset, seed, Grid::Local));
+            let got = crate::synth::hex(&Sha256::digest(text.as_bytes()));
+            assert_eq!(
+                (got.as_str(), text.len()),
+                (sha, len),
+                "{name} v{version} seed {seed}"
+            );
+        }
+    }
+
+    /// A preset without its `[construction]` block, at the version before it,
+    /// writes the bytes that version pinned (london-basin v6, tyneside-till
+    /// v5): hole construction moves nothing in a preset that has none.
+    #[test]
+    fn a_preset_without_its_construction_writes_the_previous_versions_bytes() {
+        use sha2::{Digest, Sha256};
+        for (name, version, seed, sha, len) in [
+            (
+                "london-basin",
+                6,
+                0u64,
+                "de3114e4cb7bfc1cb9d144e6f119d59790fae69d4968da0b0dbfd50e3a0991ad",
+                20115usize,
+            ),
+            (
+                "london-basin",
+                6,
+                1,
+                "6e8a903ab5ddb8988c11533cc916247d711264b9a2ed019c9567afb38660be58",
+                15378,
+            ),
+            (
+                "london-basin",
+                6,
+                2,
+                "b8fd1d966322a8d6b5c807b0a6992ee8d276d6ae8aa4c926059c5cbdbe48a26c",
+                28219,
+            ),
+            (
+                "tyneside-till",
+                5,
+                0,
+                "0df73e8de31e7b86b369b22ae3533b381705d41c68a5b2f4994cda09d248240a",
+                31497,
+            ),
+            (
+                "tyneside-till",
+                5,
+                1,
+                "dc9a0cf79dd85582949f764655f0a23e1e3af4fde42d9826f2e12b0aa84d8683",
+                22453,
+            ),
+            (
+                "tyneside-till",
+                5,
+                2,
+                "8ad47c0c1b8ff3407a95fef972c12c6e0623eb690b273c040f329a5225fa58b2",
+                38233,
+            ),
+        ] {
+            let mut preset = resolve(name).expect("shipped preset loads");
+            preset.construction = None;
             preset.version = version;
             let site = build(&preset, seed, default_hole_count(seed));
             let text = emit_to_string(&lower(&site, &preset, seed, Grid::Local));

@@ -602,3 +602,88 @@ stages with a reported envelope sit within P10 -4% and P90 +3% of it.
   material at this n.
 - The effective-stress parameters of the laminated clay (the crawl's 24 sets,
   10.4 kPa and 21.9 deg) are not used: it is not a unit of this preset.
+
+## Hole construction (v6, #74)
+
+v6 adds a `[construction]` block (ADR 0001, "Hole construction"): an inspection
+pit and a bore phase (HDPH), casing (CDIA), the casing depth at each strike
+(`WSTG_CAS`) and backfill (BKFL) for holes with no installation. The data are
+the NE crawl's HDPH, CDIA, WSTG and BKFL groups, de-duplicated by file content
+(52 unique files; holes de-duplicated by project, `LOCA_ID` and final depth,
+1,041 holes with GEOL, 34 projects). Contains data supplied by UKRI, OGL v3.
+Aggregates only; forge analysis. The method is the same as for the other
+groups: the scripts read the files as untrusted data and write statistics only.
+
+### The crawl
+
+- HDPH is in 6 accessions (165950, 169655, 174053, 174059, 186779, 186814),
+  289 holes (28%). The inspection pit (`HDPH_TYPE` IP) is 0 to 1.2 m in 188 of
+  188 rows, and the last phase's base is the final depth in every hole.
+  `LOCA_TYPE` is the phases joined by `+` in 83% of those holes. The crawl also
+  writes COM, SB and SC, which are not in the dictionary's pick list; the
+  preset writes IP and CP only.
+- CDIA is in 23 accessions, 622 holes with GEOL (60%). 475 holes have one
+  casing diameter, 132 two, 15 three or four. The first string is 200 mm in 242
+  holes, 150 mm in 187, 125 mm in 110, 250 mm in 33, 140 mm in 19 and 116 mm in
+  14. 138 holes (22.2%) step down to a smaller diameter with depth, with the
+  larger string ending at a fraction of the deepest casing depth of P10 0.14,
+  P50 0.50, P90 0.91. Final depth less the deepest casing depth: P10 0.1 m, P25
+  0.7 m, P50 3.0 m, P75 10.5 m, P90 20.0 m. Of 458 holes with CDIA and a strike
+  the deepest casing is below the strike in 376 (82%). HDIA is in 5 accessions
+  and is not modelled.
+- `WSTG_CAS` is in 16 accessions: 227 strikes in 170 holes. Strike depth less
+  casing depth at the strike has P10 0.0 m, P25 0.2 m, P50 0.5 m, P75 1.6 m,
+  P90 4.8 m. `WSTG_SEAL` is left out.
+- BKFL is in 26 accessions; 405 holes have BKFL and no PIPE or MONG. Their
+  sequences, top to bottom: bentonite alone 118, arisings alone 113, arisings
+  over bentonite 65, then grout, concrete and longer sequences. The base of the
+  arisings over bentonite is at P10 0.2 m, P50 0.5 m, P90 1.2 m (n = 65).
+  Backfill is a project-level practice: of 15 projects, 11 have it in 92% or
+  more of their CP-type holes and 4 in none.
+- The inspection pit's 1.2 m is also the owner's practice note (forge
+  judgement): a hand-dug inspection pit to clear buried services is standard UK
+  practice before boring.
+
+### What the preset takes
+
+Diameters 200, 150 and 125 mm at the first-string counts above (242, 187, 110).
+A telescoped hole steps down to a smaller size in that list by the same
+weights, so only 200 and 150 mm can step down (79.6% of holes), and the share is
+0.28 = 22.2% / 79.6%. The larger string ends at 0.1 to 0.9 of the way from the
+pit base to the final casing. The final casing passes the strike in 82% of
+holes. A hole that passes draws its gap from `final_gap_m` cut off where the
+casing would end at or above the strike; a hole that does not ends its casing
+between the pit base and the strike. `strike_gap_m` is the gap from the strike
+up to the casing at the strike, never below 0, and the casing at the strike
+cannot be deeper than the final casing. BKFL is carried by 0.7 of sites (11 of
+15 projects), and each hole draws arisings alone, bentonite alone, or arisings
+over bentonite at 113 : 118 : 65, in legend codes 905 and 903 only.
+
+### Fit (1,500 seeds, 8 holes each)
+
+| Quantity | Crawl | File |
+|---|---|---|
+| Holes that step down | 22.2% | 22.6% |
+| First string 200, 150, 125 mm | 44.9%, 34.7%, 20.4% (of 539) | 45.5%, 34.7%, 19.8% |
+| Casing passes the strike | 82% | 81.9% (871 strikes) |
+| Step-down depth fraction P10, P50, P90 | 0.14, 0.50, 0.91 | 0.18, 0.49, 0.81 |
+| Final depth less final casing P25, P50, P75, P90 (m) | 0.7, 3.0, 10.5, 20.0 | 0.4, 2.9, 9.2, 15.5 |
+| Strike less `WSTG_CAS` P50, P75, P90 (m) | 0.5, 1.6, 4.8 | 0.49, 1.3, 2.6 |
+| BKFL: arisings, bentonite, both | 38.2%, 39.9%, 22.0% | 38.5%, 39.3%, 22.2% |
+| Sites carrying BKFL | 11 of 15 projects (0.73) | 1,032 of 1,500 (0.69) |
+| Arisings-over-bentonite boundary P10, P50, P90 (m) | 0.2, 0.5, 1.2 | 0.21, 0.50, 1.19 |
+
+### Caveats
+
+- The site is 15 to 30 m of clay till with no rock, so the casing is never left
+  short of a rock head, which is where the crawl's long gaps (P90 20 m) come
+  from. The skew is set for the median and the file's upper quartile and P90
+  stay under the crawl's.
+- Only 7% of holes strike water (the lens), so the pass rate and the strike gap
+  are checked on 871 strikes in 12,000 holes.
+- The crawl's practice is strongly project-dependent (a few dozen contractors).
+  The telescope and pass rates are pooled over projects.
+- The pass rate is the owner's figure from the earlier count (376 of 458); a
+  count by each hole's first strike gives 279 of 333 (84%).
+- BKFL for installed holes (pipes, standpipes and their filter packs) is not
+  written; it is the next slice.

@@ -135,9 +135,24 @@
 # has its Made Ground (as written) thinner by the surfacing. Topsoil over Made
 # Ground (6.8% of holes in the crawl) arises here wherever a topsoil hole has
 # Made Ground below it.
+#
+# v7 (#74): hole construction. A [construction] block gives every hole HDPH
+# (an inspection pit from 0 to 1.2 m, then CP to final depth, so LOCA_TYPE is
+# IP+CP), CDIA (one casing string, or two when telescoped, never a larger
+# diameter below a smaller one), a WSTG_CAS on every strike, and, at the sites
+# that carry it, BKFL (arisings, bentonite, or arisings over bentonite, from 0
+# to final depth, legend codes 905 and 903 only). A site draws once whether its
+# holes carry BKFL (0.5: 8 of the crawl's 16 projects). The final casing passes
+# the strike in 92% of holes (the London crawls' rate), and WSTG_CAS never
+# exceeds the strike or the final casing. Every other group is what v6 wrote
+# (a_preset_without_its_construction_writes_the_previous_versions_bytes); the
+# construction groups are written after the suite. The inspection pit depth is
+# the owner's practice note (forge judgement); the rest is forge analysis of
+# the London crawls' CDIA, WSTG_CAS and BKFL (src/site/construction.rs,
+# docs/research/london-basin-sources.md).
 schema = 1
 name = "london-basin"
-version = 6
+version = 7
 summary = "Made Ground over River Terrace Deposits over weathered and unweathered London Clay, London Basin."
 
 [site]
@@ -306,3 +321,24 @@ secondaries = [
     { fraction = "silt", share = 0.14 },
 ]
 basis = "BGS NGDC AGS accessions of the Made Ground (v4) crawls listed above: of 32 first-stratum topsoil descriptions with a colour, dark brown 14, brown 9, grey 3, light brown 2, dark grey 1, black 1 (orange and red once each, left out as not a topsoil colour); of the 21 with a soil description, gravelly 16, sandy 10, clayey 9, silty 3 (forge analysis). The clause with rootlets is forge judgement (19 of 85 descriptions name rootlets). Contains data supplied by UKRI, OGL v3."
+
+[construction]
+inspection_pit_m = { min = 1.2, max = 1.2, basis = "owner's practice note (forge judgement): a hand-dug inspection pit to clear buried services is standard UK practice before boring; 1.2 m is the depth the NE England crawl records in 188 of 188 inspection pit rows. The London crawls hold HDPH in one accession only (129866: 7 holes), too few to cite." }
+
+[construction.casing]
+diameters = [
+    { mm = 250, weight = 70 },
+    { mm = 200, weight = 59 },
+    { mm = 150, weight = 28 },
+]
+diameters_basis = "BGS NGDC AGS accessions of the London crawls that hold CDIA (39638, 40721, 81709, 83329, 107613, 111549, 121953, 126770, 128985, 129866, 133106, 162465, 168212, 173376, 185575, 188520, 188540, 188542, 190850, 190946, 192298, 192311, 192312, 192346, 192401): the larger (first) casing string of the 157 CDIA holes whose first string is one of the three commonest sizes, 250 mm in 70 holes, 200 mm in 59 and 150 mm in 28 (113 mm 18 holes, 300 mm 10 and 228 mm 7 left out; 224 holes in all), forge analysis. A telescoped hole steps down to a smaller size from this list by the same weights. Contains data supplied by UKRI, OGL v3."
+telescope_share = { min = 0.62, max = 0.62, basis = "BGS NGDC AGS accessions of the London crawls that hold CDIA, listed under diameters_basis: 115 of 224 CDIA holes (51.3%) step down to a smaller diameter with depth. The model steps down only from 250 and 200 mm (82.2% of holes), so the share among those is 51.3% / 82.2% = 0.62 (forge calibration to the crawl: the file steps down in 51% of holes), forge analysis. Contains data supplied by UKRI, OGL v3." }
+telescope_depth_fraction = { min = 0.1, max = 0.85, skew = 2.2, basis = "BGS NGDC AGS accessions of the London crawls that hold CDIA, listed under diameters_basis: the larger string ends at a fraction of the deepest casing depth with P10 0.09, P25 0.16, P50 0.27, P75 0.48, P90 0.72 (n = 115 telescoped holes), range and skew fitted to these and measured here from the inspection pit base (forge analysis). Contains data supplied by UKRI, OGL v3." }
+final_gap_m = { min = 0.0, max = 40.0, skew = 4.3, basis = "BGS NGDC AGS accessions of the London crawls that hold CDIA, listed under diameters_basis: final depth less the deepest casing depth over 222 CDIA holes, P25 0.0 m, P50 1.5 m, P75 7.7 m, P90 21.0 m. The draw is cut off where the casing would end above the inspection pit base (or at the strike), which in this site's 20-40 m holes leaves the gap as (room x u^skew); the skew is calibrated so the file's gap over many seeds (1,500 seeds, 12,000 holes) matches the crawl's median: file P25 0.1 m, P50 1.5 m, P75 8.8 m, P90 19.2 m (forge calibration; docs/research/london-basin-sources.md), forge analysis. Contains data supplied by UKRI, OGL v3." }
+passes_strike_share = { min = 0.92, max = 0.92, basis = "BGS NGDC AGS accessions of the London crawls that hold both CDIA and WSTG (39638, 40721, 81709, 83329, 107613, 121953, 126770, 128985, 129866, 162465, 168212, 173376, 188520, 188540, 188542, 190850, 190946, 192312, 192346, 192401): the deepest casing base is below the strike depth in 210 of 229 holes with CDIA and a strike (92%), forge analysis. Contains data supplied by UKRI, OGL v3." }
+strike_gap_m = { min = 0.0, max = 5.6, skew = 4.0, basis = "BGS NGDC AGS accessions of the London crawls that hold WSTG_CAS (39638, 83329, 107613, 121953, 126770, 128985, 129866, 161519, 161905, 162207, 162465, 162665, 164271, 167132, 167290, 168212, 168650, 168964, 169573, 173376, 188540, 190850, 192346, 192401): strike depth less the casing depth at the strike, P25 0.0 m, P50 0.5 m, P75 2.5 m, P90 5.9 m (n = 226 strikes in 130 holes). The range and skew are calibrated so the file's gaps over many seeds (1,500 seeds, 6,230 strikes) match the crawl's median and upper quartile (file P50 0.50 m, P75 2.2 m, P90 3.9 m); the upper tail comes from the 8% of holes whose final casing stops above the strike, where the casing at the strike is the final casing, and stays under the crawl's P90 (forge calibration; docs/research/london-basin-sources.md), forge analysis. Contains data supplied by UKRI, OGL v3." }
+
+[construction.backfill]
+site_share = { min = 0.5, max = 0.5, basis = "BGS NGDC AGS accessions of the London crawls that hold BKFL (39638, 40721, 83329, 107613, 121953, 126770, 128985, 129866, 133106, 162207, 162409, 162465, 162665, 169573, 186926, 188520, 188542, 190850, 190946, 192298, 192346, 192401 and others): backfill is a project-level practice, with 8 of 16 projects at all of their CP-type holes and 8 at none (forge analysis). Contains data supplied by UKRI, OGL v3." }
+sequence = { weights = [22, 30, 11], basis = "BGS NGDC AGS accessions of the London crawls that hold BKFL, listed under site_share: 245 holes with backfill and no installation (no PIPE or MONG), of which arisings alone 22, bentonite alone 30 and arisings over bentonite 11 (the rest, mostly concrete, grout and sand sequences that look like installations without a PIPE record, left out); a small sample, forge analysis. Contains data supplied by UKRI, OGL v3." }
+boundary_m = { min = 0.2, max = 1.4, basis = "BGS NGDC AGS accessions of the London crawls that hold BKFL, listed under site_share: depth of the base of the arisings over bentonite, P10 0.2 m, P50 1.0 m, P90 1.2 m (n = 11 holes, so a linear range over the crawl's spread; forge analysis). Contains data supplied by UKRI, OGL v3." }
