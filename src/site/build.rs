@@ -1762,6 +1762,9 @@ mod shipped_pins {
     /// the version in the marker moves every file, and a hole with a cover
     /// gains a GEOL row (`a_preset_without_its_cover_writes_the_previous_versions_bytes`
     /// holds the rest of the file to the v5 and v2 pins).
+    /// Re-taken for tyneside-till v5 (#68), which adds TREG and TRET to the
+    /// suite: the file grows by those two groups and the version in the marker
+    /// moves. london-basin has none and is not re-taken.
     #[test]
     fn shipped_preset_output_bytes_are_pinned() {
         use sha2::{Digest, Sha256};
@@ -1787,20 +1790,20 @@ mod shipped_pins {
             (
                 "tyneside-till",
                 0,
-                "dde724c886e8bc2f1d9140959271552a704c9e7595543ab31e6f16110fa55c24",
-                20789,
+                "0df73e8de31e7b86b369b22ae3533b381705d41c68a5b2f4994cda09d248240a",
+                31497,
             ),
             (
                 "tyneside-till",
                 1,
-                "f3fc13b48c93b6e9f28e7b06931b48a4b23e80ccf3b5ee3f2651140dcad8295e",
-                14594,
+                "dc9a0cf79dd85582949f764655f0a23e1e3af4fde42d9826f2e12b0aa84d8683",
+                22453,
             ),
             (
                 "tyneside-till",
                 2,
-                "11cb6416ee72d443a2bc8caee70bd993f2bbda12d5f03f962b0e1a0898a83940",
-                25910,
+                "8ad47c0c1b8ff3407a95fef972c12c6e0623eb690b273c040f329a5225fa58b2",
+                38233,
             ),
         ] {
             let text = shipped(name, seed);
@@ -1878,7 +1881,13 @@ mod shipped_pins {
                 .chain(preset.lenses.iter_mut().map(|l| &mut l.properties))
             {
                 p.triaxial = None;
+                p.effective_strength = None;
             }
+            // And v5's effective-stress triaxial (#68): no TREG or TRET entry,
+            // so the groups are not written and no draw order moves.
+            preset
+                .suite
+                .retain(|e| e.group != "TREG" && e.group != "TRET");
             preset.version = version;
             let site = build(&preset, seed, default_hole_count(seed));
             let text = emit_to_string(&lower(&site, &preset, seed, Grid::Local));
@@ -1895,12 +1904,19 @@ mod shipped_pins {
     /// suite adds 0DP (`LLPL_LL`, `LLPL_PI`, `TRIT_CU`, `TRIT_DEVF`, `TRIT_CELL`,
     /// `ISPT_NVAL`) and XN (`LLPL_PL`). v4's Made Ground adds none: its rows are
     /// GEOL, SAMP and ISPT, whose TYPEs v3 already declares. tyneside-till
-    /// (#13) writes the same groups, so it declares the same TYPEs.
+    /// (#13) writes the same groups, so it declares the same TYPEs; its v5
+    /// (#68) adds `TREG_PHI` (1DP).
     #[test]
     fn shipped_presets_reach_a_pinned_set_of_ags_types() {
         for (name, expected) in [
-            ("london-basin", ["0DP", "2DP", "DT", "ID", "PA", "X", "XN"]),
-            ("tyneside-till", ["0DP", "2DP", "DT", "ID", "PA", "X", "XN"]),
+            (
+                "london-basin",
+                &["0DP", "2DP", "DT", "ID", "PA", "X", "XN"][..],
+            ),
+            (
+                "tyneside-till",
+                &["0DP", "1DP", "2DP", "DT", "ID", "PA", "X", "XN"][..],
+            ),
         ] {
             let mut types = std::collections::BTreeSet::new();
             for seed in 0..10 {
@@ -1909,7 +1925,8 @@ mod shipped_pins {
                     types.extend(line.split(',').map(|f| f.trim_matches('"').to_string()));
                 }
             }
-            let expected: std::collections::BTreeSet<String> = expected.map(String::from).into();
+            let expected: std::collections::BTreeSet<String> =
+                expected.iter().map(|t| (*t).to_string()).collect();
             assert_eq!(types, expected, "{name}");
         }
     }

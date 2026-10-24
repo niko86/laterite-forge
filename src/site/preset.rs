@@ -224,13 +224,17 @@ pub struct SuiteEntry {
 /// The groups a suite may list. TRIT is a child of TRIG; ISPT is a LOCA child,
 /// WSTG a LOCA child written wherever a hole meets the water table in coarse
 /// ground, WSTD a child of WSTG; the rest hang off SAMP.
+///
+/// TREG and TRET come last, not beside TRIG and TRIT: a group's position here
+/// keys its scheduling draws (`suite::schedule`), so putting them elsewhere
+/// would move every ISPT and water row of the presets that came before them.
 pub const SUITE_GROUPS: &[&str] = &[
-    "LNMC", "LLPL", "LDEN", "TRIG", "TRIT", "ISPT", "WSTG", "WSTD",
+    "LNMC", "LLPL", "LDEN", "TRIG", "TRIT", "ISPT", "WSTG", "WSTD", "TREG", "TRET",
 ];
 
 /// The lab groups, which a made-ground unit may not be tested for (ISPT, an
 /// in-situ test, is allowed).
-const LAB_GROUPS: &[&str] = &["LNMC", "LLPL", "LDEN", "TRIG"];
+const LAB_GROUPS: &[&str] = &["LNMC", "LLPL", "LDEN", "TRIG", "TREG"];
 
 /// For a group scheduled by something other than a rate over samples, the
 /// parent group its entry needs, if it has one, and why the entry has no
@@ -239,6 +243,7 @@ const LAB_GROUPS: &[&str] = &["LNMC", "LLPL", "LDEN", "TRIG"];
 fn unscheduled(group: &str) -> Option<(Option<&'static str>, &'static str)> {
     match group {
         "TRIT" => Some((Some("TRIG"), "TRIT is scheduled with TRIG")),
+        "TRET" => Some((Some("TREG"), "TRET is scheduled with TREG")),
         "WSTG" => Some((None, "WSTG follows the water table")),
         "WSTD" => Some((Some("WSTG"), "WSTD is scheduled with WSTG")),
         _ => None,
@@ -312,7 +317,32 @@ pub struct Properties {
     pub spt_refusal_share: Option<RefusalShare>,
     /// `triaxial`: multi-stage unconsolidated-undrained tests (`UUM`).
     pub triaxial: Option<Triaxial>,
+    /// `effective_strength`: what the unit's effective-stress triaxial tests
+    /// (TREG, TRET) are built from.
+    pub effective_strength: Option<EffectiveStrength>,
 }
+
+/// Effective-stress strength of a unit (ADR 0001, "Effective-stress
+/// triaxial"). Each range is drawn once per site; each TREG set then scatters
+/// around the site's values.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EffectiveStrength {
+    /// Effective cohesion intercept c', kPa, in `[0, 25]`.
+    pub c_eff_kpa: Range,
+    /// Effective friction angle phi', degrees, in `[0, 50]`.
+    pub phi_eff_deg: Range,
+    /// Skempton's pore pressure parameter at failure, `A_f` = (pore pressure
+    /// rise) / (deviator stress), for the unit's undrained (CU, CUM) tests, in
+    /// `[-0.5, 1.5]`.
+    pub skempton_af: Range,
+}
+
+/// The loader's bounds on [`EffectiveStrength`]: c' (kPa), phi' (degrees) and
+/// `A_f`. c' is capped at the 25 kPa top of the range CIRIA C504 (Trenter 1999,
+/// p.85) gives for clay tills; the others are the physically sensible ranges.
+pub const C_EFF_BOUNDS_KPA: (f64, f64) = (0.0, 25.0);
+pub const PHI_EFF_BOUNDS_DEG: (f64, f64) = (0.0, 50.0);
+pub const SKEMPTON_AF_BOUNDS: (f64, f64) = (-0.5, 1.5);
 
 /// Multi-stage UU triaxial tests in a unit (ADR 0001, "Multi-stage UU"). Each
 /// TRIG test in the unit makes its own keyed draw on whether it is `UUM`: three
@@ -814,6 +844,7 @@ fn read_properties(
     };
     let strength = read_strength(&mut p, errs);
     let triaxial = read_triaxial(&mut p, errs);
+    let effective_strength = read_effective_strength(&mut p, errs);
     let (spt_relation, refusal_share) =
         read_spt(&mut p, coarse || very_coarse, errs).unwrap_or((None, None));
     // A strength table with problems has reported them already.
@@ -849,7 +880,58 @@ fn read_properties(
         spt: spt_relation,
         spt_refusal_share: refusal_share,
         triaxial: triaxial.flatten(),
+        effective_strength: effective_strength.flatten(),
     })
+}
+
+/// The optional `effective_strength` table: `c_eff_kpa`, `phi_eff_deg` and
+/// `skempton_af`, each `{ min, max, basis }` within its bounds, all three
+/// required. Outer `None` is a reported problem; inner `None` is "not
+/// written".
+#[allow(clippy::option_option)]
+fn read_effective_strength(
+    p: &mut Node,
+    errs: &mut Vec<String>,
+) -> Option<Option<EffectiveStrength>> {
+    if !p.table.contains_key("effective_strength") {
+        p.get("effective_strength");
+        return Some(None);
+    }
+    let mut t = req_table(p, "effective_strength", errs)?;
+    let bounded =
+        |t: &mut Node, key: &'static str, (lo, hi): (f64, f64), errs: &mut Vec<String>| {
+            let r = read_range(t, key, errs)?;
+            let at = t.at(key);
+            let mut fine = true;
+            for (which, v) in [("min", r.min), ("max", r.max)] {
+                if !(lo..=hi).contains(&v) {
+                    errs.push(format!("{at}: {which} {v} is outside {lo} to {hi}"));
+                    fine = false;
+                }
+            }
+            fine.then_some(r)
+        };
+    let c = bounded(&mut t, "c_eff_kpa", C_EFF_BOUNDS_KPA, errs);
+    let phi = bounded(&mut t, "phi_eff_deg", PHI_EFF_BOUNDS_DEG, errs);
+    let af = bounded(&mut t, "skempton_af", SKEMPTON_AF_BOUNDS, errs);
+    let at = t.at("skempton_af");
+    t.finish(errs);
+    let (c, phi, af) = (c?, phi?, af?);
+    // The failure deviator is 2 (c' cos phi' + s3' sin phi') / (1 - sin phi'
+    // (1 - 2 A_f)), so the lowest A_f with the highest phi' must keep the
+    // denominator positive, or no deviator stress reaches the envelope.
+    if phi.max.to_radians().sin() * (1.0 - 2.0 * af.min) >= 1.0 {
+        errs.push(format!(
+            "{at}: min {} with phi_eff_deg max {} leaves no deviator stress that reaches the envelope (needs sin(phi') x (1 - 2 A_f) < 1)",
+            af.min, phi.max
+        ));
+        return None;
+    }
+    Some(Some(EffectiveStrength {
+        c_eff_kpa: c,
+        phi_eff_deg: phi,
+        skempton_af: af,
+    }))
 }
 
 /// The optional `triaxial` table: `multi_stage_share` and, with it,
@@ -1458,7 +1540,33 @@ fn check_suite_values(preset: &Preset, errs: &mut Vec<String>) {
             ));
         }
     }
+    let treg = preset
+        .suite
+        .iter()
+        .find(|e| e.group == "TREG")
+        .map(|e| &e.units);
+    for (id, p) in preset
+        .units
+        .iter()
+        .map(|u| (&u.id, &u.properties))
+        .chain(preset.lenses.iter().map(|l| (&l.id, &l.properties)))
+    {
+        if p.effective_strength.is_some() && !treg.is_some_and(|units| units.contains(id)) {
+            errs.push(format!(
+                "{id}.properties.effective_strength: effective-stress triaxial results are TREG tests, but no TREG entry in the suite tests unit \"{id}\""
+            ));
+        }
+    }
     for (i, entry) in preset.suite.iter().enumerate() {
+        if entry.group == "TREG" {
+            for (j, u) in entry.units.iter().enumerate() {
+                if properties(u).is_some_and(|p| p.effective_strength.is_none()) {
+                    errs.push(format!(
+                        "suite[{i}].units[{j}]: TREG needs effective_strength (c', phi' and A_f) to build its sets and stages, but unit \"{u}\" has none"
+                    ));
+                }
+            }
+        }
         if LAB_GROUPS.contains(&entry.group.as_str()) {
             for (j, u) in entry.units.iter().enumerate() {
                 if preset.is_made_ground(u) {
@@ -2877,9 +2985,44 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
     #[test]
     fn tyneside_till_loads_with_its_tills_and_lens() {
         let p = resolve("tyneside-till").unwrap();
-        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 4));
+        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 5));
         let units: Vec<&str> = p.units.iter().map(|u| u.id.as_str()).collect();
         assert_eq!(units, ["WT", "RT", "GT"]);
+        // v5: each till carries effective strength, and the suite tests it.
+        for u in &p.units {
+            let e = u.properties.effective_strength.as_ref().unwrap();
+            assert!(
+                e.c_eff_kpa.max <= 25.0 && e.phi_eff_deg.max <= 50.0,
+                "{}",
+                u.id
+            );
+            for r in [&e.c_eff_kpa, &e.phi_eff_deg, &e.skempton_af] {
+                assert!(
+                    r.basis.contains("forge calibration"),
+                    "{}: {}",
+                    u.id,
+                    r.basis
+                );
+                assert!(
+                    r.basis.contains("Contains data supplied by UKRI"),
+                    "{}",
+                    u.id
+                );
+            }
+        }
+        assert!(p.lenses[0].properties.effective_strength.is_none());
+        let treg = p.suite.iter().find(|e| e.group == "TREG").unwrap();
+        assert_eq!(treg.units, ["WT", "RT", "GT"]);
+        assert!(p.suite.iter().any(|e| e.group == "TRET"));
+        // london-basin is not given any (no source for its c' and phi').
+        let london = resolve("london-basin").unwrap();
+        assert!(
+            london
+                .units
+                .iter()
+                .all(|u| u.properties.effective_strength.is_none())
+        );
+        assert!(london.suite.iter().all(|e| e.group != "TREG"));
         assert!(p.units.last().unwrap().thickness_m.is_none());
         assert_eq!(p.lenses.len(), 1);
         let lens = &p.lenses[0];
@@ -3620,6 +3763,188 @@ rate = { min = 1, max = 1, basis = "test fixture" }
         // And with no suite at all there is no TRIG to be multi-stage in.
         let e = suite_errors(&lc_with(TRIAXIAL));
         assert!(e.contains("LC.properties.triaxial"), "{e}");
+    }
+
+    // Effective-stress triaxial (#68): `effective_strength` on a unit TREG
+    // tests.
+
+    const EFFECTIVE: &str = "effective_strength = { c_eff_kpa = { min = 3, max = 7, basis = \"test fixture\" }, phi_eff_deg = { min = 24, max = 30, basis = \"test fixture\" }, skempton_af = { min = 0.2, max = 0.5, basis = \"test fixture\" } }\n";
+
+    const TREG_SUITE: &str = r#"
+[[suite]]
+group = "TREG"
+headings = ["TREG_COH", "TREG_PHI"]
+units = ["LC"]
+rate = { min = 0.3, max = 0.5, basis = "test fixture" }
+
+[[suite]]
+group = "TRET"
+headings = ["TRET_DEVF"]
+"#;
+
+    /// The fixture with `extra` on LC (which TREG tests) and the TREG suite.
+    fn effective_text(extra: &str) -> String {
+        format!("{}{TREG_SUITE}", lc_with(extra))
+    }
+
+    #[test]
+    fn a_unit_may_carry_effective_strength_and_a_treg_entry_tests_it() {
+        let p = Preset::from_toml(&effective_text(EFFECTIVE)).expect("valid");
+        let e = p.units[1].properties.effective_strength.as_ref().unwrap();
+        assert_eq!((e.c_eff_kpa.min, e.c_eff_kpa.max), (3.0, 7.0));
+        assert_eq!((e.phi_eff_deg.min, e.phi_eff_deg.max), (24.0, 30.0));
+        assert_eq!((e.skempton_af.min, e.skempton_af.max), (0.2, 0.5));
+        assert_eq!(e.skempton_af.basis, "test fixture");
+        assert!(p.units[0].properties.effective_strength.is_none());
+        let groups: Vec<&str> = p.suite.iter().map(|e| e.group.as_str()).collect();
+        assert_eq!(groups, ["TREG", "TRET"]);
+        assert_eq!(p.suite[0].units, ["LC"]);
+        assert!(p.suite[1].units.is_empty() && p.suite[1].rate.is_none());
+    }
+
+    #[test]
+    fn effective_strength_outside_its_bounds_is_refused() {
+        let at = "units[1] (LC).properties.effective_strength";
+        for (from, to, want) in [
+            (
+                "min = 24, max = 30",
+                "min = 24, max = 55",
+                "phi_eff_deg: max 55 is outside 0 to 50",
+            ),
+            (
+                "min = 24, max = 30",
+                "min = -2, max = 30",
+                "phi_eff_deg: min -2 is outside 0 to 50",
+            ),
+            (
+                "min = 3, max = 7",
+                "min = -1, max = 7",
+                "c_eff_kpa: min -1 is outside 0 to 25",
+            ),
+            (
+                "min = 3, max = 7",
+                "min = 3, max = 30",
+                "c_eff_kpa: max 30 is outside 0 to 25",
+            ),
+            (
+                "min = 0.2, max = 0.5",
+                "min = 0.2, max = 1.8",
+                "skempton_af: max 1.8 is outside -0.5 to 1.5",
+            ),
+            (
+                "min = 0.2, max = 0.5",
+                "min = -0.9, max = 0.5",
+                "skempton_af: min -0.9 is outside -0.5 to 1.5",
+            ),
+        ] {
+            let text = EFFECTIVE.replacen(from, to, 1);
+            assert_eq!(errors_of(&effective_text(&text)), [format!("{at}.{want}")]);
+        }
+    }
+
+    #[test]
+    fn effective_strength_needs_all_three_ranges_a_basis_and_no_unknown_key() {
+        let at = "units[1] (LC).properties.effective_strength";
+        let no_af = EFFECTIVE.replace(
+            ", skempton_af = { min = 0.2, max = 0.5, basis = \"test fixture\" }",
+            "",
+        );
+        assert_eq!(
+            errors_of(&effective_text(&no_af)),
+            [format!("{at}.skempton_af: missing")]
+        );
+        let no_basis = EFFECTIVE.replacen(", basis = \"test fixture\"", "", 1);
+        assert_eq!(
+            errors_of(&effective_text(&no_basis)),
+            [format!("{at}.c_eff_kpa: no basis")]
+        );
+        let unknown = EFFECTIVE.replace("skempton_af", "skempton_a");
+        let e = errors_of(&effective_text(&unknown));
+        assert!(e.contains(&format!("{at}.skempton_af: missing")), "{e:?}");
+        assert!(
+            e.contains(&format!("{at}: unknown key \"skempton_a\"")),
+            "{e:?}"
+        );
+    }
+
+    /// Failure needs sin(phi') x (1 - 2 `A_f`) < 1 at the extremes the ranges
+    /// allow, or the deviator at failure has no solution.
+    #[test]
+    fn a_range_pair_with_no_failure_deviator_is_refused() {
+        // sin(50) = 0.766, and A_f = -0.5 gives 0.766 x 2 = 1.53.
+        let text = EFFECTIVE
+            .replacen("min = 24, max = 30", "min = 24, max = 50", 1)
+            .replacen("min = 0.2, max = 0.5", "min = -0.5, max = 0.5", 1);
+        let e = errors_of(&effective_text(&text));
+        assert_eq!(e.len(), 1, "{e:?}");
+        assert!(
+            e[0].starts_with("units[1] (LC).properties.effective_strength.skempton_af: min -0.5 with phi_eff_deg max 50 leaves no deviator stress"),
+            "{e:?}"
+        );
+    }
+
+    #[test]
+    fn treg_needs_effective_strength_on_every_unit_it_tests_and_tret_needs_treg() {
+        // TREG over LC with nothing on LC.
+        let e = errors_of(&effective_text(""));
+        assert_eq!(
+            e,
+            [
+                "suite[0].units[0]: TREG needs effective_strength (c', phi' and A_f) to build its sets and stages, but unit \"LC\" has none"
+            ]
+        );
+        // effective_strength on a unit no TREG entry tests, and no suite at all.
+        let e = errors_of(&lc_with(EFFECTIVE));
+        assert_eq!(
+            e,
+            [
+                "LC.properties.effective_strength: effective-stress triaxial results are TREG tests, but no TREG entry in the suite tests unit \"LC\""
+            ]
+        );
+        // TRET without its TREG, and with a rate of its own.
+        let no_treg = format!(
+            "{}{}",
+            lc_with(EFFECTIVE),
+            TREG_SUITE.replace("group = \"TREG\"", "group = \"TRIG\"")
+        );
+        let e = errors_of(&no_treg).join("\n");
+        assert!(e.contains("suite[1]: TRET needs a TREG entry"), "{e}");
+        let rate = TREG_SUITE.replace(
+            "headings = [\"TRET_DEVF\"]",
+            "headings = [\"TRET_DEVF\"]\nrate = { min = 0.1, max = 0.2, basis = \"x\" }",
+        );
+        let e = errors_of(&format!("{}{rate}", lc_with(EFFECTIVE))).join("\n");
+        assert!(
+            e.contains("suite[1].rate: TRET is scheduled with TREG and has no rate of its own"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn a_made_ground_unit_may_not_be_tested_for_treg() {
+        let text = format!(
+            "{}{}",
+            with_made_ground_effective(),
+            TREG_SUITE.replace("units = [\"LC\"]", "units = [\"MG\"]")
+        );
+        let e = errors_of(&text).join("\n");
+        assert!(
+            e.contains("TREG may not test made-ground unit \"MG\" (no lab tests in Made Ground)"),
+            "{e}"
+        );
+    }
+
+    /// The fixture with a made-ground unit MG (given effective strength so only
+    /// the made-ground rule is in play) above LC.
+    fn with_made_ground_effective() -> String {
+        let mg = format!(
+            "[[units]]\nid = \"MG\"\nname = \"Made Ground\"\nthickness_m = {{ min = 1.0, max = 2.0, basis = \"test fixture\" }}\ndescription = {{ principals = [\"SAND\", \"GRAVEL\"], secondaries = [\"clay\"], colours = [\"brown\"] }}\nmade_ground = true\nsampling = {{ types = [\"B\"], interval_m = {{ min = 1.0, max = 1.5, basis = \"test fixture\" }} }}\n\n[units.properties]\nspt_n = {{ min = 4, max = 30, basis = \"test fixture\" }}\nmoisture_content_percent = {{ min = 8, max = 15, basis = \"test fixture\" }}\nparticle_density_ratio = {{ min = 2.6, max = 2.7, basis = \"test fixture\" }}\n{EFFECTIVE}\n"
+        );
+        lc_with("").replacen(
+            "[[units]]\nid = \"RTD\"",
+            &format!("{mg}[[units]]\nid = \"RTD\""),
+            1,
+        )
     }
 
     #[test]

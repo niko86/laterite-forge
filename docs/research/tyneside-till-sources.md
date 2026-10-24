@@ -508,5 +508,97 @@ large rises.
 - cu is scattered under the strength scatter before the stage rise, so the
   file's stage ratios are those of the written stage-1 value, not of an
   underlying strength.
-- Effective-stress TREG/TRET (83 of 91 crawl sets are 3-stage) is not
-  written; that is a separate slice.
+- Effective-stress TREG/TRET is not written by v4; v5 writes it (next
+  section).
+
+## Effective-stress triaxial (v5, #68)
+
+v5 gives each till an `effective_strength` table (c', phi' and Skempton's A_f)
+and the suite TREG and TRET entries (ADR 0001, "Effective-stress triaxial").
+The data are the NE crawl's TREG and TRET groups, de-duplicated by file content
+(an earlier count of 91 sets in 5 files counted one file twice through a
+symlink). Contains data supplied by UKRI, OGL v3. Aggregates only.
+
+### The crawl
+
+57 TREG sets and 159 TRET rows in 4 files (BGS NGDC AGS accessions 165950,
+169655, 174053 and 174059). Types: CUM 22, CDM 15, CU 10, CD 10. 51 sets have 3
+TRET rows and 6 have 1 (all of 174053, and 2 CD of 174059). The 14 CU and CD
+sets of 3 rows, all in 174059, are three specimens, and the files write them
+under one TREG row, one `SPEC_REF` and `SPEC_DPTH` and `TRET_TESN` 1 to 3, as
+for the multi-stage types. Units were classed from the GEOL description at the
+specimen depth (colour words, as for the other lab data): 25 of the sets are in
+the three tills (weathered 3, red and brown 15, grey 7), 24 in laminated clay.
+
+Stage 1's effective confining stress (cell pressure less initial pore
+pressure) over the specimen depth has median 10.0 kPa/m (P10 9.1, P90 20.0, the
+top being 174053, which uses 20). Stage ratios are 2.0 at the median, 88% within
+1.8 to 2.2. Back pressure is 300 kPa in 165950 and 169655 and about 500 in
+174059. `TREG_FCR` is "Maximum effective principal stress ratio" in 169655
+(16 CUM), "Maximum Deviator Stress" in 174053 and part of 174059, and blank in
+20 sets.
+
+### c', phi' and A_f by till unit
+
+| Unit | Accessions | Sets with c', phi' | c' mean (SD), kPa | phi' mean (SD), deg | A_f stages (sets) | A_f mean (SD) |
+|---|---|---|---|---|---|---|
+| Weathered till | 165950, 174059 | 3 | 5.3 (3.1) | 31.1 (2.4) | 6 (2, CUM) | 0.19 (0.07) |
+| Red and brown till | 169655, 174053, 174059 | 13 | 9.2 (7.1) | 26.0 (7.1) | 17 (7) | 0.46 (0.28) |
+| Grey till | 174053, 174059 | 7 | 3.3 (2.7) | 30.6 (3.8) | 8 (4) | 0.03 (0.15) |
+
+A_f is (PWPF - PWPI) / DEVF at the failure instant of each CU and CUM stage.
+Over all 88 stages (every unit, including laminated clay at 0.65) it has mean
+0.45; over the 31 till stages 0.30 (SD 0.29). The sets are few, so the table's
+spreads are the crawl's, not a population's.
+
+Cross-checks. Hashemi 2002 PhD (Univ. Newcastle), Tables 5.1 to 5.3, pp.91-92,
+effective-strength means by unit and area from site-investigation tests:
+Unit 1 (upper weathered till) c' 6.2 kPa and phi' 23.3 deg in Northumberland
+(n = 27), 11.9 and 27.0 in Tyne and Wear with Durham (n = 9); Unit 2 (upper
+till) 6.8 and 25.3 (n = 48), 13.7 and 23.1 (n = 13); Unit 3 (lower grey till)
+8.6 and 27.7 (n = 39), 14.0 and 26.2 (n = 41). The tables were read from a text
+extract and checked against the text's means, not against the page images. The
+crawl's weathered till at 31 deg sits above all of them. CIRIA C504 (Trenter
+1999), p.85: c' usually varies between zero and 25 kN/m2 for clay tills (after
+Sladen and Wrigley 1983, not seen), and is often assumed zero; the loader's cap
+on c' is that 25. No published A_f was found for these tills.
+
+### What the preset takes
+
+c' and phi' take each unit's crawl mean (above), with a range 4 kPa or 4
+degrees wide for site-to-site variation (forge judgement; the 3 to 13 sets per
+unit cannot give one) centred so that the file's pooled values land on the mean.
+A_f takes each unit's mean with a range 0.2 wide. Each set scatters about the
+site's c' and phi' with SD 2.0 kPa and 1.5 deg, and each stage about its A_f
+with SD 0.10 (forge judgement, below the crawl's within-unit spreads, which also
+hold site and stress-level differences). The failure deviator is on the
+envelope, with a 3% lognormal scatter for drained stages; the crawl's 142
+stages with a reported envelope sit within P10 -4% and P90 +3% of it.
+
+### Fit (300 seeds)
+
+| Quantity | Crawl | File |
+|---|---|---|
+| TREG sets per TRIG test | 57 / 59 = 0.97 | 7,248 / 7,429 = 0.98 |
+| CUM, CDM, CU, CD share | 39%, 26%, 18%, 18% | 38.3%, 25.8%, 18.3%, 17.6% |
+| Weathered till c', phi', A_f | 5.3, 31.1, 0.19 | 5.30, 31.09, 0.18 |
+| Red and brown till c', phi', A_f | 9.2, 26.0, 0.46 | 9.20, 25.91, 0.47 |
+| Grey till c', phi', A_f | 3.3, 30.6, 0.03 | 3.33, 30.56, 0.03 |
+
+### Caveats
+
+- The crawl's three-specimen CU and CD sets have different back pressures,
+  dimensions and sometimes missing pore pressures; the model gives all three
+  the same back pressure and writes every heading.
+- Laboratories step the stages otherwise at shallow depth (increments instead of
+  ratios) and cap the stress at about 1.2 to 1.5 MPa at depth; the model is
+  always 1:2:4 and has no cap, so a specimen at 19 m reaches 756 kPa in
+  stage 3 and 1.6 MPa deviator stress.
+- c' is floored at 0, and a set whose line would cut below 0 is refitted through
+  the origin, as laboratories report c' = 0; the crawl has c' = 0 in 9 of its
+  55 sets with values.
+- A_f is a pooled mean over few stages. The model's drained and undrained types
+  use the same c' and phi' for a unit; the crawl's type-by-type means are not
+  material at this n.
+- The effective-stress parameters of the laminated clay (the crawl's 24 sets,
+  10.4 kPa and 21.9 deg) are not used: it is not a unit of this preset.

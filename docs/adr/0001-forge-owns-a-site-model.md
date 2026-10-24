@@ -326,6 +326,61 @@ consumer can replace.
   matrix-bound gravelly till is the basis, alongside the NE crawl's count);
   london-basin has no source and none.
 
+## Effective-stress triaxial
+
+(Added 2026-10-24, #68; the decisions are the owner's Q1-Q5 on that issue.)
+
+- **Scope.** TREG sets and their TRET stages, for a preset that gives a unit
+  `effective_strength`. tyneside-till v5 adopts it; london-basin waits for a
+  verified peak c' and phi' source, and the London crawls have no TREG data.
+- **Properties.** A unit or lens may carry `effective_strength = {
+  c_eff_kpa, phi_eff_deg, skempton_af }`, each `{ min, max, basis }`, all three
+  required, drawn once per site from a stream keyed by the unit (tags
+  `eff-c`, `eff-phi`, `eff-af`). The loader refuses c' outside 0 to 25 kPa (the
+  top of CIRIA C504's range for clay tills, Trenter 1999, p.85), phi' outside 0
+  to 50 degrees, A_f outside -0.5 to 1.5, a range pair whose lowest A_f and
+  highest phi' leave no deviator stress that reaches the envelope, a missing
+  basis, an unknown key, a TREG entry over a unit without `effective_strength`,
+  and an `effective_strength` on a unit no TREG entry tests. TREG is a lab
+  group, so Made Ground may not be tested for it. A TRET entry needs a TREG
+  entry and has no `units` or `rate` of its own.
+- **Sets.** Each sample the TREG entry schedules (as TRIG schedules, its own
+  rate and keyed draws; TREG and TRET come last in the suite order so no earlier
+  group's draws move) makes a set. Its type is drawn by the crawl's counts, CUM
+  22, CDM 15, CU 10, CD 10 of 57. Its c' and phi' scatter about the site's
+  values (SD 2.0 kPa and 1.5 degrees, forge judgement). `CUM` and `CDM` are
+  one specimen sheared in three stages, with density and moisture content
+  repeated. `CU` and `CD` are three specimens, each with its own; the crawl's
+  files write them under one TREG row, one `SPEC_REF` and `SPEC_DPTH`, and
+  `TRET_TESN` 1 to 3, and so does the model.
+- **Stages.** Stage 1's effective confining stress is 10 kPa per metre of
+  specimen depth, to the kPa; stages 2 and 3 are exactly twice and four times
+  that. The back pressure is 300 kPa: `TRET_PWPI` is 300, `TRET_CELL` is the
+  stress plus 300 and `TRET_CONP` is the stress.
+- **Failure.** The deviator stress q at failure puts the effective failure
+  point on the envelope t = c' cos(phi') + s' sin(phi'), with s' = sigma3' +
+  q (1/2 - A) when the pore pressure rises by A q, which gives q = 2 (c'
+  cos(phi') + sigma3' sin(phi')) / (1 - sin(phi') (1 - 2 A)). A drained stage
+  (CD, CDM) has A = 0, no pore pressure change (`TRET_PWPF` = `TRET_PWPI`)
+  and q scattered by a lognormal factor of COV 0.03 (the crawl's failure points
+  sit within P10 -4% and P90 +3% of their sets' envelopes). An undrained stage
+  (CU, CUM) draws A_f about the site's value (SD 0.10, forge judgement), fails
+  on the envelope exactly, and writes `TRET_PWPF` = `TRET_PWPI` + A_f x
+  `TRET_DEVF`.
+- **TREG headings.** `TREG_COH` and `TREG_PHI` are the least-squares line
+  through the set's three written failure points in (s', t), as a laboratory
+  reports them (the crawl's reported values match such a line to about half a
+  degree), so the TREG row and its TRET rows agree; a line with a negative
+  intercept is refitted through the origin (c' = 0), and c' is held within 0 to
+  25. `TREG_COND` is `UNDISTURBED`. `TREG_FCR` is "Maximum effective principal
+  stress ratio" for CUM, as the crawl's lab 169655 writes it, and "Maximum
+  Deviator Stress" for the others.
+- **v5.** tyneside-till takes ranges calibrated to the crawl's per-unit means
+  and checked against Hashemi 2002 and CIRIA C504 (see
+  `docs/research/tyneside-till-sources.md`), and a TREG rate of 0.48 to 0.68,
+  0.97 of its TRIG rate. Versions of a preset without `effective_strength`
+  and a TREG entry keep their bytes.
+
 ## Presets
 
 `london-basin` comes first, starting in natural ground: River Terrace
@@ -346,7 +401,7 @@ A glacial preset follows.
 2. Property-model core: catalogue, index properties and phase relations,
    overburden and groundwater, and the strength or density term in `GEOL_DESC`.
 3. Result headings (#1).
-4. Multi-stage tests (#2).
+4. Multi-stage tests (#2), and effective-stress triaxial (#68).
 5. Test and sample-type selection by unit (#3).
 6. Lenses.
 7. Water strikes.
