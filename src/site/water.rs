@@ -2013,10 +2013,11 @@ mod several_tests {
                 if let Some(s) = same {
                     kept += 1;
                     let hole = &site.holes[o.hole];
-                    let in_till = hole
-                        .strata
-                        .iter()
-                        .any(|u| u.top <= o.depth && o.depth < u.base && u.unit != "GFSG");
+                    let in_till = hole.strata.iter().any(|u| {
+                        // Made ground (tyneside-till v10) settles by its
+                        // own perched-water rule, not a till's.
+                        u.top <= o.depth && o.depth < u.base && u.unit != "GFSG" && u.unit != "MG"
+                    });
                     if in_till {
                         assert_eq!(s.settle, o.settle, "seed {seed}");
                     }

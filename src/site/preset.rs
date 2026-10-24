@@ -15,6 +15,7 @@ use toml::Value;
 use super::cover;
 use super::properties::{self as props, Domain};
 use super::results;
+use super::setting::{GENERIC_ID, GenericMadeGround, Setting, Settlement};
 use super::suite;
 use crate::synth::bs5930::{Content, TopsoilSpec, VeryCoarse};
 use crate::synth::made_ground;
@@ -55,6 +56,11 @@ pub struct Preset {
     /// casing and backfill; `None` when the preset has none (ADR 0001, "Hole
     /// construction").
     pub construction: Option<Construction>,
+    /// The `[made_ground]` block: generic made ground set by the site's
+    /// setting and settlement (ADR 0001, "Generic made ground"). `None` when
+    /// the preset has none. The block makes the first unit, `MG`, whose
+    /// `made_ground` spec follows the setting.
+    pub made_ground: Option<GenericMadeGround>,
 }
 
 /// The cover layer: what lies on the ground before the first stratum. Each
@@ -680,6 +686,27 @@ pub fn resolve(arg: &str) -> Result<Preset, PresetErrors> {
 }
 
 impl Preset {
+    /// Set the generic made ground's setting and settlement, as `gen --site
+    /// --setting --settlement` does. The unit's weights follow the setting
+    /// unless the block gave its own. Refused, with the reason, on a preset
+    /// without a `[made_ground]` block.
+    pub fn set_made_ground(
+        &mut self,
+        setting: Option<Setting>,
+        settlement: Option<Settlement>,
+    ) -> Result<(), String> {
+        let Some(block) = self.made_ground.as_mut() else {
+            return Err("this preset has no generic made ground".to_string());
+        };
+        block.setting = setting.unwrap_or(block.setting);
+        block.settlement = settlement.unwrap_or(block.settlement);
+        let spec = block.spec();
+        if let Some(u) = self.units.iter_mut().find(|u| u.id == GENERIC_ID) {
+            u.made_ground = Some(spec);
+        }
+        Ok(())
+    }
+
     /// Whether `unit` is the id of a made-ground unit. A lens never is.
     pub fn is_made_ground(&self, unit: &str) -> bool {
         self.units
@@ -1408,7 +1435,16 @@ fn read_preset(root: &Table, errs: &mut Vec<String>) -> Option<Preset> {
     let suite = read_suite(&mut n, errs);
     let cover = read_cover(&mut n, errs);
     let construction = read_construction(&mut n, errs);
+    let generic = read_generic_made_ground(&mut n, errs);
     n.finish(errs);
+    let (made_ground, units) = match (generic?, units) {
+        (Some((block, unit)), Some(mut units)) => {
+            units.insert(0, unit);
+            (Some(block), Some(units))
+        }
+        (None, units) => (None, units),
+        (Some(_), None) => (None, None),
+    };
 
     let preset = Preset {
         name: name?,
@@ -1421,6 +1457,7 @@ fn read_preset(root: &Table, errs: &mut Vec<String>) -> Option<Preset> {
         suite: suite?,
         cover: cover?,
         construction: construction?,
+        made_ground,
     };
     check_cover_depth(&preset, errs);
     check_construction(&preset, errs);
@@ -2990,28 +3027,141 @@ fn read_made_ground(u: &mut Node, errs: &mut Vec<String>) -> Option<Option<MadeG
     match u.get("made_ground") {
         None => Some(None),
         Some(Value::Boolean(true)) => Some(Some(MadeGroundSpec::default())),
-        Some(Value::Table(t)) => {
-            let mut m = Node::new(t, at);
-            let constituents = read_constituent_shares(&mut m, errs);
-            let count = read_count(&mut m, errs);
-            let amounts = read_amounts(&mut m, errs);
-            if t.is_empty() {
-                errs.push(format!(
-                    "{}: empty (write `true` for the default draw)",
-                    m.path
-                ));
-            }
-            m.finish(errs);
-            Some(Some(MadeGroundSpec {
-                constituents: constituents?,
-                count: count?,
-                amounts: amounts?,
-            }))
-        }
+        Some(Value::Table(t)) => read_made_ground_table(t, at, errs).map(Some),
         Some(_) => {
             errs.push(format!("{at}: must be true or a table"));
             None
         }
+    }
+}
+
+/// The weights table of a made-ground unit: `constituents`, `count` and
+/// `amounts`, each optional but not all absent.
+fn read_made_ground_table(t: &Table, at: String, errs: &mut Vec<String>) -> Option<MadeGroundSpec> {
+    let mut m = Node::new(t, at);
+    let constituents = read_constituent_shares(&mut m, errs);
+    let count = read_count(&mut m, errs);
+    let amounts = read_amounts(&mut m, errs);
+    if t.is_empty() {
+        errs.push(format!(
+            "{}: empty (write `true` for the default draw)",
+            m.path
+        ));
+    }
+    m.finish(errs);
+    Some(MadeGroundSpec {
+        constituents: constituents?,
+        count: count?,
+        amounts: amounts?,
+    })
+}
+
+/// The optional `[made_ground]` block. It names the site's `setting` and
+/// `settlement`, the `wavelength_m` of the made-ground patches, and what the
+/// unit it makes borrows: `description`, `strike`, `sampling` and
+/// `properties`, as a unit has them, and optionally its own `make_up` weights
+/// in place of the setting's. The block makes the first unit, `MG`, with a
+/// placeholder thickness (the setting decides the real one). The outer `None`
+/// is a problem already reported.
+// Outer `None` is a reported problem; inner `None` is "not written".
+#[allow(clippy::option_option)]
+fn read_generic_made_ground(
+    n: &mut Node,
+    errs: &mut Vec<String>,
+) -> Option<Option<(GenericMadeGround, Unit)>> {
+    if !n.table.contains_key("made_ground") {
+        n.get("made_ground");
+        return Some(None);
+    }
+    let mut b = req_table(n, "made_ground", errs)?;
+    let setting = read_choice(&mut b, "setting", &Setting::ALL.map(Setting::name), errs)
+        .and_then(Setting::parse);
+    let settlement = read_choice(
+        &mut b,
+        "settlement",
+        &Settlement::ALL.map(Settlement::name),
+        errs,
+    )
+    .and_then(Settlement::parse);
+    let wavelength = read_range(&mut b, "wavelength_m", errs);
+    if let Some(w) = &wavelength
+        && w.min <= 0.0
+    {
+        errs.push(format!(
+            "{}: min {} must be above 0",
+            b.at("wavelength_m"),
+            w.min
+        ));
+    }
+    let uses_id = |key: &str| match n.table.get(key) {
+        Some(Value::Array(a)) => a
+            .iter()
+            .any(|t| t.as_table().and_then(|t| t.get("id")?.as_str()) == Some(GENERIC_ID)),
+        _ => false,
+    };
+    if uses_id("units") || uses_id("lenses") {
+        errs.push(format!(
+            "{}: the block makes a unit with id \"{GENERIC_ID}\", which a unit or lens already uses",
+            b.path
+        ));
+    }
+    let description = read_description(&mut b, errs);
+    let strike = read_unit_strike(&mut b, false, errs);
+    let dict = Dictionary::bundled(DictVersion::V4_2);
+    let samp = dict.abbr_codes("SAMP_TYPE");
+    let sampling = read_sampling(&mut b, &samp, errs);
+    let properties = required_properties(&mut b, description.as_ref(), errs);
+    let make_up = match b.get("make_up") {
+        None => Some(None),
+        Some(Value::Table(t)) => read_made_ground_table(t, b.at("make_up"), errs).map(Some),
+        Some(_) => {
+            errs.push(format!("{}: must be a table", b.at("make_up")));
+            None
+        }
+    };
+    b.finish(errs);
+    let block = GenericMadeGround {
+        setting: setting?,
+        settlement: settlement?,
+        wavelength_m: wavelength?,
+        make_up: make_up?,
+    };
+    let unit = Unit {
+        id: GENERIC_ID.to_string(),
+        name: "Made Ground".to_string(),
+        thickness_m: Some(Range {
+            min: 0.0,
+            max: 1.0,
+            basis: "set by the [made_ground] setting and settlement".to_string(),
+            skew: None,
+        }),
+        description: description?,
+        made_ground: Some(block.spec()),
+        water_bearing: None,
+        strike: strike?,
+        sampling: sampling?,
+        properties: properties?,
+    };
+    Some(Some((block, unit)))
+}
+
+/// A string key whose value must be one of `choices`.
+fn read_choice(
+    n: &mut Node,
+    key: &'static str,
+    choices: &[&'static str],
+    errs: &mut Vec<String>,
+) -> Option<&'static str> {
+    let s = req_str(n, key, errs)?;
+    if let Some(c) = choices.iter().find(|c| **c == s) {
+        Some(*c)
+    } else {
+        errs.push(format!(
+            "{}: \"{s}\" is not one of {}",
+            n.at(key),
+            choices.join(", ")
+        ));
+        None
     }
 }
 
@@ -3928,7 +4078,16 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
     #[test]
     fn tyneside_till_loads_with_its_tills_and_lens() {
         let p = resolve("tyneside-till").unwrap();
-        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 9));
+        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 10));
+        // v10: generic made ground, a corridor in a town (#86), as the first
+        // unit.
+        let block = p.made_ground.as_ref().expect("v10 has the block");
+        assert_eq!(
+            (block.setting, block.settlement),
+            (Setting::Corridor, Settlement::Town)
+        );
+        assert_eq!(p.units[0].id, "MG");
+        assert!(p.units[0].made_ground.is_some() && p.units[0].strike.is_some());
         // v9: several strikes, and the seal and the zone share that go with
         // them (#79).
         let several = p.site.several_strikes.as_ref().expect("v9 has the key");
@@ -3961,9 +4120,9 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
         assert_eq!(sizes, [200, 150, 125]);
         installation_is_cited(&p, 0.53);
         let units: Vec<&str> = p.units.iter().map(|u| u.id.as_str()).collect();
-        assert_eq!(units, ["WT", "RT", "GT"]);
+        assert_eq!(units, ["MG", "WT", "RT", "GT"]);
         // v5: each till carries effective strength, and the suite tests it.
-        for u in &p.units {
+        for u in p.units.iter().filter(|u| u.id != "MG") {
             let e = u.properties.effective_strength.as_ref().unwrap();
             assert!(
                 e.c_eff_kpa.max <= 25.0 && e.phi_eff_deg.max <= 50.0,

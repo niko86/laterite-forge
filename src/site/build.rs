@@ -15,6 +15,9 @@ use super::draw::{Key, uniform};
 use super::ground::Field;
 use super::preset::{DescriptionSpec, Extent, Lens, MadeGroundSpec, Preset, Sampling};
 use super::properties::{LeadTerms, PropertyModel};
+use super::setting::{GENERIC_ID, Patches};
+#[cfg(test)]
+use super::setting::{Setting, Settlement};
 use super::suite;
 use crate::synth::bs5930::{self, Lead, UnitDescription};
 use crate::synth::generic;
@@ -261,10 +264,15 @@ pub fn build(preset: &Preset, seed: u64, holes: usize) -> Site {
                 .and_then(|m| unit_mix(m, &u.id, seed))
         })
         .collect();
+    let patches = preset
+        .made_ground
+        .as_ref()
+        .map(|g| Patches::new(g, extent, seed));
     let layers = Layers {
         surfaces,
         lenses,
         mixes,
+        patches,
     };
     let properties = PropertyModel::new(preset, seed);
     let site_cover = preset.cover.as_ref().map(|c| SiteCover::new(c, seed));
@@ -318,6 +326,9 @@ struct Layers<'a> {
     /// One per unit, in preset order: the weighted constituents of a made-ground
     /// unit that gives weights, else `None` (the lane's default draw).
     mixes: Vec<Option<Mix>>,
+    /// The generic made ground's patches, when the preset has the block: the
+    /// unit `MG` takes its thickness from them, not from a surface.
+    patches: Option<Patches>,
 }
 
 /// The strata of hole `k`: one per unit present, top-down, from 0 to
@@ -345,7 +356,10 @@ fn strata(
         }
         let base = match &unit.thickness_m {
             Some(range) => {
-                let thickness = surface.in_range(range, x, y);
+                let thickness = match &layers.patches {
+                    Some(p) if unit.id == GENERIC_ID => p.thickness_at(x, y),
+                    _ => surface.in_range(range, x, y),
+                };
                 if thickness <= 0.0 {
                     continue;
                 }
@@ -1765,6 +1779,82 @@ mod shipped_pins {
         emit_to_string(&lower(&site, &preset, seed, Grid::Local))
     }
 
+    /// The file `gen --site tyneside-till --seed <seed> --setting <setting>
+    /// --settlement <settlement>` writes before any injection.
+    fn with_setting(seed: u64, setting: &str, settlement: &str) -> String {
+        let mut preset = resolve("tyneside-till").expect("shipped preset loads");
+        preset
+            .set_made_ground(Setting::parse(setting), Settlement::parse(settlement))
+            .expect("tyneside-till has the block");
+        assert_eq!(problems(&preset), Vec::<String>::new());
+        let site = build(&preset, seed, default_hole_count(seed));
+        emit_to_string(&lower(&site, &preset, seed, Grid::Local))
+    }
+
+    /// One fixed run per setting value (at the preset's town) and per
+    /// settlement value (at its corridor), tyneside-till v10 seed 5, pinned
+    /// like the preset defaults: the setting tables, the patch field and the
+    /// make-up weights each move a byte here. A red pin is a finding, not a
+    /// test to re-roll: it changes what `--setting` and `--settlement` write,
+    /// so bump the version and tell consumers (ADR 0001).
+    #[test]
+    fn each_setting_and_settlement_writes_pinned_bytes() {
+        use sha2::{Digest, Sha256};
+        let want: [(&str, &str, &str, usize); 6] = [
+            (
+                "greenfield",
+                "town",
+                "e4e9c57b89b565c4ca0fc103eba7758ea4bf9095c5cdabae0f93803e3ad26694",
+                27875,
+            ),
+            (
+                "brownfield",
+                "town",
+                "bef7f851b802fa3f3d541f7901d4302e574e3c4809989c46ada37c6d780c74fd",
+                25915,
+            ),
+            (
+                "developed",
+                "town",
+                "412aca55137d618b9d656020266dd67c873b9e8af72b1dd2e872a9cf2bc7c888",
+                27487,
+            ),
+            (
+                "corridor",
+                "town",
+                "e1422784947cab3baee407159c322007ec2eff64456b3602ff092fa29580ba1b",
+                27368,
+            ),
+            (
+                "corridor",
+                "village",
+                "22924f0c0b0e7d7cc6630c8b496294bc51e7b873905cc4d537955a78c2735ded",
+                27979,
+            ),
+            (
+                "corridor",
+                "city",
+                "a73748e46b5d8688254664d1ebab273009de88571739aea5ba3a59002f73e203",
+                27078,
+            ),
+        ];
+        let got: Vec<(String, usize)> = want
+            .iter()
+            .map(|(setting, settlement, _, _)| {
+                let text = with_setting(5, setting, settlement);
+                (
+                    crate::synth::hex(&Sha256::digest(text.as_bytes())),
+                    text.len(),
+                )
+            })
+            .collect();
+        let want: Vec<(String, usize)> = want
+            .iter()
+            .map(|(_, _, sha, len)| ((*sha).to_string(), *len))
+            .collect();
+        assert_eq!(got, want);
+    }
+
     /// Each shipped preset's default file, pinned like the scaffolds
     /// (`synth_output_bytes_are_pinned`). Consumers commit output from these,
     /// so moving a pin is a preset version bump they must be told about
@@ -1828,20 +1918,20 @@ mod shipped_pins {
             (
                 "tyneside-till",
                 0,
-                "decbeb1d630a8ebcbf312d473757dbdd3ef97dc639cb0d7cd5ae5f7c17e0dc86",
-                34478,
+                "a60d467bd0c268b88eba145afd66d36271f30e5b1c8feca28c2eaf6bd4ae7bee",
+                33158,
             ),
             (
                 "tyneside-till",
                 1,
-                "a9d773f9dd8350628b90df3ce0581e9a098aa73a960e0537c6ceceafd64dced8",
-                23513,
+                "3e5e9418ec5edb88a63aa44d76febcd008a219c83efd665e18c1780093b3c801",
+                23514,
             ),
             (
                 "tyneside-till",
                 2,
-                "f880f79c8346eab48f515940e7507a88daa00821f154ec0eaf2b98dbe2b09431",
-                41562,
+                "721958c61c1cb72de5e3e4ffca23182f97321d7ccee308d1fe1a6176d6f935c6",
+                41654,
             ),
         ] {
             let text = shipped(name, seed);
@@ -1862,6 +1952,7 @@ mod shipped_pins {
     /// zone share. It also has no made-ground `strike` block (#84), which
     /// only london-basin v9 carries.
     fn without_several_strikes(preset: &mut Preset) {
+        without_generic_made_ground(preset);
         without_made_ground_strikes(preset);
         preset.site.several_strikes = None;
         if let Some(c) = preset.construction.as_mut() {
@@ -1869,6 +1960,15 @@ mod shipped_pins {
             if let Some(i) = c.installation.as_mut() {
                 i.zone_follows_first_share = None;
             }
+        }
+    }
+
+    /// A shipped preset as it stood before generic made ground (#86): no
+    /// `[made_ground]` block and so no `MG` unit, which only tyneside-till v10
+    /// carries.
+    fn without_generic_made_ground(preset: &mut Preset) {
+        if preset.made_ground.take().is_some() {
+            preset.units.retain(|u| u.id != GENERIC_ID);
         }
     }
 
@@ -1915,6 +2015,42 @@ mod shipped_pins {
             without_made_ground_strikes(&mut preset);
             preset.site.several_strikes = None;
             preset.version = 8;
+            let site = build(&preset, seed, default_hole_count(seed));
+            let text = emit_to_string(&lower(&site, &preset, seed, Grid::Local));
+            let got = crate::synth::hex(&Sha256::digest(text.as_bytes()));
+            assert_eq!((got.as_str(), text.len()), (sha, len), "seed {seed}");
+        }
+    }
+
+    /// tyneside-till without its `[made_ground]` block, at the version before
+    /// it (v9), writes the bytes v9 pinned: the block, the patch field and the
+    /// `MG` unit move nothing in a preset that lacks them. london-basin has no
+    /// block and stays at v9.
+    #[test]
+    fn a_preset_without_its_made_ground_writes_the_previous_versions_bytes() {
+        use sha2::{Digest, Sha256};
+        for (seed, sha, len) in [
+            (
+                0u64,
+                "decbeb1d630a8ebcbf312d473757dbdd3ef97dc639cb0d7cd5ae5f7c17e0dc86",
+                34478usize,
+            ),
+            (
+                1,
+                "a9d773f9dd8350628b90df3ce0581e9a098aa73a960e0537c6ceceafd64dced8",
+                23513,
+            ),
+            (
+                2,
+                "f880f79c8346eab48f515940e7507a88daa00821f154ec0eaf2b98dbe2b09431",
+                41562,
+            ),
+        ] {
+            let mut preset = resolve("tyneside-till").expect("shipped preset loads");
+            assert!(preset.made_ground.is_some(), "v10 carries the block");
+            assert_eq!(preset.units[0].id, GENERIC_ID);
+            without_generic_made_ground(&mut preset);
+            preset.version = 9;
             let site = build(&preset, seed, default_hole_count(seed));
             let text = emit_to_string(&lower(&site, &preset, seed, Grid::Local));
             let got = crate::synth::hex(&Sha256::digest(text.as_bytes()));

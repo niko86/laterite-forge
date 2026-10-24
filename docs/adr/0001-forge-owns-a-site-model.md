@@ -393,6 +393,55 @@ consumer can replace.
   without a made-ground unit. `pottery` and `coal` join the vocabulary but not
   the default draw's candidates.
 
+## Generic made ground
+
+(Added 2026-10-25, #86; the decisions are the owner's on that issue.)
+
+- **The block.** A preset may carry a `[made_ground]` block: generic made
+  ground set by the site's `setting` (`greenfield`, `brownfield`, `developed`
+  or `corridor`, meaning road, rail and flood schemes) and `settlement`
+  (`village`, `town` or `city`). The block also gives `wavelength_m` (a cited
+  range), a `description`, `sampling` and `properties` as a unit has them, an
+  optional `strike` (the #84 table, rates by depth) and an optional `make_up`
+  (constituent, count and amount weights, in the shape of a unit's
+  `made_ground` table) in place of the setting's. The loader makes the block a
+  first unit, `MG`, so a preset with the block cannot have a unit or lens
+  called `MG`; london-basin keeps its own `MG` unit and takes no block.
+  A preset without the block writes the bytes of the version before it
+  (`a_preset_without_its_made_ground_writes_the_previous_versions_bytes`).
+- **Tables.** The setting's share of holes with made ground (a range, with a
+  skew that puts the draw's median at the cited middle), its thickness
+  (P10, P50 and P90 at a town) and its make-up weights, and each settlement's
+  shift, are in `data/made-ground/settings.json`, each with its basis. A
+  village takes share x 0.6 and thickness x 0.7; a city halves the gap between
+  the share and 1 and takes thickness x 1.2 (judgement, with the caveat that
+  the crawl shows the share rising near centres but not the thickness).
+- **Presence and thickness.** Each site draws its share once (tag
+  `made-ground-share`) from the setting's range after the settlement's shift.
+  Made ground is patchy at tens of metres, so it has a field of its own (tag
+  `made-ground-patches`) of three cosine waves with wavelengths drawn from
+  `wavelength_m`, not the unit fields' 1 to 3 times the site's longer side. A
+  hole has made ground where the field ranks in the top `share` of a 64 x 64
+  grid over the site, and the thickness rises with that rank: log-linear
+  through the setting's P10, P50 and P90 over the holes that have made ground,
+  so the file's thickness quantiles are the table's by construction. The
+  unit fields and every other stream are untouched, so changing the setting
+  moves the made ground and what it pushes down, and nothing else.
+- **Stacking.** Made ground stacks first, as london-basin's does: the natural
+  units keep their own thicknesses and start at its base, ground level is
+  fixed, and a hole may end in made ground. `[cover]` is unchanged and sits on
+  it. The setting does not change the cover shares (a follow-up).
+- **Overrides.** `gen --site` and `scale --site` take `--setting` and
+  `--settlement`, the first flags that override a preset value; either on a
+  preset without the block exits 5.
+- **Versions.** tyneside-till v10 adopts the block with `corridor` and `town`,
+  the NE bands of #84 for the strikes and london-basin's properties and
+  sampling for Made Ground (`forge judgement`). It is re-pinned, with a pin for
+  each setting and settlement
+  (`each_setting_and_settlement_writes_pinned_bytes`). london-basin stays at v9
+  (`docs/research/tyneside-till-sources.md`, "Generic made ground by setting
+  (tyneside-till v10, #86)").
+
 ## Cover layer
 
 (Added 2026-10-23, #58; the decisions are the owner's Q1-Q5 on that issue.)

@@ -26,8 +26,15 @@ impl Field {
     /// A field for a site of `extent`, drawn from `rng`.
     pub fn new(rng: &mut Rng, extent: Extent) -> Self {
         let longest = extent.x.max(extent.y);
+        Self::with_wavelengths(rng, longest, 3.0 * longest)
+    }
+
+    /// A field whose waves each have a wavelength drawn from `shortest` to
+    /// `longest` metres. [`Field::new`] is this with 1 to 3 times the site's
+    /// longer side; made-ground patches use tens to hundreds of metres.
+    pub fn with_wavelengths(rng: &mut Rng, shortest: f64, longest: f64) -> Self {
         let waves = std::array::from_fn(|_| {
-            let wavelength = uniform(rng, longest, 3.0 * longest);
+            let wavelength = uniform(rng, shortest, longest);
             let angle = uniform(rng, 0.0, TAU);
             let k = TAU / wavelength;
             (

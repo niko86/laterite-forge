@@ -177,6 +177,17 @@ pub struct GenArgs {
     /// no shipped preset carries a real origin.
     #[arg(long, requires = "grid", value_name = "E,N")]
     pub origin: Option<String>,
+    /// `--site` only: the site's made-ground setting, in place of the
+    /// preset's default: `greenfield`, `brownfield`, `developed` or
+    /// `corridor` (road, rail and flood schemes). Exits 5 on a preset
+    /// without a `[made_ground]` block.
+    #[arg(long, requires = "site", value_parser = ["greenfield", "brownfield", "developed", "corridor"])]
+    pub setting: Option<String>,
+    /// `--site` only: the settlement the site is in, in place of the preset's
+    /// default: `village`, `town` or `city`. Exits 5 on a preset without a
+    /// `[made_ground]` block.
+    #[arg(long, requires = "site", value_parser = ["village", "town", "city"])]
+    pub settlement: Option<String>,
 }
 
 #[derive(Args)]
@@ -348,6 +359,17 @@ pub struct ScaleArgs {
     /// no shipped preset carries a real origin.
     #[arg(long, requires = "grid", value_name = "E,N")]
     pub origin: Option<String>,
+    /// `--site` only: the site's made-ground setting, in place of the
+    /// preset's default: `greenfield`, `brownfield`, `developed` or
+    /// `corridor` (road, rail and flood schemes). Exits 5 on a preset
+    /// without a `[made_ground]` block.
+    #[arg(long, requires = "site", value_parser = ["greenfield", "brownfield", "developed", "corridor"])]
+    pub setting: Option<String>,
+    /// `--site` only: the settlement the site is in, in place of the preset's
+    /// default: `village`, `town` or `city`. Exits 5 on a preset without a
+    /// `[made_ground]` block.
+    #[arg(long, requires = "site", value_parser = ["village", "town", "city"])]
+    pub settlement: Option<String>,
     /// Where to write the .ags (default: <out-dir>/scale/<scaffold>_<size>.ags).
     #[arg(long)]
     pub out: Option<PathBuf>,
