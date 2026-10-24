@@ -144,8 +144,8 @@ consumer can replace.
   range), `rise_m` (a cited range with an optional skew, as a thickness has)
   and `no_rise_share` (0 to 1). Each is cited, and the loader refuses a rate or
   rise below 0, a share outside 0 to 1, a missing basis, and the table on a
-  made-ground unit (which never yields water) or a water-bearing unit (which
-  already strikes at its top). A lens takes none. In the crawl of NE England
+  water-bearing unit (which already strikes at its top). Made ground may take
+  it from #84 (below). A lens takes none. In the crawl of NE England
   (793 holes, 38 projects) 129 of 437 strikes are in till, in 112 holes
   (18.7% of the 598 that go through till), yet the tills gave no strike before
   v8, so only about 7% of generated holes struck against 41% in the crawl. The
@@ -189,6 +189,35 @@ consumer can replace.
     version before it, and changing one unit's rate moves only the strike-
     dependent rows (`WSTG`, `WSTD`, `WSTG_CAS`, the installation zone, `BKFL`
     and `PIPE`) of holes whose strike changes.
+- Water strikes in made ground (#84, london-basin v9). A made-ground unit may
+  take the same `strike` table as a till, and the table's rate may be given as
+  `rate_by_depth = [{ from_m, rate_per_m = { min, max, basis } }, ...]` instead
+  of `rate_per_m` (the loader refuses both together). Bands are measured from
+  ground level, ascending, the first from 0, the last open; the rate is
+  constant within a band, so the process stays Poisson. Each band draws its
+  rate once per site from a stream keyed by the unit and the band
+  (`strike-band-rate`), so changing one unit's bands moves no other stream.
+  In the crawl of the London accessions (627 holes with GEOL, 119 projects), in
+  the 430 made-ground holes of the 73 projects that report WSTG, the rate rises
+  with depth: 0.023, 0.033, 0.056, 0.104 and 0.103 strikes per metre of made
+  ground in the 0-1, 1-2, 2-3, 3-5 and below 5 m bands (the NE crawl's
+  0.021, 0.038, 0.048, 0.076 and 0.080), so a flat rate would put too many
+  strikes in the top metres. The table rule keeps excluding made ground, and
+  made-ground water is perched: an event at or below the hole's water table is
+  dropped, for made-ground units only, so the water in a made-ground strike
+  stands above the water in any deeper strike (20 of 20 holes in the crawl). A
+  made-ground unit's process runs from the top of its stratum and drops the
+  events in the cover, so a cover moves no strike below it. The rise and the
+  no-rise share (0.34, 12 of 35) are fitted to the crawl's made-ground strikes
+  with readings. london-basin v9 also sets `site.several_strikes` (4, 0.5). A
+  preset without the block and without `several_strikes` writes v8's bytes
+  (`a_preset_without_its_made_ground_strikes_writes_the_previous_versions_bytes`).
+  Reported, not fitted: the share of made-ground holes with a made-ground
+  strike (7.4% against 16%, the file's made ground being thinner), the strikes'
+  depth against the made-ground base, the deepest bands' rates and the share
+  of multi-strike holes whose first strike is in made ground
+  (`docs/research/london-basin-sources.md`, "Made-ground water strikes
+  (london-basin v9, #84)").
 - Several strikes per hole (#79, tyneside-till v9). A preset may set
   `site.several_strikes = { max_per_hole, min_gap_m, basis }` (a cap of 2 to 16,
   a gap above 0, a basis). Without it a hole records at most one strike, as

@@ -1799,6 +1799,10 @@ mod shipped_pins {
     /// hole and `WSTG_SEAL`
     /// (`a_preset_without_its_several_strikes_writes_the_previous_versions_bytes`
     /// holds the rest of the file to the v8 pins; london-basin stays at v8).
+    /// Re-taken for london-basin v9 (#84), which adds water strikes in made
+    /// ground and turns on several strikes per hole
+    /// (`a_preset_without_its_made_ground_strikes_writes_the_previous_versions_bytes`
+    /// holds the rest of the file to the v8 pins; tyneside-till stays at v9).
     #[test]
     fn shipped_preset_output_bytes_are_pinned() {
         use sha2::{Digest, Sha256};
@@ -1806,19 +1810,19 @@ mod shipped_pins {
             (
                 "london-basin",
                 0u64,
-                "6cc9c72be03891c9fb3cf3222f3296a6fe8d1455f1896653dc36568da9b7de56",
+                "c1dff753694912f203c2978a0fde57366c167183b1bbdbd061f286c8210963d4",
                 21355usize,
             ),
             (
                 "london-basin",
                 1,
-                "5cddfccace03f5c48117e63e3284c429842ae47f2702c43e439beb4fe67e510d",
-                16410,
+                "1a1ae25a6e4702da8b92c4b2df61728b59abab17f722931c684521b178b41a0c",
+                16569,
             ),
             (
                 "london-basin",
                 2,
-                "7686d64a5df38a684b88e9bfb9a6ac6a59c34f1715f87f7e706ad87e01e649cc",
+                "bec52e6d19ea6e56573c3a7d3f0ae99398cbb2bf99a70659b3470558800fba67",
                 30802,
             ),
             (
@@ -1855,14 +1859,66 @@ mod shipped_pins {
 
     /// A shipped preset as it stood before the several-strikes keys (#79): no
     /// `site.several_strikes`, no `[construction]` seal and no installation
-    /// zone share.
+    /// zone share. It also has no made-ground `strike` block (#84), which
+    /// only london-basin v9 carries.
     fn without_several_strikes(preset: &mut Preset) {
+        without_made_ground_strikes(preset);
         preset.site.several_strikes = None;
         if let Some(c) = preset.construction.as_mut() {
             c.seal = None;
             if let Some(i) = c.installation.as_mut() {
                 i.zone_follows_first_share = None;
             }
+        }
+    }
+
+    /// A shipped preset as it stood before water strikes in made ground (#84):
+    /// no `strike` block on a made-ground unit.
+    fn without_made_ground_strikes(preset: &mut Preset) {
+        for u in preset.units.iter_mut().filter(|u| u.made_ground.is_some()) {
+            u.strike = None;
+        }
+    }
+
+    /// london-basin without its made-ground `strike` block and without
+    /// `site.several_strikes`, at the version before them (v8), writes the
+    /// bytes v8 pinned: neither key moves a byte in a preset that lacks it.
+    #[test]
+    fn a_preset_without_its_made_ground_strikes_writes_the_previous_versions_bytes() {
+        use sha2::{Digest, Sha256};
+        for (seed, sha, len) in [
+            (
+                0u64,
+                "6cc9c72be03891c9fb3cf3222f3296a6fe8d1455f1896653dc36568da9b7de56",
+                21355usize,
+            ),
+            (
+                1,
+                "5cddfccace03f5c48117e63e3284c429842ae47f2702c43e439beb4fe67e510d",
+                16410,
+            ),
+            (
+                2,
+                "7686d64a5df38a684b88e9bfb9a6ac6a59c34f1715f87f7e706ad87e01e649cc",
+                30802,
+            ),
+        ] {
+            let mut preset = resolve("london-basin").expect("shipped preset loads");
+            assert!(
+                preset
+                    .units
+                    .iter()
+                    .any(|u| u.made_ground.is_some() && u.strike.is_some()),
+                "v9 carries the made-ground strike block"
+            );
+            assert!(preset.site.several_strikes.is_some());
+            without_made_ground_strikes(&mut preset);
+            preset.site.several_strikes = None;
+            preset.version = 8;
+            let site = build(&preset, seed, default_hole_count(seed));
+            let text = emit_to_string(&lower(&site, &preset, seed, Grid::Local));
+            let got = crate::synth::hex(&Sha256::digest(text.as_bytes()));
+            assert_eq!((got.as_str(), text.len()), (sha, len), "seed {seed}");
         }
     }
 
@@ -2229,8 +2285,11 @@ mod shipped_pins {
                         .find(|u| u.id == id)
                         .and_then(|u| u.strike.as_mut())
                         .expect("a till strike table");
-                    strike.rate_per_m.min = rate;
-                    strike.rate_per_m.max = rate;
+                    let super::super::preset::StrikeRate::PerMetre(r) = &mut strike.rate else {
+                        panic!("a flat till rate");
+                    };
+                    r.min = rate;
+                    r.max = rate;
                 }
                 for share in preset
                     .lenses
