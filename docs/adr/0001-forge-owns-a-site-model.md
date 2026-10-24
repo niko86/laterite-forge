@@ -171,8 +171,8 @@ consumer can replace.
     level is `max(0, strike - rise)`, the rise drawn from the unit's `rise_m`
     (a stream keyed by hole and unit), and a draw under `no_rise_share` (drawn
     once per site) leaves the water at the strike. The head on a sand or silt
-    parting in a clay till is not the site water table, and the crawl's till
-    strikes almost all rise (1 of 90 fell, 12% none; `forge judgement`). The
+    parting in a clay till is not the site water table, and 88% of the crawl's
+    till strikes rise (12% do not, and 1 of 90 fell; `forge judgement`). The
     readings follow the same decay as every strike, so they
     are monotone and settle exactly at the 20-minute level. The tills carry
     the same pooled rise (crawl n 90, 17 projects), because weathered till has
