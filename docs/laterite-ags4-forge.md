@@ -186,7 +186,8 @@ sources: []
 > site from a stream keyed by the unit and the band. A made-ground unit's
 > strikes are perched: an event at or below the hole's water table is dropped
 > (the table rule still never strikes made ground), so the water in a
-> made-ground strike stands above the water in any deeper strike. The process
+> made-ground strike stands above the water in any deeper strike that settles
+> at or below the table. The process
 > runs from the top of the stratum and the events in a cover are dropped, so a
 > cover moves no strike below it. A preset without the block writes the bytes
 > of the version before (`docs/research/london-basin-sources.md`,

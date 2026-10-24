@@ -177,12 +177,13 @@ the preset's test suite. `--site` and `--scaffold` are mutually exclusive.
   have two strikes or more (the crawl's 24%); the file has no made-ground,
   laminated-clay, alluvium or rock strikes, so it falls short of the crawl's
   multi-strike share. london-basin is unchanged.
+
   london-basin v9 adds **water strikes in the Made Ground**. The Made Ground
   unit strikes water along its depth like a till, at a rate that rises with
   depth below ground (about 0.02 per metre in the top metre, 0.1 per metre
   below 3 m), and the water is perched: an event at or below the hole's water
   table is dropped, so Made Ground water stands above the water in any deeper
-  strike. The water rises by a drawn amount, but not above ground level (34% of
+  strike that settles at or below the table. The water rises by a drawn amount, but not above ground level (34% of
   strikes draw no rise). london-basin also turns on several strikes per hole
   (up to four, never closer than 0.5 m), so a hole can record a Made Ground
   strike and a table strike below it. Holes with any strike rise from 51.5% to

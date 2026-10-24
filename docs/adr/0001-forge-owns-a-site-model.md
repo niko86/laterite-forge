@@ -205,7 +205,8 @@ consumer can replace.
   strikes in the top metres. The table rule keeps excluding made ground, and
   made-ground water is perched: an event at or below the hole's water table is
   dropped, for made-ground units only, so the water in a made-ground strike
-  stands above the water in any deeper strike (20 of 20 holes in the crawl). A
+  stands above the water in any deeper strike that settles at or below the
+  table (20 of 20 holes in the crawl). A
   made-ground unit's process runs from the top of its stratum and drops the
   events in the cover, so a cover moves no strike below it. The rise and the
   no-rise share (0.34, 12 of 35) are fitted to the crawl's made-ground strikes
@@ -383,8 +384,9 @@ consumer can replace.
   share comes out as the preset gives it. Shares and counts only agree if the
   shares sum to the mean count, so a preset reconciles them; where they differ
   the fit is a compromise.
-- Made Ground never yields a water strike, whatever its properties (perched
-  water is out of scope), and the loader refuses a suite that lists LNMC, LLPL,
+- Until v9 (#84, below), Made Ground never yields a water strike, whatever its
+  properties (perched water was out of scope); the table rule still never
+  strikes it, and the loader refuses a suite that lists LNMC, LLPL,
   LDEN or TRIG over a made-ground unit: no lab tests in Made Ground. ISPT is
   allowed. Sampling is the unit's own, as for any unit.
 - The lane's default draw (no preset) is unchanged, and so is any preset

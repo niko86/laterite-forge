@@ -2820,7 +2820,7 @@ fn read_water_bearing(
     let at = n.at("water_bearing");
     let refuse = |errs: &mut Vec<String>| {
         errs.push(format!(
-            "{at}: not allowed on a made-ground unit (Made Ground never yields a water strike)"
+            "{at}: not allowed on a made-ground unit (Made Ground strikes only through a `strike` block)"
         ));
         None
     };
@@ -5818,7 +5818,11 @@ headings = ["TRET_DEVF"]
             "made_ground = true",
             &format!("made_ground = true\nwater_bearing = true\n{STRIKE}"),
         );
-        assert!(!errors_of(&text).is_empty());
+        let e = errors_of(&text).join("\n");
+        assert!(
+            e.contains("units[0] (RTD).water_bearing: not allowed on a made-ground unit (Made Ground strikes only through a `strike` block)"),
+            "{e}"
+        );
     }
 
     const BANDS: &str = "rate_by_depth = [\

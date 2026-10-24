@@ -73,9 +73,13 @@
 //!   by (unit, band) (`strike-band-rate`), so changing one unit's bands moves
 //!   no other stream. A flat `rate_per_m` draws and walks exactly as before.
 //! - The water is perched, so an event at or below the hole's water table is
-//!   dropped (for made ground only, never a till). The water in a made-ground
-//!   strike is above its depth, which is above the table, so it stands above
-//!   the water in any deeper strike that settles at or below the table.
+//!   dropped (for made ground only, never a till), and the gap rule drops a
+//!   made-ground strike rather than push it to the table. The water in a
+//!   made-ground strike is above its depth, which is above the table, so it
+//!   stands above the water in any deeper strike that settles at or below the
+//!   table. This "perched" is not the lens's: a perched lens strike stays at
+//!   its strike depth, while made-ground water rises by its own draw (not
+//!   above ground) from a strike that is above the table.
 //! - The process runs from the top of the stratum, not its written top, and
 //!   drops the events in the cover above the written top (counting them in
 //!   the unit's stream), so a cover moves none of the strikes below it. A
@@ -242,7 +246,8 @@ enum Source<'a> {
     Table,
     /// The top of a water-bearing stratum; `rise` is its drawn rise.
     Lens { rise: f64 },
-    /// A Poisson event in a till unit; `n` is its index in the unit's stream.
+    /// A Poisson event in a till or made-ground unit; `n` is its index in the
+    /// unit's stream.
     Till { ts: TillStrike<'a>, n: u64 },
 }
 
@@ -330,9 +335,16 @@ fn several_strikes(
             });
         }
         for e in till_events(site, hi, &rates, seed, max, false) {
+            // A made-ground strike is perched, so the gap rule may not push it
+            // to the water table or below: it is dropped instead.
+            let base = if preset.is_made_ground(e.ts.unit) {
+                e.base.min(table)
+            } else {
+                e.base
+            };
             cands.push(Candidate {
                 depth: e.ts.depth,
-                limit: limit(e.base),
+                limit: limit(base),
                 source: Source::Till { ts: e.ts, n: e.n },
             });
         }
@@ -374,7 +386,8 @@ fn several_strikes(
     out
 }
 
-/// A strike unit's rate on this site, with its spec.
+/// A strike unit's rate on this site, with its spec. A till or, from #84, a
+/// made-ground unit: the till names also carry made ground.
 struct TillRate<'a> {
     unit: &'a str,
     spec: &'a UnitStrike,
@@ -428,7 +441,8 @@ impl SiteRate {
     }
 }
 
-/// The site's rate for each unit with a `strike` table, drawn once in the
+/// The site's rate for each unit with a `strike` table (a till or made
+/// ground), drawn once in the
 /// unit's range from a stream keyed by its id (a banded rate draws each band
 /// from its own stream, keyed by the unit and the band).
 fn till_rates(preset: &Preset, seed: u64) -> Vec<TillRate<'_>> {
@@ -543,7 +557,7 @@ struct TillEvent<'a> {
     n: u64,
 }
 
-/// The hole's till events going down. With `first_only` the walk stops at the
+/// The hole's till and made-ground events going down. With `first_only` the walk stops at the
 /// first event of any unit, which is [`till_strike`]. Otherwise each unit's
 /// stream runs on past its first event, up to `per_unit` events: the draws
 /// after the first are ones the first-only walk never makes. Events are in
@@ -558,18 +572,19 @@ fn till_events<'a>(
 ) -> Vec<TillEvent<'a>> {
     let h = &site.holes[hole];
     // Per unit: its stream and how many events it has had.
-    let mut streams: Vec<(&str, Rng, usize)> = Vec::new();
+    let mut streams: Vec<(&str, Rng, usize, u64)> = Vec::new();
     let mut out = Vec::new();
     for (i, s) in h.strata.iter().enumerate() {
         let Some(t) = rates.iter().find(|t| t.unit == s.unit) else {
             continue;
         };
-        let at = if let Some(at) = streams.iter().position(|(u, _, _)| *u == s.unit) {
+        let at = if let Some(at) = streams.iter().position(|(u, _, _, _)| *u == s.unit) {
             at
         } else {
             streams.push((
                 t.unit,
                 Key::stratum("till-strike", hole, t.unit).rng(seed),
+                0,
                 0,
             ));
             streams.len() - 1
@@ -607,16 +622,16 @@ fn till_events<'a>(
             if table.is_some_and(|w| depth >= w) {
                 break;
             }
-            let n = streams[at].2 as u64;
-            streams[at].2 += 1;
+            // The event's index in the unit's stream, covered or not, keys its
+            // rise; only recorded events count toward the cap.
+            let n = streams[at].3;
+            streams[at].3 += 1;
             if depth < written {
-                // In the cover: counted in the unit's stream, not recorded.
-                if !first_only && streams[at].2 >= per_unit {
-                    break;
-                }
+                // In the cover: not recorded and not counted toward the cap.
                 u = uniform(&mut streams[at].1, 0.0, 1.0);
                 continue;
             }
+            streams[at].2 += 1;
             out.push(TillEvent {
                 ts: TillStrike {
                     unit: t.unit,
@@ -2476,6 +2491,7 @@ headings = []
     #[test]
     fn london_basin_files_with_made_ground_strikes_are_clean_by_construction() {
         let p = london();
+        let mut mg = 0;
         for seed in 0..40 {
             let site = build::build(&p, seed, default_hole_count(seed));
             let text = emit_to_string(&build::lower(&site, &p, seed, Grid::Local));
@@ -2483,6 +2499,81 @@ headings = []
             let path = dir.path().join("site.ags");
             std::fs::write(&path, text).unwrap();
             assert_eq!(rust_check(&path).0, RustResult::Clean, "seed {seed}");
+            mg += strikes(&site, &p, seed)
+                .iter()
+                .filter(|s| in_mg(&site.holes[s.hole], s))
+                .count();
         }
+        assert!(mg > 10, "{mg} made-ground strikes");
+    }
+
+    #[test]
+    fn the_gap_rule_never_pushes_a_made_ground_strike_to_the_water_table() {
+        // Many close events (4 per m, a 0.5 m gap) in 2-3 m of made ground,
+        // with the table 1.5-3.5 m down: a push would reach the table often.
+        let mut p = preset(&block(&flat(4.0)), "min = 1.5, max = 3.5");
+        p.site.several_strikes = Some(SeveralStrikes {
+            max_per_hole: 4,
+            min_gap_m: 0.5,
+            basis: "test fixture".into(),
+        });
+        let (mut mg, mut pairs) = (0, 0);
+        for seed in 0..60 {
+            let site = build::build(&p, seed, 8);
+            let all = strikes(&site, &p, seed);
+            for (hi, hole) in site.holes.iter().enumerate() {
+                let table = round2(site.properties.groundwater_depth(hole));
+                let mine: Vec<&Strike> = all.iter().filter(|s| s.hole == hi).collect();
+                for m in mine.iter().filter(|s| in_mg(hole, s)) {
+                    assert!(
+                        m.depth < table,
+                        "seed {seed} hole {hi}: {} >= {table}",
+                        m.depth
+                    );
+                    mg += 1;
+                    for d in mine.iter().filter(|s| !in_mg(hole, s) && s.depth > m.depth) {
+                        assert!(m.settle < d.settle, "seed {seed} hole {hi}");
+                        pairs += 1;
+                    }
+                }
+            }
+        }
+        assert!(mg > 100 && pairs > 20, "{mg} / {pairs}");
+    }
+
+    #[test]
+    fn a_cover_moves_no_made_ground_strike_below_its_base() {
+        let preset = london();
+        let mut bare = preset.clone();
+        bare.cover = None;
+        let (mut covered, mut compared) = (0, 0);
+        for seed in 0..60 {
+            let (a, b) = (
+                build::build(&preset, seed, 20),
+                build::build(&bare, seed, 20),
+            );
+            let (sa, sb) = (strikes(&a, &preset, seed), strikes(&b, &bare, seed));
+            for (hi, hole) in a.holes.iter().enumerate() {
+                let Some(cover) = &hole.cover else { continue };
+                covered += 1;
+                let below = |all: &[Strike], site: &Site| {
+                    all.iter()
+                        .filter(|s| {
+                            s.hole == hi && s.depth > cover.base && in_mg(&site.holes[hi], s)
+                        })
+                        .copied()
+                        .collect::<Vec<_>>()
+                };
+                // The cap can differ in a hole the bare file fills with
+                // shallower strikes; compare the holes under it.
+                if sb.iter().filter(|s| s.hole == hi).count() >= 4 {
+                    continue;
+                }
+                let (with, without) = (below(&sa, &a), below(&sb, &b));
+                assert_eq!(with, without, "seed {seed} hole {hi}");
+                compared += with.len();
+            }
+        }
+        assert!(covered > 20 && compared > 10, "{covered} / {compared}");
     }
 }

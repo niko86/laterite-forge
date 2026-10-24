@@ -873,9 +873,18 @@ consecutive strikes (92 pairs) P10 / P50 / P90 1.80 / 5.30 / 23.60 m; 1 pair is
 - `site.several_strikes = { max_per_hole = 4, min_gap_m = 0.5 }`, the casing and
   seal rules as built, and no `seal` block.
 - An MG event at or below the hole's water table is dropped, so MG water is
-  perched by construction. This is for made-ground units only.
+  perched by construction, and the gap rule drops (rather than pushes to or
+  below the table) an MG strike. This is for made-ground units only.
+- An MG unit's process runs from the top of its stratum and the events in a
+  cover are dropped without counting toward the cap, so a cover moves no MG
+  strike below its base.
 
 ### Fit (3,000 seeds, 14,855 holes, 13,670 of them with MG)
+
+The file's MG base figures are measured over its 13,670 holes with made ground,
+not over every hole, and they are the written base of the first MG block. The
+`thickness_m` basis above fits the generator's draw (about 10% absent), so its
+figures differ from these.
 
 | Quantity | Crawl | File |
 |---|---|---|
@@ -915,8 +924,8 @@ events are dropped.
   thickness. The crawl's holes with an MG strike have a median MG base of 5.00
   m; the file's whole population has a median of 1.87 m.
 - **Strike depth over the MG base (P50 0.65 against 0.82).** The crawl counts 9
-  strikes exactly at the MG base (fraction 1.00), and the table rule drops the
-  file's deepest events.
+  strikes exactly at the MG base (fraction 1.00), and the file drops the made-ground
+  events at or below the water table, which are its deepest.
 - **Rise (P75 1.00 against 0.88 m, P90 1.58 against 1.38 m, P25 0.25 against
   0.30 m).** One skew cannot match the centre and the tail of a distribution as
   flat in the middle as the crawl's, and the file caps a rise at ground level.
