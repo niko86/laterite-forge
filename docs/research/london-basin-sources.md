@@ -656,3 +656,78 @@ a soil description):
 - The description format follows Norbury 2010's Made Ground convention (ch.
   14, pp.208-214) and is forge judgement; the crawl was read for its wording,
   not for a standard's.
+
+## Hole construction (v7, #74)
+
+v7 adds a `[construction]` block (ADR 0001, "Hole construction"): an inspection
+pit and a bore phase (HDPH), casing (CDIA), the casing depth at each strike
+(`WSTG_CAS`) and backfill (BKFL) for holes with no installation. The data are
+the London crawls' (Made Ground and water-strike crawls) CDIA, WSTG and BKFL
+groups, de-duplicated by file content (169 unique files; holes de-duplicated by
+project, `LOCA_ID` and final depth, 632 holes with GEOL). Contains data
+supplied by UKRI, OGL v3. Aggregates only; forge analysis.
+
+### The crawl
+
+- HDPH is in one accession (129866) with 7 holes (1%), too few to cite. The
+  inspection pit's depth and its place in every hole is the owner's practice
+  note (forge judgement): a hand-dug inspection pit to clear buried services is
+  standard UK practice before boring. The 1.2 m is the NE crawl's, where the pit
+  is 0 to 1.2 m in 188 of 188 rows.
+- CDIA is in 25 accessions, 224 holes (36%). 104 holes have one casing
+  diameter, 58 two, 60 three to five (222 with a usable final depth). The first string is 250 mm in 70 holes,
+  200 mm in 59, 150 mm in 28, 113 mm in 18, 300 mm in 10, 228 mm in 7. 115 holes
+  (51.3%) step down to a smaller diameter, the larger string ending at a
+  fraction of the deepest casing of P10 0.09, P25 0.16, P50 0.27, P75 0.48, P90
+  0.72. Final depth less the deepest casing depth over 222 holes: P25 0.0 m,
+  P50 1.5 m, P75 7.7 m, P90 21.0 m. Of 229 holes with CDIA and a strike the
+  deepest casing is below the strike in 210 (92%). HDIA is in one accession and
+  is not modelled.
+- `WSTG_CAS` is in 24 accessions: 226 strikes in 130 holes. Strike depth less
+  casing depth at the strike has P25 0.0 m, P50 0.5 m, P75 2.5 m, P90 5.9 m.
+  `WSTG_SEAL` is left out.
+- BKFL is in 30 accessions; 245 holes have BKFL and no PIPE or MONG, but many of
+  their sequences (concrete over grout over bentonite over sand) look like
+  installations without a PIPE record. The three sequences the preset writes:
+  bentonite alone 30, arisings alone 22, arisings over bentonite 11; the base of
+  the arisings over bentonite is at P10 0.2 m, P50 1.0 m, P90 1.2 m (n = 11).
+  Backfill is a project-level practice: 8 of 16 projects have it in all of their
+  CP-type holes and 8 in none.
+
+### What the preset takes
+
+Diameters 250, 200 and 150 mm at the first-string counts above (70, 59, 28). A
+telescoped hole steps down to a smaller size in that list, so only 250 and 200
+mm can step down (82.2% of holes), and the share is 0.62 = 51.3% / 82.2%. The
+step-down depth fraction is a skewed range (0.10 to 0.85, skew 2.2) from the pit
+base to the final casing. The final casing passes the strike in 92% of holes,
+by the same rule as tyneside-till. BKFL is carried by 0.5 of sites (8 of 16
+projects), arisings alone, bentonite alone or arisings over bentonite at
+22 : 30 : 11, in legend codes 905 and 903 only.
+
+### Fit (1,500 seeds, 8 holes each)
+
+| Quantity | Crawl | File |
+|---|---|---|
+| Holes that step down | 51.3% | 51.8% |
+| First string 250, 200, 150 mm | 44.6%, 37.6%, 17.8% (of 157) | 45.2%, 37.6%, 17.2% |
+| Casing passes the strike | 92% | 91.7% (6,230 strikes) |
+| Step-down depth fraction P10, P50, P90 | 0.09, 0.27, 0.72 | 0.11, 0.26, 0.69 |
+| Final depth less final casing P25, P50, P75, P90 (m) | 0.0, 1.5, 7.7, 21.0 | 0.1, 1.5, 8.8, 19.2 |
+| Strike less `WSTG_CAS` P50, P75, P90 (m) | 0.5, 2.5, 5.9 | 0.50, 2.2, 3.9 |
+| BKFL: arisings, bentonite, both | 34.9%, 47.6%, 17.5% | 35.4%, 47.3%, 17.2% |
+| Sites carrying BKFL | 8 of 16 projects (0.50) | 738 of 1,500 (0.49) |
+| Arisings-over-bentonite boundary P10, P50, P90 (m) | 0.2, 1.0, 1.2 | 0.30, 0.80, 1.29 |
+
+### Caveats
+
+- The London crawls were selected for water strikes and Made Ground and
+  terrace sequences, not for hole construction, so the BKFL sequence weights
+  rest on 63 holes and the boundary fit on 11. Treat both as a rough guide.
+- The inspection pit rests on a practice note and the NE crawl, not on London
+  data.
+- The pass rate is the owner's figure from the earlier count (210 of 229); a
+  count by each hole's first strike gives 119 of 133 (90%).
+- The crawl's long final-casing gaps (P90 21 m) come from casing left short
+  of cored rock; this site has none, so the file's upper tail is shorter.
+- BKFL for installed holes is not written; it is the next slice.

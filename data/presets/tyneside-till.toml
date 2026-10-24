@@ -146,9 +146,24 @@
 # pressure are forge judgement (owner decisions, niko86/laterite-forge#68; the
 # crawl's median stage-1 stress is 10.0 kPa/m and its stage ratios 2.0).
 #
+# v6 (#74): hole construction. A [construction] block gives every hole HDPH
+# (an inspection pit from 0 to 1.2 m, then CP to final depth, so LOCA_TYPE is
+# IP+CP), CDIA (one casing string, or two when telescoped, never a larger
+# diameter below a smaller one), a WSTG_CAS on every strike, and, at the sites
+# that carry it, BKFL (arisings, bentonite, or arisings over bentonite, from 0
+# to final depth, legend codes 905 and 903 only). A site draws once whether its
+# holes carry BKFL (0.7: 11 of the crawl's 15 projects). The final casing
+# passes the strike in 82% of holes (the NE crawl's rate), and WSTG_CAS never
+# exceeds the strike or the final casing. Every other group is what v5 wrote
+# (a_preset_without_its_construction_writes_the_previous_versions_bytes); the
+# construction groups are written after the suite. The inspection pit is 0 to
+# 1.2 m in 188 of 188 rows of the NE crawl and the owner's practice note
+# (forge judgement); the rest is forge analysis of the NE crawl's CDIA,
+# WSTG_CAS and BKFL (src/site/construction.rs,
+# docs/research/tyneside-till-sources.md).
 schema = 1
 name = "tyneside-till"
-version = 5
+version = 6
 summary = "Weathered, red and grey glacial till with a glaciofluvial sand and gravel lens, Tyneside, NE England."
 
 [site]
@@ -310,3 +325,24 @@ secondaries = [
     { fraction = "silt", share = 0.15 },
 ]
 basis = "BGS NGDC AGS accessions of the NE England crawl listed above: of 196 first-stratum topsoil descriptions with a colour, dark brown 83, brown 68, light brown 17, dark grey 7, dark greyish brown 6 (greyish brown 4, black 4, brownish grey 3, grey 2 and blackish brown 2 left out); of the 170 with a soil description, sandy 146, gravelly 108, clayey 93, silty 26 (forge analysis). The clause with rootlets is forge judgement (78 of 370 descriptions name rootlets). Contains data supplied by UKRI, OGL v3."
+
+[construction]
+inspection_pit_m = { min = 1.2, max = 1.2, basis = "BGS NGDC AGS accessions of the NE England crawl that hold HDPH (165950, 169655, 174053, 174059, 186779, 186814): the inspection pit (HDPH_TYPE IP) runs 0 to 1.2 m in 188 of 188 rows (forge analysis); owner's practice note (forge judgement): a hand-dug inspection pit to clear buried services is standard UK practice before boring. Contains data supplied by UKRI, OGL v3." }
+
+[construction.casing]
+diameters = [
+    { mm = 200, weight = 242 },
+    { mm = 150, weight = 187 },
+    { mm = 125, weight = 110 },
+]
+diameters_basis = "BGS NGDC AGS accessions of the NE England crawl that hold CDIA (42158, 121869, 125313, 126770, 128125, 163546, 163565, 163846, 164065, 165950, 165951, 167411, 169655, 169656, 169657, 169722, 173968, 173969, 173971, 174053, 174059, 174066, 186779): the larger (first) casing string of the 539 CDIA holes whose first string is one of the three commonest sizes, 200 mm in 242 holes, 150 mm in 187 and 125 mm in 110 (250 mm 33 holes, 140 mm 19 and 116 mm 14 left out; 622 holes in all), forge analysis. A telescoped hole steps down to a smaller size from this list by the same weights. Contains data supplied by UKRI, OGL v3."
+telescope_share = { min = 0.28, max = 0.28, basis = "BGS NGDC AGS accessions of the NE England crawl that hold CDIA, listed under diameters_basis: 138 of 622 CDIA holes (22.2%) step down to a smaller diameter with depth. The model steps down only from 200 and 150 mm (79.6% of holes), so the share among those is 22.2% / 79.6% = 0.28 (forge calibration to the crawl: the file steps down in 22% of holes), forge analysis. Contains data supplied by UKRI, OGL v3." }
+telescope_depth_fraction = { min = 0.1, max = 0.9, basis = "BGS NGDC AGS accessions of the NE England crawl that hold CDIA, listed under diameters_basis: the larger string ends at a fraction of the deepest casing depth with P10 0.14, P50 0.50, P90 0.91 (n = 138 telescoped holes), a linear range fitted to these and measured here from the inspection pit base (forge analysis). Contains data supplied by UKRI, OGL v3." }
+final_gap_m = { min = 0.0, max = 30.0, skew = 2.8, basis = "BGS NGDC AGS accessions of the NE England crawl that hold CDIA, listed under diameters_basis: final depth less the deepest casing depth over 622 CDIA holes, P10 0.1 m, P25 0.7 m, P50 3.0 m, P75 10.5 m, P90 20.0 m. The draw is cut off where the casing would end above the inspection pit base (or at the strike), which in this site's 15-30 m holes leaves the gap as (room x u^skew); the skew is calibrated so the file's gap over many seeds (1,500 seeds, 12,000 holes) matches the crawl's median: file P25 0.4 m, P50 2.9 m, P75 9.2 m, P90 15.5 m. The upper quartile and P90 stay under the crawl's because the site has no rock for casing to be left short of (forge calibration; docs/research/tyneside-till-sources.md), forge analysis. Contains data supplied by UKRI, OGL v3." }
+passes_strike_share = { min = 0.82, max = 0.82, basis = "BGS NGDC AGS accessions of the NE England crawl that hold both CDIA and WSTG (42158, 121869, 125313, 126770, 128125, 163546, 163565, 163846, 164065, 165951, 169655, 169656, 169722, 173968, 173969, 173971, 174053, 174059, 186779): the deepest casing base is below the strike depth in 376 of 458 holes with CDIA and a strike (82%), forge analysis. Contains data supplied by UKRI, OGL v3." }
+strike_gap_m = { min = 0.0, max = 2.0, skew = 2.8, basis = "BGS NGDC AGS accessions of the NE England crawl that hold WSTG_CAS (42158, 121869, 126770, 128125, 163565, 163846, 165951, 169655, 169656, 169722, 173968, 173969, 173971, 174053, 174059, 186779): strike depth less the casing depth at the strike, P10 0.0 m, P25 0.2 m, P50 0.5 m, P75 1.6 m, P90 4.8 m (n = 227 strikes in 170 holes). The range and skew are calibrated so the file's gaps over many seeds (1,500 seeds, 871 strikes) match the crawl's median and upper quartile (file P50 0.49 m, P75 1.3 m, P90 2.6 m); the upper tail comes from the 18% of holes whose final casing stops above the strike, where the casing at the strike is the final casing, and stays under the crawl's P90 (forge calibration; docs/research/tyneside-till-sources.md), forge analysis. Contains data supplied by UKRI, OGL v3." }
+
+[construction.backfill]
+site_share = { min = 0.7, max = 0.7, basis = "BGS NGDC AGS accessions of the NE England crawl that hold BKFL (42158, 121869, 125313, 126770, 128125, 163846, 165950, 165951, 167411, 169655, 169656, 169657, 169722, 173968, 173969, 173970, 173971, 174053, 174059, 174066, 186779, 186814, 188500, 188659, 191205, 192051): backfill is a project-level practice, with 11 of 15 projects at 92% or more of their CP-type holes and 4 at none (forge analysis). Contains data supplied by UKRI, OGL v3." }
+sequence = { weights = [113, 118, 65], basis = "BGS NGDC AGS accessions of the NE England crawl that hold BKFL, listed under site_share: 405 holes with backfill and no installation (no PIPE or MONG), of which arisings alone 113, bentonite alone 118 and arisings over bentonite 65 (the rest, grout, concrete and longer sequences, left out), forge analysis. Contains data supplied by UKRI, OGL v3." }
+boundary_m = { min = 0.2, max = 1.4, skew = 2.0, basis = "BGS NGDC AGS accessions of the NE England crawl that hold BKFL, listed under site_share: depth of the base of the arisings over bentonite, P10 0.2 m, P50 0.5 m, P90 1.2 m (n = 65 holes), range and skew fitted to these (forge analysis). Contains data supplied by UKRI, OGL v3." }

@@ -411,3 +411,84 @@ fn a_tyneside_till_file_with_effective_stress_triaxial_agrees_with_python_ags4()
         );
     }
 }
+
+/// Generated london-basin and tyneside-till files, with hole construction
+/// (HDPH, CDIA, `WSTG_CAS`, BKFL and a joined `LOCA_TYPE`), pass dual
+/// validation: Rust and python-ags4 both find nothing (#74). The seeds include
+/// sites with and without backfill. Without the oracle the test skips, or
+/// under `FORGE_REQUIRE_ORACLE=1` fails.
+#[test]
+fn site_files_with_hole_construction_agree_with_python_ags4() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut with_bkfl, mut without_bkfl) = (0, 0);
+    for preset in ["tyneside-till", "london-basin"] {
+        for seed in 0..8 {
+            let seed = seed.to_string();
+            let out = dir.path().join(format!("{preset}{seed}"));
+            let made = forge(&[
+                "gen",
+                "--site",
+                preset,
+                "--seed",
+                &seed,
+                "--json",
+                "--out-dir",
+                out.to_str().unwrap(),
+            ]);
+            assert_eq!(made.status.code(), Some(0), "{}", stderr(&made));
+            let doc: serde_json::Value = serde_json::from_slice(&made.stdout).unwrap();
+            let path = doc["candidates"][0]["path"].as_str().unwrap().to_string();
+            let text = std::fs::read_to_string(&path).unwrap();
+            assert!(
+                text.contains("\"GROUP\",\"HDPH\"") && text.contains("\"GROUP\",\"CDIA\""),
+                "{preset} seed {seed} has no HDPH and CDIA"
+            );
+            assert!(
+                text.contains(",\"IP+CP\","),
+                "{preset} seed {seed}: LOCA_TYPE"
+            );
+            if text.contains("\"GROUP\",\"BKFL\"") {
+                with_bkfl += 1;
+            } else {
+                without_bkfl += 1;
+            }
+            let checked = forge(&["check", &path, "--json"]);
+            let verdict: serde_json::Value = serde_json::from_slice(&checked.stdout).unwrap();
+            if verdict["oracle"] == false {
+                assert!(
+                    std::env::var_os("FORGE_REQUIRE_ORACLE").is_none(),
+                    "FORGE_REQUIRE_ORACLE is set but there is no oracle: {}",
+                    stderr(&checked)
+                );
+                eprintln!(
+                    "SKIP hole construction dual validation: {}",
+                    stderr(&checked).trim()
+                );
+                return;
+            }
+            assert_eq!(
+                checked.status.code(),
+                Some(0),
+                "{preset} seed {seed}: {verdict}"
+            );
+            assert_eq!(
+                verdict["verdict"], "AGREE",
+                "{preset} seed {seed}: {verdict}"
+            );
+            assert_eq!(
+                verdict["rust_rules"],
+                serde_json::json!([]),
+                "{preset} {seed}"
+            );
+            assert_eq!(
+                verdict["python_rules"],
+                serde_json::json!([]),
+                "{preset} {seed}"
+            );
+        }
+    }
+    assert!(
+        with_bkfl > 0 && without_bkfl > 0,
+        "{with_bkfl} files with BKFL, {without_bkfl} without"
+    );
+}

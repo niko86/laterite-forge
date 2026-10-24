@@ -258,8 +258,20 @@ pub(crate) fn collect_abbr(groups: &[Group], dict: &Dictionary<'static>) -> Grou
             if t == "PA" {
                 for r in &g.rows {
                     let v = &r.values[ci];
-                    if !v.is_empty() {
-                        used.insert((g.headings[ci].clone(), v.clone()));
+                    if v.is_empty() {
+                        continue;
+                    }
+                    // A code joined with "+" (`IP+CP`) is listed by its parts
+                    // when each is a pick-list code and the whole is not.
+                    let heading = &g.headings[ci];
+                    let parts: Vec<&str> = v.split('+').collect();
+                    if dict.abbr_desc(heading, v).is_none()
+                        && parts.len() > 1
+                        && parts.iter().all(|p| dict.abbr_desc(heading, p).is_some())
+                    {
+                        used.extend(parts.iter().map(|p| (heading.clone(), (*p).to_string())));
+                    } else {
+                        used.insert((heading.clone(), v.clone()));
                     }
                 }
             }

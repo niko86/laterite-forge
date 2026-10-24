@@ -93,8 +93,9 @@ sources: []
 > the **site model** (ADR 0001, `docs/adr/0001-forge-owns-a-site-model.md` in
 > this repo): a preset, either a shipped one (`london-basin`, `tyneside-till`) or a TOML path,
 > describes believable synthetic ground, and forge builds holes, strata,
-> samples and the preset's test suite from it. `london-basin` v6 writes PROJ,
-> TRAN, LOCA, GEOL, SAMP, LNMC, LLPL, LDEN, TRIG/TRIT, ISPT and WSTG/WSTD,
+> samples and the preset's test suite from it. `london-basin` v7 writes PROJ,
+> TRAN, LOCA, GEOL, SAMP, LNMC, LLPL, LDEN, TRIG/TRIT, ISPT, WSTG/WSTD,
+> HDPH, CDIA and (at some sites) BKFL,
 > with every value from the property model and every range cited in the
 > preset (`docs/research/london-basin-sources.md` gives the calibration).
 > Its ISPT rows carry `ISPT_NVAL`, `ISPT_MAIN`, `ISPT_NPEN` and `ISPT_REP`; a
@@ -130,6 +131,18 @@ sources: []
 > Mohr-Coulomb envelope; `TREG_COH` and `TREG_PHI` are the least-squares line
 > through the set's three failure points. `tyneside-till` v5 adopts it;
 > `london-basin` has no source for c' and phi' and none.
+> A preset's optional `[construction]` block (ADR 0001, "Hole construction")
+> gives holes with no installation a construction record: `HDPH` (an `IP`
+> inspection pit from 0 to 1.2 m, then `CP` to final depth, so `LOCA_TYPE` is
+> `IP+CP`), `CDIA` (one casing string, or two when the hole steps down to a
+> smaller diameter, never a larger one below a smaller), a `WSTG_CAS` on every
+> strike (never deeper than the strike or the final casing), and, at sites that
+> carry it, `BKFL` (arisings, bentonite, or arisings over bentonite, tiling 0
+> to final depth, legend codes 905 and 903). The final casing passes the strike
+> at the preset's rate (82% tyneside-till, 92% london-basin). `london-basin` v7
+> and `tyneside-till` v6 adopt it, calibrated to the London and NE crawls
+> (`docs/research/*-sources.md`); a preset without the block writes the bytes
+> of the version before.
 > `--site` and `--scaffold` are mutually exclusive, and the loader refuses a
 > preset with a missing basis, an unknown key, or a suite heading no producer
 > can make, naming the field (exit 5). Every file carries a SYNTHETIC marker in

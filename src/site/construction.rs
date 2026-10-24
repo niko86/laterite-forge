@@ -1,0 +1,962 @@
+//! Hole construction: `HDPH`, `CDIA`, `WSTG_CAS` and `BKFL` for holes with no
+//! installation (ADR 0001, "Hole construction").
+//!
+//! A preset with a `[construction]` block gives every hole:
+//!
+//! - **HDPH.** Two phases that tile the hole: a hand-dug inspection pit (`IP`)
+//!   from the surface to the pit depth, then the hole's own method to final
+//!   depth. `LOCA_TYPE` is the phases joined by `+` (`IP+CP`), as the crawls
+//!   write it; both the Rust validator and python-ags4 accept the joined
+//!   code when `ABBR` lists each part (see `collect_abbr`).
+//! - **CDIA.** One casing string to the final casing depth, or two when the
+//!   hole telescopes: a larger diameter to part depth and a smaller below, so
+//!   a diameter never increases with depth. The final casing depth is the
+//!   final depth less a drawn gap, never shallower than the pit base. There is
+//!   no `HDIA`: it is rare in the crawls.
+//! - **`WSTG_CAS`** on every strike: the strike depth less a drawn gap, never
+//!   negative and never deeper than the strike or than the final casing.
+//! - **BKFL.** A site draws once whether its holes carry backfill. If so, each
+//!   hole is arisings alone, bentonite alone, or arisings over bentonite, the
+//!   layers tiling 0 to final depth, written as legend codes only.
+//!
+//! **Casing and the strike.** The final casing passes the strike at the
+//! preset's rate. A hole that passes draws its gap from the preset's
+//! distribution cut off where the casing would end at or above the strike
+//! (the same stream, scaled, so it is the distribution conditioned on
+//! passing). A hole that does not pass ends its casing somewhere between the
+//! pit base and the strike.
+//!
+//! Every draw is its own keyed stream under a `cons-` tag, so a preset without
+//! the block draws nothing and keeps its bytes, and changing the block moves
+//! only the construction rows (and `LOCA_TYPE`, and `WSTG_CAS`).
+
+use laterite_ags4_validator::{DictVersion, Dictionary};
+
+use super::build::Site;
+use super::draw::{Key, uniform};
+use super::preset::{CasingDiameter, Construction, Preset, Range};
+use super::water;
+use crate::synth::model::{Group, Row};
+
+/// The inspection pit's `HDPH_TYPE` and `LOCA_TYPE` code.
+const PIT: &str = "IP";
+
+/// `BKFL_LEG`: arisings.
+pub(super) const ARISINGS: &str = "905";
+
+/// `BKFL_LEG`: bentonite.
+pub(super) const BENTONITE: &str = "903";
+
+/// What construction put into every hole.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Plan {
+    pub holes: Vec<HoleBuild>,
+}
+
+/// One hole's construction.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct HoleBuild {
+    /// Base of the inspection pit, 2 decimal places.
+    pub pit_base: f64,
+    /// The hole's own method: the phase from the pit base to final depth.
+    pub phase: String,
+    /// `(CDIA_DPTH, CDIA_DIAM)` top-down: one string or two, the diameter
+    /// never increasing.
+    pub casing: Vec<(f64, u32)>,
+    /// `WSTG_CAS` for the hole's strike, when it has one in the file.
+    pub strike_casing: Option<f64>,
+    /// `(BKFL_TOP, BKFL_BASE, BKFL_LEG)` top-down; empty when the site's holes
+    /// carry no backfill.
+    pub backfill: Vec<(f64, f64, &'static str)>,
+}
+
+impl HoleBuild {
+    /// The `LOCA_TYPE` the phases make: `IP+CP`.
+    pub(super) fn loca_type(&self) -> String {
+        format!("{PIT}+{}", self.phase)
+    }
+}
+
+/// The draws that belong to the whole site, made once.
+struct SiteDraws {
+    telescope_share: f64,
+    passes_strike_share: f64,
+    has_backfill: bool,
+}
+
+impl SiteDraws {
+    fn new(c: &Construction, seed: u64) -> Self {
+        let share = |tag: &str, r: &Range| uniform(&mut Key::site(tag).rng(seed), r.min, r.max);
+        let backfill_share = share("cons-backfill-share", &c.backfill.site_share);
+        let site_u = uniform(&mut Key::site("cons-backfill-site").rng(seed), 0.0, 1.0);
+        SiteDraws {
+            telescope_share: share("cons-telescope-share", &c.casing.telescope_share),
+            passes_strike_share: share("cons-pass-share", &c.casing.passes_strike_share),
+            has_backfill: site_u < backfill_share,
+        }
+    }
+}
+
+/// The construction of every hole, or `None` when the preset has none.
+pub(super) fn plan(site: &Site, preset: &Preset, seed: u64) -> Option<Plan> {
+    let c = preset.construction.as_ref()?;
+    // A strike is in the file only when the suite lists WSTG; casing is
+    // arranged around it only then.
+    let strikes = if preset.suite.iter().any(|e| e.group == "WSTG") {
+        water::strikes(site, preset, seed)
+    } else {
+        Vec::new()
+    };
+    let draws = SiteDraws::new(c, seed);
+    let holes = site
+        .holes
+        .iter()
+        .enumerate()
+        .map(|(hi, hole)| {
+            let strike = strikes.iter().find(|s| s.hole == hi).map(|s| s.depth);
+            build_hole(
+                c,
+                &draws,
+                seed,
+                hi,
+                hole.final_depth,
+                &hole.loca_type,
+                strike,
+            )
+        })
+        .collect();
+    Some(Plan { holes })
+}
+
+fn build_hole(
+    c: &Construction,
+    draws: &SiteDraws,
+    seed: u64,
+    hi: usize,
+    final_depth: f64,
+    phase: &str,
+    strike: Option<f64>,
+) -> HoleBuild {
+    let pit_base = round2(uniform(
+        &mut Key::hole("cons-pit", hi).rng(seed),
+        c.inspection_pit_m.min,
+        c.inspection_pit_m.max,
+    ));
+    let final_casing = final_casing(c, draws, seed, hi, final_depth, pit_base, strike);
+    let casing = casing_strings(c, draws, seed, hi, pit_base, final_casing);
+    let strike_casing = strike.map(|s| {
+        let u = uniform(&mut Key::hole("cons-strike-casing", hi).rng(seed), 0.0, 1.0);
+        let at = round2((s - skewed(&c.casing.strike_gap_m, u)).max(0.0));
+        at.min(final_casing).min(s)
+    });
+    HoleBuild {
+        pit_base,
+        phase: phase.to_string(),
+        casing,
+        strike_casing,
+        backfill: backfill(c, draws, seed, hi, final_depth),
+    }
+}
+
+/// The final casing depth: the final depth less a drawn gap, arranged around
+/// the strike as the module doc says.
+fn final_casing(
+    c: &Construction,
+    draws: &SiteDraws,
+    seed: u64,
+    hi: usize,
+    final_depth: f64,
+    pit_base: f64,
+    strike: Option<f64>,
+) -> f64 {
+    let mut rng = Key::hole("cons-casing", hi).rng(seed);
+    let u_gap = uniform(&mut rng, 0.0, 1.0);
+    let u_pass = uniform(&mut rng, 0.0, 1.0);
+    let u_above = uniform(&mut rng, 0.0, 1.0);
+    let passes = u_pass < draws.passes_strike_share;
+    let deepest_above = |floor: f64| {
+        // The deepest the casing may end below the final depth: the gap
+        // cannot take it above `floor`.
+        let room = (final_depth - floor).max(0.0);
+        let r = &c.casing.final_gap_m;
+        let cap = if room <= r.min {
+            0.0
+        } else if r.max <= r.min {
+            1.0
+        } else {
+            ((room - r.min) / (r.max - r.min))
+                .powf(1.0 / r.skew.unwrap_or(1.0))
+                .min(1.0)
+        };
+        let gap = skewed(r, u_gap * cap).min(room);
+        round2(final_depth - gap).max(round2(floor))
+    };
+    match strike {
+        // Passing the strike: the casing ends below it.
+        Some(s) if passes && s + 0.01 <= final_depth => {
+            deepest_above(pit_base.max(round2(s + 0.01)))
+        }
+        // Not passing: between the pit base and the strike.
+        Some(s) => {
+            let hi_ = s.min(final_depth);
+            round2(pit_base + (hi_ - pit_base).max(0.0) * u_above).min(final_depth)
+        }
+        None => deepest_above(pit_base),
+    }
+}
+
+/// The casing strings: `(base depth, diameter)` top-down.
+fn casing_strings(
+    c: &Construction,
+    draws: &SiteDraws,
+    seed: u64,
+    hi: usize,
+    pit_base: f64,
+    final_casing: f64,
+) -> Vec<(f64, u32)> {
+    let mut rng = Key::hole("cons-diameter", hi).rng(seed);
+    let u_first = uniform(&mut rng, 0.0, 1.0);
+    let u_tele = uniform(&mut rng, 0.0, 1.0);
+    let u_second = uniform(&mut rng, 0.0, 1.0);
+    let u_part = uniform(&mut rng, 0.0, 1.0);
+    let all: Vec<&CasingDiameter> = c.casing.diameters.iter().collect();
+    let first = pick(&all, u_first).mm;
+    let smaller: Vec<&CasingDiameter> = all.into_iter().filter(|d| d.mm < first).collect();
+    let step = (u_tele < draws.telescope_share && smaller.iter().any(|d| d.weight > 0.0))
+        .then(|| pick(&smaller, u_second).mm);
+    if let Some(second) = step {
+        let part = round2(
+            pit_base
+                + skewed(&c.casing.telescope_depth_fraction, u_part) * (final_casing - pit_base),
+        );
+        if part > pit_base && part < final_casing {
+            return vec![(part, first), (final_casing, second)];
+        }
+    }
+    vec![(final_casing, first)]
+}
+
+/// The diameter at cumulative weight `u` of the total; never a zero-weight one.
+fn pick<'a>(items: &[&'a CasingDiameter], u: f64) -> &'a CasingDiameter {
+    let total: f64 = items.iter().map(|d| d.weight).sum();
+    let target = u * total;
+    let mut cum = 0.0;
+    for d in items {
+        cum += d.weight;
+        if d.weight > 0.0 && target < cum {
+            return d;
+        }
+    }
+    items
+        .iter()
+        .rev()
+        .find(|d| d.weight > 0.0)
+        .expect("a diameter has weight")
+}
+
+/// The backfill layers of a hole, top-down, tiling 0 to `final_depth`.
+fn backfill(
+    c: &Construction,
+    draws: &SiteDraws,
+    seed: u64,
+    hi: usize,
+    final_depth: f64,
+) -> Vec<(f64, f64, &'static str)> {
+    let mut rng = Key::hole("cons-backfill", hi).rng(seed);
+    let u_seq = uniform(&mut rng, 0.0, 1.0);
+    let u_boundary = uniform(&mut rng, 0.0, 1.0);
+    if !draws.has_backfill {
+        return Vec::new();
+    }
+    let w = c.backfill.sequence_weights;
+    let target = u_seq * w.iter().sum::<f64>();
+    let pick = if target < w[0] {
+        0
+    } else if target < w[0] + w[1] {
+        1
+    } else {
+        2
+    };
+    // A zero weight is never chosen: the cumulative test above skips an empty
+    // band only when the band lies at the end, so settle those by weight.
+    let pick = if w[pick] > 0.0 {
+        pick
+    } else {
+        (0..3)
+            .rev()
+            .find(|&i| w[i] > 0.0)
+            .expect("a weight is positive")
+    };
+    let boundary =
+        round2(skewed(&c.backfill.boundary_m, u_boundary)).clamp(0.01, round2(final_depth - 0.01));
+    match pick {
+        0 => vec![(0.0, final_depth, ARISINGS)],
+        1 => vec![(0.0, final_depth, BENTONITE)],
+        _ => vec![
+            (0.0, boundary, ARISINGS),
+            (boundary, final_depth, BENTONITE),
+        ],
+    }
+}
+
+/// `min + (max - min) * u^skew`.
+fn skewed(r: &Range, u: f64) -> f64 {
+    r.min + (r.max - r.min) * u.powf(r.skew.unwrap_or(1.0))
+}
+
+/// The construction groups, in file order: `HDPH`, `CDIA`, then `BKFL` when
+/// the site's holes carry it.
+pub(super) fn groups(site: &Site, plan: &Plan) -> Vec<Group> {
+    let hole = |i: usize| (&site.holes[i], &plan.holes[i]);
+    let hdph = (0..site.holes.len()).flat_map(|i| {
+        let (h, b) = hole(i);
+        [
+            Row::owned(vec![h.id.clone(), m2(0.0), m2(b.pit_base), PIT.to_string()]),
+            Row::owned(vec![
+                h.id.clone(),
+                m2(b.pit_base),
+                m2(h.final_depth),
+                b.phase.clone(),
+            ]),
+        ]
+    });
+    let cdia = (0..site.holes.len()).flat_map(|i| {
+        let (h, b) = hole(i);
+        b.casing
+            .iter()
+            .map(|&(depth, mm)| Row::owned(vec![h.id.clone(), m2(depth), mm.to_string()]))
+            .collect::<Vec<_>>()
+    });
+    let bkfl = (0..site.holes.len()).flat_map(|i| {
+        let (h, b) = hole(i);
+        b.backfill
+            .iter()
+            .map(|&(top, base, leg)| {
+                Row::owned(vec![h.id.clone(), m2(top), m2(base), leg.to_string()])
+            })
+            .collect::<Vec<_>>()
+    });
+    let mut out = vec![
+        dict_group(
+            "HDPH",
+            &["LOCA_ID", "HDPH_TOP", "HDPH_BASE", "HDPH_TYPE"],
+            hdph.collect(),
+        ),
+        dict_group(
+            "CDIA",
+            &["LOCA_ID", "CDIA_DPTH", "CDIA_DIAM"],
+            cdia.collect(),
+        ),
+    ];
+    let bkfl: Vec<Row> = bkfl.collect();
+    if !bkfl.is_empty() {
+        out.push(dict_group(
+            "BKFL",
+            &["LOCA_ID", "BKFL_TOP", "BKFL_BASE", "BKFL_LEG"],
+            bkfl,
+        ));
+    }
+    out
+}
+
+/// `code` over `headings`, with the units and types from the dictionary.
+fn dict_group(code: &str, headings: &[&str], rows: Vec<Row>) -> Group {
+    let dict = Dictionary::bundled(DictVersion::V4_2);
+    let entry = |h: &str| dict.heading(code, h).expect("heading exists");
+    Group {
+        code: code.to_string(),
+        headings: headings.iter().map(ToString::to_string).collect(),
+        units: headings.iter().map(|h| entry(h).unit.to_string()).collect(),
+        types: headings
+            .iter()
+            .map(|h| entry(h).ags_type.to_string())
+            .collect(),
+        rows,
+    }
+}
+
+fn m2(v: f64) -> String {
+    format!("{v:.2}")
+}
+
+fn round2(v: f64) -> f64 {
+    (v * 100.0).round() / 100.0
+}
+
+#[cfg(test)]
+// Depths are written to 2 decimal places and compared as the exact values
+// the plan rounded to.
+#[allow(clippy::float_cmp)]
+mod tests {
+    use super::super::build::{self, Grid, tests::FIXTURE};
+    use super::super::preset::Preset;
+    use super::*;
+    use crate::pipeline::rust_check;
+    use crate::synth::emit::emit_to_string;
+    use crate::synth::model::ProjectModel;
+    use laterite_ags4_parity::RustResult;
+    use std::collections::BTreeMap;
+
+    /// Water groups, so there are strikes to case.
+    const WATER: &str = r#"
+[[suite]]
+group = "WSTG"
+headings = []
+
+[[suite]]
+group = "WSTD"
+headings = []
+"#;
+
+    /// A construction block on the main fixture. Its shortest final depth is
+    /// 20 m, above every pit and boundary maximum.
+    const BLOCK: &str = r#"
+[construction]
+inspection_pit_m = { min = 1.0, max = 1.4, basis = "test fixture" }
+
+[construction.casing]
+diameters = [
+    { mm = 200, weight = 3 },
+    { mm = 150, weight = 2 },
+    { mm = 125, weight = 1 },
+]
+diameters_basis = "test fixture"
+telescope_share = { min = 0.5, max = 0.5, basis = "test fixture" }
+telescope_depth_fraction = { min = 0.2, max = 0.8, basis = "test fixture" }
+final_gap_m = { min = 0.0, max = 10.0, skew = 2.0, basis = "test fixture" }
+passes_strike_share = { min = 0.8, max = 0.8, basis = "test fixture" }
+strike_gap_m = { min = 0.0, max = 3.0, skew = 2.0, basis = "test fixture" }
+
+[construction.backfill]
+site_share = { min = 0.5, max = 0.5, basis = "test fixture" }
+sequence = { weights = [1, 1, 1], basis = "test fixture" }
+boundary_m = { min = 0.3, max = 1.5, basis = "test fixture" }
+"#;
+
+    fn text() -> String {
+        format!("{FIXTURE}{WATER}{BLOCK}")
+    }
+
+    /// The fixture text with one exact snippet of the block replaced.
+    fn with(from: &str, to: &str) -> String {
+        assert!(BLOCK.contains(from), "block fixture lacks {from:?}");
+        text().replacen(from, to, 1)
+    }
+
+    fn preset() -> Preset {
+        Preset::from_toml(&text()).expect("the construction fixture loads")
+    }
+
+    fn model(p: &Preset, seed: u64, holes: usize) -> ProjectModel {
+        build::lower(&build::build(p, seed, holes), p, seed, Grid::Local)
+    }
+
+    fn rows<'a>(m: &'a ProjectModel, code: &str) -> Vec<&'a [String]> {
+        m.groups
+            .iter()
+            .find(|g| g.code == code)
+            .map_or_else(Vec::new, |g| {
+                g.rows.iter().map(|r| r.values.as_slice()).collect()
+            })
+    }
+
+    fn num(s: &str) -> f64 {
+        s.parse().expect("a number")
+    }
+
+    /// Every group's rows by code, for comparing two files group by group.
+    fn by_group(m: &ProjectModel) -> BTreeMap<String, Vec<Vec<String>>> {
+        m.groups
+            .iter()
+            .map(|g| {
+                (
+                    g.code.clone(),
+                    g.rows.iter().map(|r| r.values.clone()).collect(),
+                )
+            })
+            .collect()
+    }
+
+    /// The groups that differ between two files.
+    fn differing(a: &ProjectModel, b: &ProjectModel) -> Vec<String> {
+        let (a, b) = (by_group(a), by_group(b));
+        let mut out: Vec<String> = a
+            .keys()
+            .chain(b.keys())
+            .filter(|k| a.get(*k) != b.get(*k))
+            .cloned()
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    fn refused(text: &str, needle: &str) {
+        let errs = Preset::from_toml(text).expect_err("should be refused").0;
+        assert!(
+            errs.iter().any(|e| e.contains(needle)),
+            "{needle:?} is not among {errs:#?}"
+        );
+    }
+
+    #[test]
+    fn the_loader_reads_the_block_into_typed_values() {
+        let p = preset();
+        let c = p.construction.as_ref().expect("a construction block");
+        assert_eq!((c.inspection_pit_m.min, c.inspection_pit_m.max), (1.0, 1.4));
+        let diameters: Vec<(u32, f64)> = c
+            .casing
+            .diameters
+            .iter()
+            .map(|d| (d.mm, d.weight))
+            .collect();
+        assert_eq!(diameters, [(200, 3.0), (150, 2.0), (125, 1.0)]);
+        assert_eq!(c.casing.final_gap_m.skew, Some(2.0));
+        assert_eq!(c.casing.telescope_depth_fraction.skew, None);
+        assert_eq!(c.backfill.sequence_weights, [1.0, 1.0, 1.0]);
+        assert!(Preset::from_toml(FIXTURE).unwrap().construction.is_none());
+    }
+
+    #[test]
+    fn the_loader_refuses_a_share_outside_zero_to_one() {
+        refused(
+            &with(
+                "telescope_share = { min = 0.5,",
+                "telescope_share = { min = -0.1,",
+            ),
+            "construction.casing.telescope_share: min -0.1 is outside 0 to 1",
+        );
+        refused(
+            &with(
+                "passes_strike_share = { min = 0.8, max = 0.8,",
+                "passes_strike_share = { min = 0.8, max = 1.2,",
+            ),
+            "construction.casing.passes_strike_share: max 1.2 is outside 0 to 1",
+        );
+        refused(
+            &with(
+                "site_share = { min = 0.5, max = 0.5,",
+                "site_share = { min = 0.5, max = 1.5,",
+            ),
+            "construction.backfill.site_share: max 1.5 is outside 0 to 1",
+        );
+    }
+
+    #[test]
+    fn the_loader_refuses_a_negative_gap() {
+        refused(
+            &with("final_gap_m = { min = 0.0,", "final_gap_m = { min = -1.0,"),
+            "construction.casing.final_gap_m: min -1 is negative",
+        );
+        refused(
+            &with(
+                "strike_gap_m = { min = 0.0,",
+                "strike_gap_m = { min = -1.0,",
+            ),
+            "construction.casing.strike_gap_m: min -1 is negative",
+        );
+    }
+
+    #[test]
+    fn the_loader_refuses_a_pit_or_boundary_not_above_the_shortest_final_depth() {
+        refused(
+            &with(
+                "inspection_pit_m = { min = 1.0, max = 1.4,",
+                "inspection_pit_m = { min = 1.0, max = 20.0,",
+            ),
+            "construction.inspection_pit_m: max 20 is not above the shortest final depth \
+             (hole_types[0].final_depth_m min 20)",
+        );
+        refused(
+            &with(
+                "boundary_m = { min = 0.3, max = 1.5,",
+                "boundary_m = { min = 0.3, max = 25.0,",
+            ),
+            "construction.backfill.boundary_m: max 25 is not above the shortest final depth",
+        );
+        refused(
+            &with(
+                "inspection_pit_m = { min = 1.0,",
+                "inspection_pit_m = { min = 0.0,",
+            ),
+            "construction.inspection_pit_m: min 0 must be > 0",
+        );
+    }
+
+    #[test]
+    fn the_loader_refuses_diameter_weights_that_do_not_sum_above_zero() {
+        let zero = with("weight = 3 }", "weight = 0 }")
+            .replacen("weight = 2 }", "weight = 0 }", 1)
+            .replacen("weight = 1 }", "weight = 0 }", 1);
+        refused(&zero, "construction.casing.diameters: weights sum to zero");
+        refused(
+            &with("weight = 3 }", "weight = -3 }"),
+            "construction.casing.diameters[0].weight: -3 is negative",
+        );
+        refused(
+            &with("{ mm = 150,", "{ mm = 200,"),
+            "construction.casing.diameters[1]: 200 mm is listed twice",
+        );
+        refused(
+            &with("{ mm = 150,", "{ mm = 0,"),
+            "construction.casing.diameters[1].mm: 0 must be an integer >= 1",
+        );
+        refused(
+            &with("weights = [1, 1, 1]", "weights = [0, 0, 0]"),
+            "construction.backfill.sequence.weights: weights sum to zero",
+        );
+    }
+
+    #[test]
+    fn the_loader_refuses_a_hole_method_that_is_not_a_phase_code() {
+        // CPT is a LOCA_TYPE code but not an HDPH_TYPE one.
+        let dict = Dictionary::bundled(DictVersion::V4_2);
+        assert!(dict.abbr_codes("LOCA_TYPE").contains(&"CPT"));
+        assert!(!dict.abbr_codes("HDPH_TYPE").contains(&"CPT"));
+        refused(
+            &text().replacen("code = \"RC\"", "code = \"CPT\"", 1),
+            "hole_types[1].code: \"CPT\" cannot follow the inspection pit",
+        );
+        // The same hole type is fine in a preset with no construction.
+        let plain = format!("{FIXTURE}{WATER}").replacen("code = \"RC\"", "code = \"CPT\"", 1);
+        assert!(Preset::from_toml(&plain).is_ok());
+    }
+
+    #[test]
+    fn the_loader_refuses_a_missing_basis_unknown_key_and_missing_table() {
+        refused(
+            &with(
+                "sequence = { weights = [1, 1, 1], basis = \"test fixture\" }",
+                "sequence = { weights = [1, 1, 1] }",
+            ),
+            "construction.backfill.sequence: no basis",
+        );
+        refused(
+            &with(
+                "final_gap_m = { min = 0.0, max = 10.0, skew = 2.0, basis = \"test fixture\" }",
+                "final_gap_m = { min = 0.0, max = 10.0, skew = 2.0 }",
+            ),
+            "construction.casing.final_gap_m: no basis",
+        );
+        refused(
+            &with(
+                "diameters_basis = \"test fixture\"",
+                "diameters_basis = \" \"",
+            ),
+            "construction.casing.diameters_basis: empty",
+        );
+        refused(
+            &with(
+                "[construction.backfill]",
+                "[construction.backfill]\nextra = 1",
+            ),
+            "construction.backfill: unknown key \"extra\"",
+        );
+        let cut = BLOCK.find("[construction.backfill]").unwrap();
+        refused(
+            &text().replace(&BLOCK[cut..], ""),
+            "construction.backfill: missing",
+        );
+        refused(
+            &with(
+                "telescope_depth_fraction = { min = 0.2, max = 0.8,",
+                "telescope_depth_fraction = { min = 0.2, max = 1.0,",
+            ),
+            "construction.casing.telescope_depth_fraction: max 1 must be < 1",
+        );
+    }
+
+    #[test]
+    fn the_codes_it_writes_are_dictionary_pick_list_values() {
+        let dict = Dictionary::bundled(DictVersion::V4_2);
+        assert!(dict.abbr_codes("HDPH_TYPE").contains(&PIT));
+        assert!(dict.abbr_codes("HDPH_TYPE").contains(&"CP"));
+        assert!(dict.abbr_codes("LOCA_TYPE").contains(&PIT));
+        let legends = dict.abbr_codes("BKFL_LEG");
+        assert!(legends.contains(&ARISINGS) && legends.contains(&BENTONITE));
+    }
+
+    #[test]
+    fn hdph_is_two_phases_that_tile_the_hole_and_loca_type_joins_them() {
+        let p = preset();
+        for seed in 0..30 {
+            let site = build::build(&p, seed, 5);
+            let m = build::lower(&site, &p, seed, Grid::Local);
+            let hdph = rows(&m, "HDPH");
+            let loca = rows(&m, "LOCA");
+            assert_eq!(hdph.len(), site.holes.len() * 2, "seed {seed}");
+            for (i, hole) in site.holes.iter().enumerate() {
+                let (pit, bore) = (hdph[2 * i], hdph[2 * i + 1]);
+                assert_eq!(pit[0], hole.id);
+                assert_eq!((pit[1].as_str(), pit[3].as_str()), ("0.00", "IP"));
+                assert!((1.0..=1.4).contains(&num(&pit[2])), "pit {}", pit[2]);
+                assert_eq!(bore[0], hole.id);
+                assert_eq!(bore[1], pit[2], "the phases tile, seed {seed}");
+                assert_eq!(num(&bore[2]), hole.final_depth, "to final depth");
+                assert_eq!(bore[3], hole.loca_type);
+                assert_eq!(loca[i][1], format!("IP+{}", hole.loca_type));
+            }
+        }
+    }
+
+    /// `(CDIA_DPTH, CDIA_DIAM)` per hole, top-down.
+    fn casing(m: &ProjectModel) -> BTreeMap<String, Vec<(f64, u32)>> {
+        let mut out: BTreeMap<String, Vec<(f64, u32)>> = BTreeMap::new();
+        for r in rows(m, "CDIA") {
+            out.entry(r[0].clone())
+                .or_default()
+                .push((num(&r[1]), r[2].parse().unwrap()));
+        }
+        out
+    }
+
+    #[test]
+    fn every_hole_is_cased_with_diameters_that_never_increase_and_depths_in_bounds() {
+        let p = preset();
+        let (mut telescoped, mut single) = (0, 0);
+        for seed in 0..60 {
+            let site = build::build(&p, seed, 6);
+            let m = build::lower(&site, &p, seed, Grid::Local);
+            let cased = casing(&m);
+            assert_eq!(cased.len(), site.holes.len(), "CDIA in every hole");
+            let hdph = rows(&m, "HDPH");
+            for (i, hole) in site.holes.iter().enumerate() {
+                let strings = &cased[&hole.id];
+                assert!(strings.len() == 1 || strings.len() == 2);
+                let pit_base = num(&hdph[2 * i][2]);
+                for w in strings.windows(2) {
+                    assert!(w[0].0 < w[1].0, "depths increase: {strings:?}");
+                    assert!(w[0].1 > w[1].1, "diameters step down: {strings:?}");
+                }
+                for &(depth, _) in strings {
+                    assert!(depth >= pit_base, "casing above the pit base, seed {seed}");
+                    assert!(depth <= hole.final_depth, "casing below the hole");
+                }
+                assert!(strings.iter().all(|s| [200, 150, 125].contains(&s.1)));
+                if strings.len() == 2 {
+                    telescoped += 1;
+                } else {
+                    single += 1;
+                }
+            }
+        }
+        assert!(
+            telescoped > 20 && single > 20,
+            "{telescoped} telescoped, {single} single"
+        );
+    }
+
+    #[test]
+    fn wstg_cas_is_on_every_strike_never_negative_and_within_the_casing() {
+        let p = preset();
+        let mut seen = 0;
+        for seed in 0..80 {
+            let m = model(&p, seed, 6);
+            let cased = casing(&m);
+            for r in rows(&m, "WSTG") {
+                assert_eq!(r.len(), 3, "WSTG_CAS is written");
+                let (strike, cas) = (num(&r[1]), num(&r[2]));
+                let deepest = cased[&r[0]].last().unwrap().0;
+                assert!(cas >= 0.0, "negative WSTG_CAS, seed {seed}");
+                assert!(cas <= strike, "casing {cas} below the strike {strike}");
+                assert!(
+                    cas <= deepest,
+                    "casing {cas} below the final casing {deepest}"
+                );
+                seen += 1;
+            }
+        }
+        assert!(seen > 50, "{seen} strikes is too few to mean anything");
+    }
+
+    #[test]
+    fn a_preset_without_a_water_group_writes_no_wstg() {
+        let no_water = format!("{FIXTURE}{BLOCK}");
+        let p = Preset::from_toml(&no_water).unwrap();
+        let m = model(&p, 3, 5);
+        assert!(rows(&m, "WSTG").is_empty());
+        let strings: usize = casing(&m).values().map(Vec::len).sum();
+        assert_eq!(rows(&m, "CDIA").len(), strings);
+    }
+
+    #[test]
+    fn the_final_casing_passes_the_strike_at_the_presets_rate() {
+        let p = preset();
+        let (mut passed, mut total) = (0usize, 0usize);
+        for seed in 0..400 {
+            let site = build::build(&p, seed, 6);
+            let plan = plan(&site, &p, seed).expect("a plan");
+            for s in water::strikes(&site, &p, seed) {
+                let deepest = plan.holes[s.hole].casing.last().unwrap().0;
+                total += 1;
+                passed += usize::from(deepest > s.depth);
+            }
+        }
+        assert!(total > 600, "{total} strikes");
+        let rate = passed as f64 / total as f64;
+        assert!(
+            (rate - 0.8).abs() < 0.05,
+            "passes the strike in {rate:.3} of {total}"
+        );
+    }
+
+    /// `(hole id, top, base, legend)` rows of BKFL.
+    fn backfill_rows(m: &ProjectModel) -> Vec<(String, f64, f64, String)> {
+        rows(m, "BKFL")
+            .iter()
+            .map(|r| (r[0].clone(), num(&r[1]), num(&r[2]), r[3].clone()))
+            .collect()
+    }
+
+    #[test]
+    fn backfill_tiles_the_hole_in_legend_codes_and_is_all_or_nothing_per_site() {
+        let p = preset();
+        let (mut with, mut without, mut both) = (0, 0, 0);
+        for seed in 0..80 {
+            let site = build::build(&p, seed, 6);
+            let m = build::lower(&site, &p, seed, Grid::Local);
+            let bkfl = backfill_rows(&m);
+            if bkfl.is_empty() {
+                without += 1;
+                continue;
+            }
+            with += 1;
+            for hole in &site.holes {
+                let layers: Vec<_> = bkfl.iter().filter(|b| b.0 == hole.id).collect();
+                assert!(!layers.is_empty(), "every hole carries it, seed {seed}");
+                assert_eq!(layers[0].1, 0.0, "from the surface");
+                assert_eq!(layers.last().unwrap().2, hole.final_depth, "to final depth");
+                for w in layers.windows(2) {
+                    assert_eq!(w[0].2, w[1].1, "layers tile, seed {seed}");
+                    assert_ne!(w[0].3, w[1].3);
+                }
+                for l in &layers {
+                    assert!(l.1 < l.2);
+                    assert!(l.3 == ARISINGS || l.3 == BENTONITE, "{}", l.3);
+                }
+                if layers.len() == 2 {
+                    both += 1;
+                    assert_eq!(
+                        (layers[0].3.as_str(), layers[1].3.as_str()),
+                        (ARISINGS, BENTONITE)
+                    );
+                }
+            }
+        }
+        assert!(with > 20 && without > 20, "{with} with, {without} without");
+        assert!(both > 20, "{both} holes with arisings over bentonite");
+    }
+
+    #[test]
+    fn the_sequence_weights_pick_the_sequence() {
+        let only = |w: &str| {
+            let p = Preset::from_toml(&with("weights = [1, 1, 1]", w).replace(
+                "site_share = { min = 0.5, max = 0.5,",
+                "site_share = { min = 1.0, max = 1.0,",
+            ))
+            .unwrap();
+            let mut kinds = std::collections::BTreeSet::new();
+            for seed in 0..10 {
+                for b in backfill_rows(&model(&p, seed, 6)) {
+                    kinds.insert(b.3);
+                }
+            }
+            kinds
+        };
+        assert_eq!(only("weights = [1, 0, 0]"), [ARISINGS.to_string()].into());
+        assert_eq!(only("weights = [0, 1, 0]"), [BENTONITE.to_string()].into());
+        assert_eq!(only("weights = [0, 0, 1]").len(), 2);
+    }
+
+    #[test]
+    fn hole_k_is_the_same_whatever_the_hole_count() {
+        let p = preset();
+        let construction = |m: &ProjectModel| {
+            ["HDPH", "CDIA", "BKFL", "WSTG"]
+                .iter()
+                .map(|c| {
+                    rows(m, c)
+                        .into_iter()
+                        .filter(|r| ["BH1", "BH2", "BH3"].contains(&r[0].as_str()))
+                        .map(<[String]>::to_vec)
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+        };
+        for seed in 0..20 {
+            assert_eq!(
+                construction(&model(&p, seed, 3)),
+                construction(&model(&p, seed, 8)),
+                "seed {seed}"
+            );
+        }
+    }
+
+    #[test]
+    fn changing_the_block_moves_only_construction_rows() {
+        let p = preset();
+        let edits: [(&str, &str, &[&str]); 5] = [
+            (
+                "telescope_share = { min = 0.5, max = 0.5,",
+                "telescope_share = { min = 0.9, max = 0.9,",
+                &["CDIA"],
+            ),
+            (
+                "sequence = { weights = [1, 1, 1],",
+                "sequence = { weights = [5, 1, 1],",
+                &["ABBR", "BKFL"],
+            ),
+            (
+                "strike_gap_m = { min = 0.0, max = 3.0,",
+                "strike_gap_m = { min = 0.0, max = 1.0,",
+                &["WSTG"],
+            ),
+            (
+                "diameters_basis = \"test fixture\"",
+                "diameters_basis = \"another basis\"",
+                &[],
+            ),
+            (
+                "boundary_m = { min = 0.3, max = 1.5,",
+                "boundary_m = { min = 0.5, max = 1.0,",
+                &["BKFL"],
+            ),
+        ];
+        let mut moved = 0;
+        for (from, to, allowed) in edits {
+            let q = Preset::from_toml(&with(from, to)).unwrap();
+            for seed in 0..12 {
+                let diff = differing(&model(&p, seed, 5), &model(&q, seed, 5));
+                assert!(
+                    diff.iter().all(|g| allowed.contains(&g.as_str())),
+                    "{from:?}: {diff:?} moved"
+                );
+                moved += diff.len();
+            }
+        }
+        assert!(moved > 0, "the edits changed nothing at all");
+    }
+
+    #[test]
+    fn a_preset_without_the_block_has_none_of_its_groups() {
+        let mut p = preset();
+        p.construction = None;
+        let m = model(&p, 2, 5);
+        for code in ["HDPH", "CDIA", "BKFL"] {
+            assert!(rows(&m, code).is_empty(), "{code}");
+        }
+        assert!(rows(&m, "WSTG").iter().all(|r| r.len() == 2));
+        assert!(rows(&m, "LOCA").iter().all(|r| !r[1].contains('+')));
+    }
+
+    #[test]
+    fn construction_files_are_clean_by_construction() {
+        let p = preset();
+        for seed in 0..12 {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("site.ags");
+            std::fs::write(&path, emit_to_string(&model(&p, seed, 6))).unwrap();
+            assert_eq!(rust_check(&path).0, RustResult::Clean, "seed {seed}");
+        }
+    }
+}

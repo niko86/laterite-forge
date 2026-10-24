@@ -51,6 +51,10 @@ pub struct Preset {
     /// The topsoil and hard surfacing that can cap a hole; `None` when the
     /// preset has none (ADR 0001, "Cover layer").
     pub cover: Option<Cover>,
+    /// How each hole was put down: inspection pit, casing, water-strike
+    /// casing and backfill; `None` when the preset has none (ADR 0001, "Hole
+    /// construction").
+    pub construction: Option<Construction>,
 }
 
 /// The cover layer: what lies on the ground before the first stratum. Each
@@ -89,6 +93,62 @@ pub struct Topsoil {
     pub thickness_m: Range,
     pub description: TopsoilSpec,
     pub description_basis: String,
+}
+
+/// Hole construction for holes with no installation: the `HDPH` phases, the
+/// `CDIA` casing, the casing depth at the strike (`WSTG_CAS`) and the `BKFL`
+/// backfill. A hole is a hand-dug inspection pit from the surface to
+/// `inspection_pit_m`, then its own boring method to final depth.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Construction {
+    /// Depth of the inspection pit, drawn per hole.
+    pub inspection_pit_m: Range,
+    pub casing: Casing,
+    pub backfill: Backfill,
+}
+
+/// The casing string(s) and how they relate to the water strike.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Casing {
+    /// The diameters a string can have, with relative weights.
+    pub diameters: Vec<CasingDiameter>,
+    pub diameters_basis: String,
+    /// The share of holes that telescope (a larger string to part depth, then
+    /// a smaller one) among those whose larger string has a smaller diameter
+    /// to step down to; drawn once per site.
+    pub telescope_share: Range,
+    /// Where the larger string ends, as a fraction of the way from the
+    /// inspection pit's base to the final casing depth.
+    pub telescope_depth_fraction: Range,
+    /// Final depth less final casing depth, metres, per hole.
+    pub final_gap_m: Range,
+    /// The share of holes whose final casing is deeper than the strike; drawn
+    /// once per site.
+    pub passes_strike_share: Range,
+    /// Strike depth less the casing depth at the strike (`WSTG_CAS`), metres,
+    /// per strike.
+    pub strike_gap_m: Range,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CasingDiameter {
+    pub mm: u32,
+    pub weight: f64,
+}
+
+/// Backfill of a hole with no installation: arisings, bentonite, or arisings
+/// over bentonite, from 0 to final depth.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Backfill {
+    /// The share of sites whose holes carry `BKFL` at all; each site draws
+    /// once whether they do.
+    pub site_share: Range,
+    /// Relative weights of arisings alone, bentonite alone and arisings over
+    /// bentonite.
+    pub sequence_weights: [f64; 3],
+    pub sequence_basis: String,
+    /// Depth of the arisings/bentonite boundary where there is one, per hole.
+    pub boundary_m: Range,
 }
 
 // Every field carries its unit as the TOML key does (`_m`).
@@ -1198,6 +1258,7 @@ fn read_preset(root: &Table, errs: &mut Vec<String>) -> Option<Preset> {
     let lenses = read_lenses(&mut n, errs);
     let suite = read_suite(&mut n, errs);
     let cover = read_cover(&mut n, errs);
+    let construction = read_construction(&mut n, errs);
     n.finish(errs);
 
     let preset = Preset {
@@ -1210,8 +1271,10 @@ fn read_preset(root: &Table, errs: &mut Vec<String>) -> Option<Preset> {
         lenses: lenses?,
         suite: suite?,
         cover: cover?,
+        construction: construction?,
     };
     check_cover_depth(&preset, errs);
+    check_construction(&preset, errs);
     // Entries that failed to load are missing from the suite, which would
     // shift the indices the checks name.
     if errs.is_empty() {
@@ -1276,6 +1339,240 @@ fn read_cover(n: &mut Node, errs: &mut Vec<String>) -> Option<Option<Cover>> {
         ));
     }
     Some(Some(Cover { surfacing, topsoil }))
+}
+
+/// The optional `[construction]`: `None` inside when absent. The outer `None`
+/// is a problem already reported.
+// Outer `None` is a reported problem; inner `None` is "not written".
+#[allow(clippy::option_option)]
+fn read_construction(n: &mut Node, errs: &mut Vec<String>) -> Option<Option<Construction>> {
+    if !n.table.contains_key("construction") {
+        n.get("construction");
+        return Some(None);
+    }
+    let mut c = req_table(n, "construction", errs)?;
+    let pit = read_range(&mut c, "inspection_pit_m", errs).and_then(|r| {
+        if r.min > 0.0 {
+            Some(r)
+        } else {
+            errs.push(format!(
+                "{}: min {} must be > 0",
+                c.at("inspection_pit_m"),
+                r.min
+            ));
+            None
+        }
+    });
+    let casing = req_table(&mut c, "casing", errs).and_then(|k| read_casing(k, errs));
+    let backfill = req_table(&mut c, "backfill", errs).and_then(|b| read_backfill(b, errs));
+    c.finish(errs);
+    Some(Some(Construction {
+        inspection_pit_m: pit?,
+        casing: casing?,
+        backfill: backfill?,
+    }))
+}
+
+fn read_casing(mut k: Node, errs: &mut Vec<String>) -> Option<Casing> {
+    let diameters = read_diameters(&mut k, errs);
+    let diameters_basis = nonempty_str(&mut k, "diameters_basis", errs);
+    let telescope_share = read_unit_range(&mut k, "telescope_share", errs);
+    let telescope_depth_fraction = read_open_fraction(&mut k, "telescope_depth_fraction", errs);
+    let final_gap_m = read_gap(&mut k, "final_gap_m", errs);
+    let passes_strike_share = read_unit_range(&mut k, "passes_strike_share", errs);
+    let strike_gap_m = read_gap(&mut k, "strike_gap_m", errs);
+    k.finish(errs);
+    Some(Casing {
+        diameters: diameters?,
+        diameters_basis: diameters_basis?,
+        telescope_share: telescope_share?,
+        telescope_depth_fraction: telescope_depth_fraction?,
+        final_gap_m: final_gap_m?,
+        passes_strike_share: passes_strike_share?,
+        strike_gap_m: strike_gap_m?,
+    })
+}
+
+/// `diameters = [{ mm, weight }, ...]`: positive whole millimetres, each
+/// once, with non-negative weights that are not all zero.
+fn read_diameters(k: &mut Node, errs: &mut Vec<String>) -> Option<Vec<CasingDiameter>> {
+    let at = k.at("diameters");
+    let items: Vec<Node> = match k.get("diameters") {
+        None => {
+            errs.push(format!("{at}: missing"));
+            return None;
+        }
+        Some(Value::Array(a)) => {
+            let mut nodes = Vec::new();
+            for (i, v) in a.iter().enumerate() {
+                if let Value::Table(t) = v {
+                    nodes.push(Node::new(t, format!("{at}[{i}]")));
+                } else {
+                    errs.push(format!("{at}[{i}]: must be a table"));
+                    return None;
+                }
+            }
+            nodes
+        }
+        Some(_) => {
+            errs.push(format!("{at}: must be an array of tables"));
+            return None;
+        }
+    };
+    if items.is_empty() {
+        errs.push(format!("{at}: at least one is required"));
+        return None;
+    }
+    let mut out: Vec<CasingDiameter> = Vec::new();
+    let mut ok = true;
+    for mut d in items {
+        let mm = req_int(&mut d, "mm", errs).and_then(|v| match u32::try_from(v) {
+            Ok(v) if v >= 1 => Some(v),
+            _ => {
+                errs.push(format!("{}: {v} must be an integer >= 1", d.at("mm")));
+                None
+            }
+        });
+        let weight = num(d.get("weight"), &d.at("weight"), errs).and_then(|w| {
+            if w >= 0.0 {
+                Some(w)
+            } else {
+                errs.push(format!("{}: {w} is negative", d.at("weight")));
+                None
+            }
+        });
+        let at = d.path.clone();
+        d.finish(errs);
+        match (mm, weight) {
+            (Some(mm), Some(weight)) => {
+                if out.iter().any(|x| x.mm == mm) {
+                    errs.push(format!("{at}: {mm} mm is listed twice"));
+                    ok = false;
+                }
+                out.push(CasingDiameter { mm, weight });
+            }
+            _ => ok = false,
+        }
+    }
+    if ok && out.iter().map(|d| d.weight).sum::<f64>() <= 0.0 {
+        errs.push(format!("{}: weights sum to zero", k.at("diameters")));
+        ok = false;
+    }
+    ok.then_some(out)
+}
+
+fn read_backfill(mut b: Node, errs: &mut Vec<String>) -> Option<Backfill> {
+    let site_share = read_unit_range(&mut b, "site_share", errs);
+    let sequence = match read_weights::<3>(
+        &mut b,
+        "sequence",
+        "arisings, bentonite and arisings over bentonite",
+        errs,
+    ) {
+        Some(Some(w)) => Some(w),
+        Some(None) => {
+            errs.push(format!("{}: missing", b.at("sequence")));
+            None
+        }
+        None => None,
+    };
+    let boundary_m = read_thickness(&mut b, "boundary_m", errs).and_then(|r| {
+        if r.min > 0.0 {
+            Some(r)
+        } else {
+            errs.push(format!("{}: min {} must be > 0", b.at("boundary_m"), r.min));
+            None
+        }
+    });
+    b.finish(errs);
+    let (sequence_weights, sequence_basis) = sequence?;
+    Some(Backfill {
+        site_share: site_share?,
+        sequence_weights,
+        sequence_basis,
+        boundary_m: boundary_m?,
+    })
+}
+
+/// `{ min, max, basis }` with both bounds a fraction in `[0, 1]`.
+fn read_unit_range(n: &mut Node, key: &'static str, errs: &mut Vec<String>) -> Option<Range> {
+    let r = read_range(n, key, errs)?;
+    let at = n.at(key);
+    let mut fine = true;
+    for (which, v) in [("min", r.min), ("max", r.max)] {
+        if !(0.0..=1.0).contains(&v) {
+            errs.push(format!("{at}: {which} {v} is outside 0 to 1"));
+            fine = false;
+        }
+    }
+    fine.then_some(r)
+}
+
+/// `{ min, max, basis, skew? }` with both bounds strictly between 0 and 1.
+fn read_open_fraction(n: &mut Node, key: &'static str, errs: &mut Vec<String>) -> Option<Range> {
+    let r = read_thickness(n, key, errs)?;
+    let at = n.at(key);
+    let mut fine = true;
+    if r.min <= 0.0 {
+        errs.push(format!("{at}: min {} must be > 0", r.min));
+        fine = false;
+    }
+    if r.max >= 1.0 {
+        errs.push(format!("{at}: max {} must be < 1", r.max));
+        fine = false;
+    }
+    fine.then_some(r)
+}
+
+/// `{ min, max, basis, skew? }`, a distance in metres that is never negative.
+fn read_gap(n: &mut Node, key: &'static str, errs: &mut Vec<String>) -> Option<Range> {
+    let r = read_thickness(n, key, errs)?;
+    if r.min < 0.0 {
+        errs.push(format!("{}: min {} is negative", n.at(key), r.min));
+        return None;
+    }
+    Some(r)
+}
+
+/// The construction must fit every hole it is put in: the inspection pit and
+/// the backfill boundary end above the shortest final depth, and the hole's
+/// own method must be a `HDPH_TYPE` code (it is the second phase).
+fn check_construction(preset: &Preset, errs: &mut Vec<String>) {
+    let Some(c) = &preset.construction else {
+        return;
+    };
+    let Some((at, shortest)) = preset
+        .hole_types
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (i, t.final_depth_m.min))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+    else {
+        return;
+    };
+    for (key, r) in [
+        ("inspection_pit_m", &c.inspection_pit_m),
+        ("backfill.boundary_m", &c.backfill.boundary_m),
+    ] {
+        if r.max >= shortest {
+            errs.push(format!(
+                "construction.{key}: max {} is not above the shortest final depth \
+                 (hole_types[{at}].final_depth_m min {shortest})",
+                r.max
+            ));
+        }
+    }
+    let dict = Dictionary::bundled(DictVersion::V4_2);
+    let phases = dict.abbr_codes("HDPH_TYPE");
+    for (i, t) in preset.hole_types.iter().enumerate() {
+        if t.code == "IP" || !phases.contains(&t.code.as_str()) {
+            errs.push(format!(
+                "hole_types[{i}].code: \"{}\" cannot follow the inspection pit as a \
+                 construction phase (not a HDPH_TYPE code, or IP itself)",
+                t.code
+            ));
+        }
+    }
 }
 
 /// `key` as a table node when written. Outer `None`: written but not a
@@ -2985,7 +3282,14 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
     #[test]
     fn tyneside_till_loads_with_its_tills_and_lens() {
         let p = resolve("tyneside-till").unwrap();
-        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 5));
+        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 6));
+        // v6: hole construction, with the NE crawl's casing weights.
+        let c = p
+            .construction
+            .as_ref()
+            .expect("v6 has a construction block");
+        let sizes: Vec<u32> = c.casing.diameters.iter().map(|d| d.mm).collect();
+        assert_eq!(sizes, [200, 150, 125]);
         let units: Vec<&str> = p.units.iter().map(|u| u.id.as_str()).collect();
         assert_eq!(units, ["WT", "RT", "GT"]);
         // v5: each till carries effective strength, and the suite tests it.
