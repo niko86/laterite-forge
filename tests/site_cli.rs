@@ -492,3 +492,86 @@ fn site_files_with_hole_construction_agree_with_python_ags4() {
         "{with_bkfl} files with BKFL, {without_bkfl} without"
     );
 }
+
+/// Generated london-basin and tyneside-till files with installations (PIPE,
+/// and the installed holes' own BKFL) pass dual validation: Rust and
+/// python-ags4 both find nothing (#75). Seeds are walked until each preset has
+/// written PIPE in four files, so the check always sees installations. Without
+/// the oracle the test skips, or under `FORGE_REQUIRE_ORACLE=1` fails.
+#[test]
+fn site_files_with_installations_agree_with_python_ags4() {
+    let dir = tempfile::tempdir().unwrap();
+    for preset in ["tyneside-till", "london-basin"] {
+        let mut checked_with_pipe = 0;
+        for seed in 0..120 {
+            if checked_with_pipe == 4 {
+                break;
+            }
+            let seed = seed.to_string();
+            let out = dir.path().join(format!("{preset}{seed}"));
+            let made = forge(&[
+                "gen",
+                "--site",
+                preset,
+                "--seed",
+                &seed,
+                "--json",
+                "--out-dir",
+                out.to_str().unwrap(),
+            ]);
+            assert_eq!(made.status.code(), Some(0), "{}", stderr(&made));
+            let doc: serde_json::Value = serde_json::from_slice(&made.stdout).unwrap();
+            let path = doc["candidates"][0]["path"].as_str().unwrap().to_string();
+            let text = std::fs::read_to_string(&path).unwrap();
+            if !text.contains("\"GROUP\",\"PIPE\"") {
+                continue;
+            }
+            assert!(
+                text.contains("\"GROUP\",\"BKFL\"") && text.contains(",\"SLOTTED\""),
+                "{preset} seed {seed}: BKFL and a slotted run with PIPE"
+            );
+            assert!(
+                !text.contains("\"GROUP\",\"MONG\""),
+                "{preset} seed {seed}: no MONG"
+            );
+            checked_with_pipe += 1;
+            let checked = forge(&["check", &path, "--json"]);
+            let verdict: serde_json::Value = serde_json::from_slice(&checked.stdout).unwrap();
+            if verdict["oracle"] == false {
+                assert!(
+                    std::env::var_os("FORGE_REQUIRE_ORACLE").is_none(),
+                    "FORGE_REQUIRE_ORACLE is set but there is no oracle: {}",
+                    stderr(&checked)
+                );
+                eprintln!(
+                    "SKIP installation dual validation: {}",
+                    stderr(&checked).trim()
+                );
+                return;
+            }
+            assert_eq!(
+                checked.status.code(),
+                Some(0),
+                "{preset} seed {seed}: {verdict}"
+            );
+            assert_eq!(
+                verdict["verdict"], "AGREE",
+                "{preset} seed {seed}: {verdict}"
+            );
+            assert_eq!(
+                verdict["rust_rules"],
+                serde_json::json!([]),
+                "{preset} {seed}"
+            );
+            assert_eq!(
+                verdict["python_rules"],
+                serde_json::json!([]),
+                "{preset} {seed}"
+            );
+        }
+        assert_eq!(
+            checked_with_pipe, 4,
+            "{preset}: four seeds in 0..120 write PIPE"
+        );
+    }
+}

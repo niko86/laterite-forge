@@ -1,5 +1,5 @@
-//! Hole construction: `HDPH`, `CDIA`, `WSTG_CAS` and `BKFL` for holes with no
-//! installation (ADR 0001, "Hole construction").
+//! Hole construction: `HDPH`, `CDIA`, `WSTG_CAS`, `BKFL` and, for installed
+//! holes, `PIPE` (ADR 0001, "Hole construction").
 //!
 //! A preset with a `[construction]` block gives every hole:
 //!
@@ -26,6 +26,28 @@
 //! passing). A hole that does not pass ends its casing somewhere between the
 //! pit base and the strike.
 //!
+//! **Installations** (`[construction.installation]`, #75). A site draws once
+//! whether it installs at all and, if so, what share of its holes; each hole
+//! draws against that share, and an installed hole has one installation: a
+//! standpipe (plain from the surface to the response zone, slotted through it)
+//! or a piezometer (plain, then a 0.3 m tip written as slotted). It writes a
+//! `PIPE` row per run and its own backfill, replacing whatever the site's
+//! backfill draw gave the hole.
+//!
+//! The response zone is placed in whole centimetres. Its top is the first
+//! strike plus a drawn offset, or a drawn depth when the hole has no strike.
+//! It is then clamped, not resampled, into the room the hole leaves: not above
+//! the pit base, nor so high that the cap, a seal of at least 0.1 m and the
+//! 0.5 m of filter above the slot do not fit; not so low that 0.5 m of filter
+//! and a tail of bentonite of at least 0.1 m do not fit above the final depth.
+//! The drawn gap to the final depth is raised to that 0.6 m tail when it is
+//! shorter. The preset loader rules out a final depth too shallow for the
+//! longest slotted section, so the clamp always has room. The backfill, top
+//! down: concrete cap (906), bentonite seal (903), a gravel (902) or sand
+//! (901) filter from 0.5 m above the slot to 0.5 m below it, bentonite (903)
+//! to the final depth. The layers tile 0 to the final depth exactly, and none
+//! has zero thickness.
+//!
 //! Every draw is its own keyed stream under a `cons-` tag, so a preset without
 //! the block draws nothing and keeps its bytes, and changing the block moves
 //! only the construction rows (and `LOCA_TYPE`, and `WSTG_CAS`).
@@ -34,7 +56,10 @@ use laterite_ags4_validator::{DictVersion, Dictionary};
 
 use super::build::Site;
 use super::draw::{Key, uniform};
-use super::preset::{CasingDiameter, Construction, Preset, Range};
+use super::preset::{
+    CasingDiameter, Construction, FILTER_OVERLAP_M, InstallKindName, Installation, MIN_SEAL_M,
+    Preset, Range,
+};
 use super::water;
 use crate::synth::model::{Group, Row};
 
@@ -46,6 +71,31 @@ pub(super) const ARISINGS: &str = "905";
 
 /// `BKFL_LEG`: bentonite.
 pub(super) const BENTONITE: &str = "903";
+
+/// `BKFL_LEG`: concrete.
+const CONCRETE: &str = "906";
+
+/// `BKFL_LEG`: gravel.
+const GRAVEL: &str = "902";
+
+/// `BKFL_LEG`: sand.
+const SAND: &str = "901";
+
+/// `PIPE_TYPE` of a plain run.
+const PLAIN: &str = "PLAIN";
+
+/// `PIPE_TYPE` of a slotted run (the piezometer tip too: the dictionary has
+/// no other value).
+const SLOTTED: &str = "SLOTTED";
+
+/// `PIPE_REF` of the hole's one installation.
+const PIPE_REF: &str = "1";
+
+/// Length of a piezometer's tip, centimetres.
+const TIP_CM: i64 = 30;
+
+/// Backfill layers, top-down: `(BKFL_TOP, BKFL_BASE, BKFL_LEG)`.
+type Layers = Vec<(f64, f64, &'static str)>;
 
 /// What construction put into every hole.
 #[derive(Debug, Clone, PartialEq)]
@@ -67,7 +117,19 @@ pub(super) struct HoleBuild {
     pub strike_casing: Option<f64>,
     /// `(BKFL_TOP, BKFL_BASE, BKFL_LEG)` top-down; empty when the site's holes
     /// carry no backfill.
+    /// For an installed hole this is the installed sequence.
     pub backfill: Vec<(f64, f64, &'static str)>,
+    /// The hole's installation, when it has one.
+    pub installation: Option<Installed>,
+}
+
+/// One installation: `PIPE_DIAM` and the slotted section.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Installed {
+    pub kind: InstallKindName,
+    pub mm: u32,
+    /// Top and base of the slotted section, 2 decimal places.
+    pub zone: (f64, f64),
 }
 
 impl HoleBuild {
@@ -82,6 +144,8 @@ struct SiteDraws {
     telescope_share: f64,
     passes_strike_share: f64,
     has_backfill: bool,
+    /// The share of holes installed, when the site installs at all.
+    install_share: Option<f64>,
 }
 
 impl SiteDraws {
@@ -93,6 +157,20 @@ impl SiteDraws {
             telescope_share: share("cons-telescope-share", &c.casing.telescope_share),
             passes_strike_share: share("cons-pass-share", &c.casing.passes_strike_share),
             has_backfill: site_u < backfill_share,
+            install_share: c.installation.as_ref().and_then(|i| {
+                let site_u = uniform(&mut Key::site("cons-install-site").rng(seed), 0.0, 1.0);
+                let share = uniform(
+                    &mut Key::site("cons-install-share").rng(seed),
+                    i.hole_share.min,
+                    i.hole_share.max,
+                );
+                let site_share = uniform(
+                    &mut Key::site("cons-install-site-share").rng(seed),
+                    i.site_share.min,
+                    i.site_share.max,
+                );
+                (site_u < site_share).then_some(share)
+            }),
         }
     }
 }
@@ -149,13 +227,131 @@ fn build_hole(
         let at = round2((s - skewed(&c.casing.strike_gap_m, u)).max(0.0));
         at.min(final_casing).min(s)
     });
+    let installed = c
+        .installation
+        .as_ref()
+        .zip(draws.install_share)
+        .and_then(|(i, share)| install(i, share, seed, hi, final_depth, pit_base, strike));
+    // The site's own backfill draw is made whether or not the hole is
+    // installed, so installing it moves nothing else.
+    let site_backfill = backfill(c, draws, seed, hi, final_depth);
+    let (installation, backfill) = match installed {
+        Some((inst, layers)) => (Some(inst), layers),
+        None => (None, site_backfill),
+    };
     HoleBuild {
         pit_base,
         phase: phase.to_string(),
         casing,
         strike_casing,
-        backfill: backfill(c, draws, seed, hi, final_depth),
+        backfill,
+        installation,
     }
+}
+
+/// The installation of a hole, with its backfill, or `None` when the hole is
+/// not installed. Depths are worked in whole centimetres.
+fn install(
+    i: &Installation,
+    share: f64,
+    seed: u64,
+    hi: usize,
+    final_depth: f64,
+    pit_base: f64,
+    strike: Option<f64>,
+) -> Option<(Installed, Layers)> {
+    let u_in = uniform(&mut Key::hole("cons-install-hole", hi).rng(seed), 0.0, 1.0);
+    if u_in >= share {
+        return None;
+    }
+    let mut kind_rng = Key::hole("cons-install-kind", hi).rng(seed);
+    let u_kind = uniform(&mut kind_rng, 0.0, 1.0);
+    let mut zone_rng = Key::hole("cons-install-zone", hi).rng(seed);
+    let (u_top, u_len, u_gap) = (
+        uniform(&mut zone_rng, 0.0, 1.0),
+        uniform(&mut zone_rng, 0.0, 1.0),
+        uniform(&mut zone_rng, 0.0, 1.0),
+    );
+    let mut fill_rng = Key::hole("cons-install-filter", hi).rng(seed);
+    let (u_cap, u_filter) = (
+        uniform(&mut fill_rng, 0.0, 1.0),
+        uniform(&mut fill_rng, 0.0, 1.0),
+    );
+    let weights: Vec<f64> = i.kinds.iter().map(|k| k.weight).collect();
+    let kind = &i.kinds[pick_index(&weights, u_kind)];
+
+    let fd = cm(final_depth);
+    let overlap = cm(FILTER_OVERLAP_M);
+    let cap = cm(skewed(&i.cap_m, u_cap));
+    let tail = overlap + cm(MIN_SEAL_M);
+    // The highest the zone top may be: below the pit, and with the cap, a
+    // seal and the filter above it.
+    let lo = cm(pit_base).max(cap + cm(MIN_SEAL_M) + overlap);
+    let len = match kind.kind {
+        InstallKindName::Standpipe => cm(skewed(&i.slotted_length_m, u_len)).max(1),
+        InstallKindName::Piezometer => TIP_CM,
+    };
+    // The drawn gap, raised to the tail the filter and seal need.
+    let gap = cm(skewed(&i.base_gap_m, u_gap)).max(tail);
+    let base_max = (fd - gap).max(lo + len);
+    let raw = match strike {
+        Some(s) => cm(s) + cm(skewed(&i.zone_offset_m, u_top)),
+        None => cm(skewed(&i.zone_top_m, u_top)),
+    };
+    let top = raw.min(base_max - len).max(lo);
+    let base = top + len;
+    let (ft, fb) = (top - overlap, base + overlap);
+    let leg = if pick_index(&i.filter_weights, u_filter) == 0 {
+        GRAVEL
+    } else {
+        SAND
+    };
+    let layers = [
+        (0, cap, CONCRETE),
+        (cap, ft, BENTONITE),
+        (ft, fb, leg),
+        (fb, fd, BENTONITE),
+    ]
+    .into_iter()
+    .filter(|(t, b, _)| b > t)
+    .map(|(t, b, l)| (m(t), m(b), l))
+    .collect();
+    Some((
+        Installed {
+            kind: kind.kind,
+            mm: kind.mm,
+            zone: (m(top), m(base)),
+        },
+        layers,
+    ))
+}
+
+/// The index at cumulative weight `u` of the total; never a zero-weight one.
+fn pick_index(weights: &[f64], u: f64) -> usize {
+    let target = u * weights.iter().sum::<f64>();
+    let mut cum = 0.0;
+    for (k, w) in weights.iter().enumerate() {
+        cum += w;
+        if *w > 0.0 && target < cum {
+            return k;
+        }
+    }
+    weights
+        .iter()
+        .rposition(|w| *w > 0.0)
+        .expect("a weight is positive")
+}
+
+/// Metres to whole centimetres.
+#[allow(clippy::cast_possible_truncation)]
+fn cm(v: f64) -> i64 {
+    (v * 100.0).round() as i64
+}
+
+/// Whole centimetres to metres.
+#[allow(clippy::cast_precision_loss)]
+fn m(c: i64) -> f64 {
+    c as f64 / 100.0
 }
 
 /// The final casing depth: the final depth less a drawn gap, arranged around
@@ -305,7 +501,7 @@ fn skewed(r: &Range, u: f64) -> f64 {
 }
 
 /// The construction groups, in file order: `HDPH`, `CDIA`, then `BKFL` when
-/// the site's holes carry it.
+/// the site's holes carry it, then `PIPE` when a hole is installed.
 pub(super) fn groups(site: &Site, plan: &Plan) -> Vec<Group> {
     let hole = |i: usize| (&site.holes[i], &plan.holes[i]);
     let hdph = (0..site.holes.len()).flat_map(|i| {
@@ -336,6 +532,30 @@ pub(super) fn groups(site: &Site, plan: &Plan) -> Vec<Group> {
             })
             .collect::<Vec<_>>()
     });
+    let pipe: Vec<Row> = (0..site.holes.len())
+        .flat_map(|i| {
+            let (h, b) = hole(i);
+            b.installation
+                .iter()
+                .flat_map(|inst| {
+                    let (top, base) = inst.zone;
+                    [(0.0, top, PLAIN), (top, base, SLOTTED)]
+                        .into_iter()
+                        .map(|(t, bs, ty)| {
+                            Row::owned(vec![
+                                h.id.clone(),
+                                PIPE_REF.to_string(),
+                                m2(t),
+                                m2(bs),
+                                inst.mm.to_string(),
+                                ty.to_string(),
+                            ])
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
     let mut out = vec![
         dict_group(
             "HDPH",
@@ -354,6 +574,20 @@ pub(super) fn groups(site: &Site, plan: &Plan) -> Vec<Group> {
             "BKFL",
             &["LOCA_ID", "BKFL_TOP", "BKFL_BASE", "BKFL_LEG"],
             bkfl,
+        ));
+    }
+    if !pipe.is_empty() {
+        out.push(dict_group(
+            "PIPE",
+            &[
+                "LOCA_ID",
+                "PIPE_REF",
+                "PIPE_TOP",
+                "PIPE_BASE",
+                "PIPE_DIAM",
+                "PIPE_TYPE",
+            ],
+            pipe,
         ));
     }
     out
@@ -958,5 +1192,516 @@ boundary_m = { min = 0.3, max = 1.5, basis = "test fixture" }
             std::fs::write(&path, emit_to_string(&model(&p, seed, 6))).unwrap();
             assert_eq!(rust_check(&path).0, RustResult::Clean, "seed {seed}");
         }
+    }
+
+    /// An installation table for the main fixture: half the sites install,
+    /// and on those 0.5 to 1.0 of the holes. The shortest final depth is
+    /// 20 m, above the 8 m the longest zone and its surrounds need.
+    const INSTALL: &str = r#"
+[construction.installation]
+site_share = { min = 0.5, max = 0.5, basis = "test fixture" }
+hole_share = { min = 0.5, max = 1.0, basis = "test fixture" }
+kinds = [
+    { kind = "standpipe", mm = 50, weight = 3 },
+    { kind = "piezometer", mm = 19, weight = 1 },
+]
+kinds_basis = "test fixture"
+zone_offset_m = { min = -2.0, max = 2.0, basis = "test fixture" }
+zone_top_m = { min = 1.0, max = 12.0, skew = 1.5, basis = "test fixture" }
+slotted_length_m = { min = 0.5, max = 6.0, basis = "test fixture" }
+base_gap_m = { min = 0.5, max = 8.0, basis = "test fixture" }
+cap_m = { min = 0.5, max = 0.5, basis = "test fixture" }
+filter = { weights = [3, 1], basis = "test fixture" }
+"#;
+
+    fn install_text() -> String {
+        format!("{}{INSTALL}", text())
+    }
+
+    /// The installation text with one exact snippet replaced.
+    fn install_with(from: &str, to: &str) -> String {
+        assert!(INSTALL.contains(from), "install fixture lacks {from:?}");
+        format!("{}{}", text(), INSTALL.replacen(from, to, 1))
+    }
+
+    fn install_preset() -> Preset {
+        Preset::from_toml(&install_text()).expect("the installation fixture loads")
+    }
+
+    /// The groups an installation may change in a file.
+    const INSTALL_GROUPS: [&str; 5] = ["ABBR", "BKFL", "PIPE", "TYPE", "UNIT"];
+
+    #[test]
+    fn the_loader_reads_the_installation_into_typed_values() {
+        let p = install_preset();
+        let i = p
+            .construction
+            .as_ref()
+            .unwrap()
+            .installation
+            .as_ref()
+            .expect("an installation table");
+        assert_eq!((i.site_share.min, i.hole_share.min), (0.5, 0.5));
+        let kinds: Vec<(InstallKindName, u32, f64)> =
+            i.kinds.iter().map(|k| (k.kind, k.mm, k.weight)).collect();
+        assert_eq!(
+            kinds,
+            [
+                (InstallKindName::Standpipe, 50, 3.0),
+                (InstallKindName::Piezometer, 19, 1.0)
+            ]
+        );
+        assert_eq!(i.zone_top_m.skew, Some(1.5));
+        assert_eq!(i.filter_weights, [3.0, 1.0]);
+        assert!(preset().construction.unwrap().installation.is_none());
+    }
+
+    #[test]
+    fn the_loader_refuses_an_installation_with_bad_values() {
+        for (from, to, needle) in [
+            (
+                "site_share = { min = 0.5, max = 0.5,",
+                "site_share = { min = 0.5, max = 1.5,",
+                "construction.installation.site_share: max 1.5 is outside 0 to 1",
+            ),
+            (
+                "hole_share = { min = 0.5, max = 1.0,",
+                "hole_share = { min = -0.1, max = 1.0,",
+                "construction.installation.hole_share: min -0.1 is outside 0 to 1",
+            ),
+            (
+                "slotted_length_m = { min = 0.5,",
+                "slotted_length_m = { min = 0.0,",
+                "construction.installation.slotted_length_m: min 0 must be > 0",
+            ),
+            (
+                "zone_top_m = { min = 1.0,",
+                "zone_top_m = { min = -1.0,",
+                "construction.installation.zone_top_m: min -1 must be > 0",
+            ),
+            (
+                "cap_m = { min = 0.5,",
+                "cap_m = { min = 0.0,",
+                "construction.installation.cap_m: min 0 must be > 0",
+            ),
+            (
+                "base_gap_m = { min = 0.5,",
+                "base_gap_m = { min = -0.5,",
+                "construction.installation.base_gap_m: min -0.5 is negative",
+            ),
+            (
+                "{ kind = \"standpipe\", mm = 50, weight = 3 }",
+                "{ kind = \"standpipe\", mm = 50, weight = 0 }",
+                "construction.installation.kinds[0].weight: 0 must be > 0",
+            ),
+            (
+                "{ kind = \"piezometer\", mm = 19, weight = 1 }",
+                "{ kind = \"standpipe\", mm = 19, weight = 1 }",
+                "construction.installation.kinds[1]: this kind is listed twice",
+            ),
+            (
+                "{ kind = \"piezometer\", mm = 19, weight = 1 }",
+                "{ kind = \"inclinometer\", mm = 19, weight = 1 }",
+                "construction.installation.kinds[1].kind: \"inclinometer\" is not a kind",
+            ),
+            (
+                "{ kind = \"piezometer\", mm = 19, weight = 1 }",
+                "{ kind = \"piezometer\", mm = 25, weight = 1 }",
+                "construction.installation.kinds[1].mm: 25 is not an installation diameter",
+            ),
+            (
+                "filter = { weights = [3, 1],",
+                "filter = { weights = [0, 0],",
+                "construction.installation.filter.weights: weights sum to zero",
+            ),
+            (
+                "slotted_length_m = { min = 0.5, max = 6.0,",
+                "slotted_length_m = { min = 0.5, max = 19.0,",
+                "construction.installation: the pit, cap, seal, longest slotted section",
+            ),
+        ] {
+            refused(&install_with(from, to), needle);
+        }
+    }
+
+    #[test]
+    fn the_loader_refuses_a_missing_basis_unknown_key_and_missing_part_of_the_installation() {
+        refused(
+            &install_with("kinds_basis = \"test fixture\"\n", ""),
+            "construction.installation.kinds_basis: missing",
+        );
+        refused(
+            &install_with(
+                "cap_m = { min = 0.5, max = 0.5, basis = \"test fixture\" }",
+                "cap_m = { min = 0.5, max = 0.5 }",
+            ),
+            "construction.installation.cap_m: no basis",
+        );
+        refused(
+            &install_with("kinds_basis =", "mystery = 1\nkinds_basis ="),
+            "construction.installation: unknown key \"mystery\"",
+        );
+        refused(
+            &install_with(
+                "filter = { weights = [3, 1], basis = \"test fixture\" }",
+                "",
+            ),
+            "construction.installation.filter: missing",
+        );
+        // The installation table cannot stand without the casing and backfill
+        // parts of the block that holds it.
+        let bare = format!(
+            "{FIXTURE}{WATER}\n[construction]\ninspection_pit_m = {{ min = 1.0, max = 1.4, \
+             basis = \"test fixture\" }}\n{INSTALL}"
+        );
+        refused(&bare, "construction.casing: missing");
+        refused(&bare, "construction.backfill: missing");
+    }
+
+    /// `(id, ref, top, base, diameter, type)` rows of PIPE.
+    type PipeRow = (String, String, f64, f64, String, String);
+
+    fn pipe_rows(m: &ProjectModel) -> Vec<PipeRow> {
+        rows(m, "PIPE")
+            .iter()
+            .map(|r| {
+                (
+                    r[0].clone(),
+                    r[1].clone(),
+                    num(&r[2]),
+                    num(&r[3]),
+                    r[4].clone(),
+                    r[5].clone(),
+                )
+            })
+            .collect()
+    }
+
+    /// Checks one installation's PIPE rows against the module doc's bounds and
+    /// returns the slotted section.
+    fn assert_installation_fits(
+        pipes: &[&PipeRow],
+        pit_base: f64,
+        fd: f64,
+        ctx: &str,
+    ) -> (f64, f64) {
+        assert_eq!(pipes.len(), 2, "plain then slotted, {ctx}");
+        let (plain, slotted) = (pipes[0], pipes[1]);
+        assert_eq!((plain.2, plain.5.as_str()), (0.0, "PLAIN"), "{ctx}");
+        assert_eq!(
+            (slotted.5.as_str(), slotted.2),
+            ("SLOTTED", plain.3),
+            "{ctx}"
+        );
+        assert_eq!(plain.1, "1");
+        assert_eq!(slotted.1, "1");
+        assert_eq!(plain.4, slotted.4, "one diameter, {ctx}");
+        match plain.4.as_str() {
+            "50" => assert!(slotted.3 - slotted.2 >= 0.5 - 1e-9, "{ctx}"),
+            "19" => assert!((slotted.3 - slotted.2 - 0.3).abs() < 1e-9, "the tip, {ctx}"),
+            d => panic!("diameter {d}, {ctx}"),
+        }
+        let (top, base) = (slotted.2, slotted.3);
+        assert!(top >= pit_base - 1e-9, "below the pit, {ctx}");
+        assert!(top >= 1.1 - 1e-9, "room for the cap and seal, {ctx}");
+        assert!(base <= fd - 0.6 + 1e-9, "room for the tail, {ctx}");
+        (top, base)
+    }
+
+    #[test]
+    fn pipe_is_plain_then_slotted_from_the_surface_with_the_zone_inside_the_hole() {
+        let p = install_preset();
+        let (mut standpipes, mut piezometers, mut holes) = (0, 0, 0);
+        for seed in 0..60 {
+            let site = build::build(&p, seed, 8);
+            let m = build::lower(&site, &p, seed, Grid::Local);
+            let pipes = pipe_rows(&m);
+            let hdph = rows(&m, "HDPH");
+            for hole in &site.holes {
+                let mine: Vec<_> = pipes.iter().filter(|r| r.0 == hole.id).collect();
+                if mine.is_empty() {
+                    continue;
+                }
+                holes += 1;
+                let pit_base = hdph
+                    .iter()
+                    .find(|r| r[0] == hole.id)
+                    .map(|r| num(&r[2]))
+                    .unwrap();
+                assert_installation_fits(
+                    &mine,
+                    pit_base,
+                    hole.final_depth,
+                    &format!("seed {seed} {}", hole.id),
+                );
+                match mine[0].4.as_str() {
+                    "50" => standpipes += 1,
+                    _ => piezometers += 1,
+                }
+            }
+        }
+        assert!(holes > 100, "{holes} installed holes");
+        assert!(
+            standpipes > 30 && piezometers > 10,
+            "{standpipes}/{piezometers}"
+        );
+        // 3 : 1 by weight.
+        let share = f64::from(standpipes) / f64::from(holes);
+        assert!((0.65..0.85).contains(&share), "{share}");
+    }
+
+    #[test]
+    fn an_installed_holes_backfill_tiles_the_hole_around_a_bracketed_filter() {
+        let p = install_preset();
+        let (mut gravel, mut sand, mut n) = (0, 0, 0);
+        for seed in 0..60 {
+            let site = build::build(&p, seed, 8);
+            let m = build::lower(&site, &p, seed, Grid::Local);
+            let (pipes, bkfl) = (pipe_rows(&m), backfill_rows(&m));
+            for hole in &site.holes {
+                let mine: Vec<_> = pipes.iter().filter(|r| r.0 == hole.id).collect();
+                if mine.is_empty() {
+                    continue;
+                }
+                n += 1;
+                let (top, base) = (mine[1].2, mine[1].3);
+                let layers: Vec<_> = bkfl.iter().filter(|b| b.0 == hole.id).collect();
+                let ctx = format!("seed {seed} {}", hole.id);
+                // Cap, seal, filter, tail: four layers, because the room
+                // checked above leaves each some thickness.
+                assert_eq!(layers.len(), 4, "{ctx}: {layers:?}");
+                assert_eq!(
+                    (layers[0].1, layers[0].2, layers[0].3.as_str()),
+                    (0.0, 0.5, "906"),
+                    "{ctx}"
+                );
+                assert_eq!(layers[1].3, BENTONITE, "{ctx}");
+                assert!((layers[2].1 - (top - 0.5)).abs() < 1e-9, "{ctx}");
+                assert!((layers[2].2 - (base + 0.5)).abs() < 1e-9, "{ctx}");
+                match layers[2].3.as_str() {
+                    "902" => gravel += 1,
+                    "901" => sand += 1,
+                    l => panic!("{ctx}: filter {l}"),
+                }
+                assert_eq!(layers[3].3, BENTONITE, "{ctx}");
+                assert_eq!(layers[3].2, hole.final_depth, "to final depth, {ctx}");
+                for w in layers.windows(2) {
+                    assert_eq!(w[0].2, w[1].1, "tile, {ctx}");
+                }
+                assert!(layers.iter().all(|l| l.1 < l.2), "{ctx}");
+            }
+        }
+        assert!(n > 100, "{n} installed holes");
+        // 3 : 1 by weight.
+        assert!(gravel > sand && sand > 5, "{gravel} gravel, {sand} sand");
+    }
+
+    #[test]
+    fn an_installed_hole_always_has_backfill_and_the_others_keep_the_site_draw() {
+        let p = install_preset();
+        let mut q = p.clone();
+        q.construction.as_mut().unwrap().installation = None;
+        let (mut on_bare_site, mut kept) = (0, 0);
+        for seed in 0..80 {
+            let site = build::build(&p, seed, 8);
+            let (with, without) = (
+                build::lower(&site, &p, seed, Grid::Local),
+                build::lower(&site, &q, seed, Grid::Local),
+            );
+            let installed: Vec<String> = pipe_rows(&with).into_iter().map(|r| r.0).collect();
+            let (b_with, b_without) = (backfill_rows(&with), backfill_rows(&without));
+            if b_without.is_empty() && !installed.is_empty() {
+                on_bare_site += 1;
+            }
+            for hole in &site.holes {
+                let mine: Vec<_> = b_with.iter().filter(|b| b.0 == hole.id).collect();
+                let theirs: Vec<_> = b_without.iter().filter(|b| b.0 == hole.id).collect();
+                if installed.contains(&hole.id) {
+                    assert!(!mine.is_empty(), "seed {seed} {}", hole.id);
+                } else {
+                    assert_eq!(mine, theirs, "seed {seed} {}", hole.id);
+                    kept += 1;
+                }
+            }
+            // Everything but the installation's groups is what the site
+            // without installations wrote, for every hole.
+            let moved = differing(&with, &without);
+            assert!(
+                moved.iter().all(|g| INSTALL_GROUPS.contains(&g.as_str())),
+                "seed {seed}: {moved:?}"
+            );
+        }
+        assert!(
+            on_bare_site > 5,
+            "{on_bare_site} installed holes on a bare site"
+        );
+        assert!(kept > 100, "{kept}");
+    }
+
+    #[test]
+    fn the_site_and_hole_draws_give_the_presets_install_share() {
+        let p = install_preset();
+        let (mut sites, mut installing, mut holes, mut installed) = (0, 0, 0, 0);
+        for seed in 0..400 {
+            let site = build::build(&p, seed, 8);
+            let m = build::lower(&site, &p, seed, Grid::Local);
+            let n = pipe_rows(&m).len() / 2;
+            sites += 1;
+            installing += usize::from(n > 0);
+            if n > 0 {
+                holes += 8;
+                installed += n;
+            }
+        }
+        // Half the sites install; those install 0.5 to 1.0 of 8 holes. A site
+        // can draw no installed hole, so the observed share sits just under.
+        let site_share = installing as f64 / f64::from(sites);
+        assert!((0.38..0.58).contains(&site_share), "{site_share}");
+        let hole_share = installed as f64 / f64::from(holes);
+        assert!((0.65..0.85).contains(&hole_share), "{hole_share}");
+    }
+
+    #[test]
+    fn a_zone_drawn_too_deep_or_too_shallow_is_clamped_into_the_hole() {
+        for (from, to) in [
+            (
+                "zone_top_m = { min = 1.0, max = 12.0, skew = 1.5,",
+                "zone_top_m = { min = 17.0, max = 19.0,",
+            ),
+            (
+                "zone_top_m = { min = 1.0, max = 12.0, skew = 1.5,",
+                "zone_top_m = { min = 0.1, max = 0.3,",
+            ),
+            (
+                "zone_offset_m = { min = -2.0, max = 2.0,",
+                "zone_offset_m = { min = 30.0, max = 40.0,",
+            ),
+            (
+                "zone_offset_m = { min = -2.0, max = 2.0,",
+                "zone_offset_m = { min = -40.0, max = -30.0,",
+            ),
+        ] {
+            let p = Preset::from_toml(&install_with(from, to)).unwrap();
+            let mut n = 0;
+            for seed in 0..40 {
+                let site = build::build(&p, seed, 8);
+                let m = build::lower(&site, &p, seed, Grid::Local);
+                let (pipes, bkfl) = (pipe_rows(&m), backfill_rows(&m));
+                let hdph = rows(&m, "HDPH");
+                for hole in &site.holes {
+                    let mine: Vec<_> = pipes.iter().filter(|r| r.0 == hole.id).collect();
+                    if mine.is_empty() {
+                        continue;
+                    }
+                    n += 1;
+                    let pit = hdph
+                        .iter()
+                        .find(|r| r[0] == hole.id)
+                        .map(|r| num(&r[2]))
+                        .unwrap();
+                    let ctx = format!("{to} seed {seed} {}", hole.id);
+                    assert_installation_fits(&mine, pit, hole.final_depth, &ctx);
+                    let layers: Vec<_> = bkfl.iter().filter(|b| b.0 == hole.id).collect();
+                    assert_eq!(layers.len(), 4, "{ctx}");
+                    assert_eq!(layers.last().unwrap().2, hole.final_depth, "{ctx}");
+                    assert!(layers.iter().all(|l| l.1 < l.2), "{ctx}");
+                }
+            }
+            assert!(n > 20, "{to}: {n} installed holes");
+        }
+    }
+
+    #[test]
+    fn changing_the_installation_moves_only_installation_rows() {
+        let p = install_preset();
+        let edits: [(&str, &str, &[&str]); 5] = [
+            (
+                "filter = { weights = [3, 1],",
+                "filter = { weights = [1, 5],",
+                &["ABBR", "BKFL"],
+            ),
+            (
+                "zone_top_m = { min = 1.0, max = 12.0, skew = 1.5,",
+                "zone_top_m = { min = 2.0, max = 10.0, skew = 1.5,",
+                &["BKFL", "PIPE"],
+            ),
+            (
+                "{ kind = \"standpipe\", mm = 50, weight = 3 }",
+                "{ kind = \"standpipe\", mm = 50, weight = 1 }",
+                &["ABBR", "BKFL", "PIPE", "TYPE", "UNIT"],
+            ),
+            (
+                "kinds_basis = \"test fixture\"",
+                "kinds_basis = \"another\"",
+                &[],
+            ),
+            (
+                "cap_m = { min = 0.5, max = 0.5,",
+                "cap_m = { min = 0.7, max = 0.7,",
+                &["BKFL", "PIPE"],
+            ),
+        ];
+        let mut moved = 0;
+        for (from, to, allowed) in edits {
+            let q = Preset::from_toml(&install_with(from, to)).unwrap();
+            for seed in 0..12 {
+                let diff = differing(&model(&p, seed, 6), &model(&q, seed, 6));
+                assert!(
+                    diff.iter().all(|g| allowed.contains(&g.as_str())),
+                    "{from:?}: {diff:?} moved"
+                );
+                moved += diff.len();
+            }
+        }
+        assert!(moved > 0, "the edits changed nothing at all");
+    }
+
+    #[test]
+    fn hole_k_keeps_its_installation_whatever_the_hole_count() {
+        let p = install_preset();
+        let mine = |m: &ProjectModel| {
+            ["PIPE", "BKFL", "HDPH", "CDIA", "WSTG"]
+                .iter()
+                .map(|c| {
+                    rows(m, c)
+                        .into_iter()
+                        .filter(|r| ["BH1", "BH2", "BH3"].contains(&r[0].as_str()))
+                        .map(<[String]>::to_vec)
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut had_pipe = 0;
+        for seed in 0..40 {
+            let (small, large) = (model(&p, seed, 3), model(&p, seed, 8));
+            had_pipe += usize::from(!rows(&small, "PIPE").is_empty());
+            assert_eq!(mine(&small), mine(&large), "seed {seed}");
+        }
+        assert!(
+            had_pipe > 5,
+            "{had_pipe} seeds installed a hole in the prefix"
+        );
+    }
+
+    #[test]
+    fn a_preset_without_the_installation_table_has_no_pipe() {
+        let m = model(&preset(), 3, 6);
+        assert!(rows(&m, "PIPE").is_empty());
+        assert!(rows(&m, "MONG").is_empty());
+    }
+
+    #[test]
+    fn installation_files_are_clean_by_construction() {
+        let p = install_preset();
+        let mut with_pipe = 0;
+        for seed in 0..30 {
+            let m = model(&p, seed, 6);
+            with_pipe += usize::from(!rows(&m, "PIPE").is_empty());
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("site.ags");
+            std::fs::write(&path, emit_to_string(&m)).unwrap();
+            assert_eq!(rust_check(&path).0, RustResult::Clean, "seed {seed}");
+        }
+        assert!(with_pipe > 5, "{with_pipe} files with PIPE");
     }
 }

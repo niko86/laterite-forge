@@ -105,7 +105,62 @@ pub struct Construction {
     pub inspection_pit_m: Range,
     pub casing: Casing,
     pub backfill: Backfill,
+    /// Installations (`PIPE`, and the backfill an installed hole carries);
+    /// `None` when the preset writes none (#75).
+    pub installation: Option<Installation>,
 }
+
+/// The installations a site's holes may carry: a plain riser over a slotted
+/// section, with the backfill of an installed hole. A site draws once whether
+/// it installs at all and, if so, what share of its holes; each hole then
+/// draws against that share. One installation per hole.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Installation {
+    /// The share of sites that install at all; each site draws once.
+    pub site_share: Range,
+    /// On a site that installs, the share of its holes that are installed;
+    /// drawn once per site.
+    pub hole_share: Range,
+    /// The kinds an installation can be, with relative weights.
+    pub kinds: Vec<InstallKind>,
+    pub kinds_basis: String,
+    /// Zone top less the first strike's depth, metres (negative: the zone
+    /// starts above the strike), for a hole with a strike.
+    pub zone_offset_m: Range,
+    /// Zone top, metres, for a hole with no strike.
+    pub zone_top_m: Range,
+    /// Length of the slotted section of a standpipe, metres.
+    pub slotted_length_m: Range,
+    /// Final depth less the base of the slotted section, metres, before the
+    /// hole's own bounds are applied.
+    pub base_gap_m: Range,
+    /// Thickness of the concrete cap, metres.
+    pub cap_m: Range,
+    /// Relative weights of a gravel and a sand filter.
+    pub filter_weights: [f64; 2],
+    pub filter_basis: String,
+}
+
+/// What an installation is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallKindName {
+    /// A standpipe: plain from the surface to the response zone, slotted
+    /// through it.
+    Standpipe,
+    /// A standpipe piezometer: plain, then a short tip written as slotted.
+    Piezometer,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InstallKind {
+    pub kind: InstallKindName,
+    /// `PIPE_DIAM`, millimetres.
+    pub mm: u32,
+    pub weight: f64,
+}
+
+/// The `PIPE_DIAM` values an installation may have (millimetres).
+pub const INSTALL_DIAMETERS_MM: [u32; 2] = [19, 50];
 
 /// The casing string(s) and how they relate to the water strike.
 #[derive(Debug, Clone, PartialEq)]
@@ -327,6 +382,14 @@ pub struct Sampling {
     pub types: Vec<String>,
     pub interval_m: Range,
 }
+
+/// The filter pack runs this far above and below the slotted section
+/// (metres), the clearance the crawl records.
+pub const FILTER_OVERLAP_M: f64 = 0.5;
+
+/// The thinnest seal or tail of bentonite the installed backfill writes
+/// (metres).
+pub const MIN_SEAL_M: f64 = 0.1;
 
 /// A cited range: `basis` is the source of `min` and `max`.
 #[derive(Debug, Clone, PartialEq)]
@@ -1365,12 +1428,142 @@ fn read_construction(n: &mut Node, errs: &mut Vec<String>) -> Option<Option<Cons
     });
     let casing = req_table(&mut c, "casing", errs).and_then(|k| read_casing(k, errs));
     let backfill = req_table(&mut c, "backfill", errs).and_then(|b| read_backfill(b, errs));
+    let installation = match optional_table(&mut c, "installation", errs) {
+        Some(Some(i)) => read_installation(i, errs).map(Some),
+        Some(None) => Some(None),
+        None => None,
+    };
     c.finish(errs);
     Some(Some(Construction {
         inspection_pit_m: pit?,
         casing: casing?,
         backfill: backfill?,
+        installation: installation?,
     }))
+}
+
+fn read_installation(mut i: Node, errs: &mut Vec<String>) -> Option<Installation> {
+    let site_share = read_unit_range(&mut i, "site_share", errs);
+    let hole_share = read_unit_range(&mut i, "hole_share", errs);
+    let kinds = read_kinds(&mut i, errs);
+    let kinds_basis = nonempty_str(&mut i, "kinds_basis", errs);
+    let zone_offset_m = read_thickness(&mut i, "zone_offset_m", errs);
+    let zone_top_m = read_positive(&mut i, "zone_top_m", errs);
+    let slotted_length_m = read_positive(&mut i, "slotted_length_m", errs);
+    let base_gap_m = read_gap(&mut i, "base_gap_m", errs);
+    let cap_m = read_positive(&mut i, "cap_m", errs);
+    let filter = match read_weights::<2>(&mut i, "filter", "gravel and sand", errs) {
+        Some(Some(w)) => Some(w),
+        Some(None) => {
+            errs.push(format!("{}: missing", i.at("filter")));
+            None
+        }
+        None => None,
+    };
+    i.finish(errs);
+    let (filter_weights, filter_basis) = filter?;
+    Some(Installation {
+        site_share: site_share?,
+        hole_share: hole_share?,
+        kinds: kinds?,
+        kinds_basis: kinds_basis?,
+        zone_offset_m: zone_offset_m?,
+        zone_top_m: zone_top_m?,
+        slotted_length_m: slotted_length_m?,
+        base_gap_m: base_gap_m?,
+        cap_m: cap_m?,
+        filter_weights,
+        filter_basis,
+    })
+}
+
+/// `{ min, max, basis, skew? }`, a length in metres that is positive
+/// throughout.
+fn read_positive(n: &mut Node, key: &'static str, errs: &mut Vec<String>) -> Option<Range> {
+    let r = read_thickness(n, key, errs)?;
+    if r.min <= 0.0 {
+        errs.push(format!("{}: min {} must be > 0", n.at(key), r.min));
+        return None;
+    }
+    Some(r)
+}
+
+/// `kinds = [{ kind, mm, weight }, ...]`: `standpipe` or `piezometer`, each
+/// once, a `PIPE_DIAM` from [`INSTALL_DIAMETERS_MM`] and a weight above zero.
+fn read_kinds(i: &mut Node, errs: &mut Vec<String>) -> Option<Vec<InstallKind>> {
+    let at = i.at("kinds");
+    let items: Vec<Node> = match i.get("kinds") {
+        None => {
+            errs.push(format!("{at}: missing"));
+            return None;
+        }
+        Some(Value::Array(a)) => {
+            let mut nodes = Vec::new();
+            for (k, v) in a.iter().enumerate() {
+                if let Value::Table(t) = v {
+                    nodes.push(Node::new(t, format!("{at}[{k}]")));
+                } else {
+                    errs.push(format!("{at}[{k}]: must be a table"));
+                    return None;
+                }
+            }
+            nodes
+        }
+        Some(_) => {
+            errs.push(format!("{at}: must be an array of tables"));
+            return None;
+        }
+    };
+    if items.is_empty() {
+        errs.push(format!("{at}: at least one is required"));
+        return None;
+    }
+    let mut out: Vec<InstallKind> = Vec::new();
+    let mut ok = true;
+    for mut d in items {
+        let kind = req_str(&mut d, "kind", errs).and_then(|s| match s.as_str() {
+            "standpipe" => Some(InstallKindName::Standpipe),
+            "piezometer" => Some(InstallKindName::Piezometer),
+            _ => {
+                errs.push(format!(
+                    "{}: \"{s}\" is not a kind (standpipe or piezometer)",
+                    d.at("kind")
+                ));
+                None
+            }
+        });
+        let mm = req_int(&mut d, "mm", errs).and_then(|v| match u32::try_from(v) {
+            Ok(v) if INSTALL_DIAMETERS_MM.contains(&v) => Some(v),
+            _ => {
+                errs.push(format!(
+                    "{}: {v} is not an installation diameter (19 or 50 mm)",
+                    d.at("mm")
+                ));
+                None
+            }
+        });
+        let weight = num(d.get("weight"), &d.at("weight"), errs).and_then(|w| {
+            if w > 0.0 {
+                Some(w)
+            } else {
+                errs.push(format!("{}: {w} must be > 0", d.at("weight")));
+                None
+            }
+        });
+        let here = d.path.clone();
+        d.finish(errs);
+        match (kind, mm, weight) {
+            (Some(kind), Some(mm), Some(weight)) => {
+                if out.iter().any(|x| x.kind == kind) {
+                    errs.push(format!("{here}: this kind is listed twice"));
+                    ok = false;
+                }
+                out.push(InstallKind { kind, mm, weight });
+            }
+            _ => ok = false,
+        }
+    }
+    ok.then_some(out)
 }
 
 fn read_casing(mut k: Node, errs: &mut Vec<String>) -> Option<Casing> {
@@ -1559,6 +1752,24 @@ fn check_construction(preset: &Preset, errs: &mut Vec<String>) {
                 "construction.{key}: max {} is not above the shortest final depth \
                  (hole_types[{at}].final_depth_m min {shortest})",
                 r.max
+            ));
+        }
+    }
+    if let Some(i) = &c.installation {
+        // An installed hole must fit the pit, the cap and seal, the longest
+        // slotted section and the filter and seal below it.
+        let needs = c
+            .inspection_pit_m
+            .max
+            .max(i.cap_m.max + MIN_SEAL_M + FILTER_OVERLAP_M)
+            + i.slotted_length_m.max
+            + FILTER_OVERLAP_M
+            + MIN_SEAL_M;
+        if needs >= shortest {
+            errs.push(format!(
+                "construction.installation: the pit, cap, seal, longest slotted section \
+                 and filter need {needs} m, which is not below the shortest final depth \
+                 (hole_types[{at}].final_depth_m min {shortest})"
             ));
         }
     }
@@ -3276,13 +3487,60 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
         }
     }
 
+    /// v7 (tyneside-till) and v8 (london-basin): installations, with every
+    /// range cited to the crawl, a calibration or a judgement, and a BGS basis
+    /// ending in the licence line.
+    fn installation_is_cited(p: &Preset, site_share: f64) {
+        let i = p
+            .construction
+            .as_ref()
+            .and_then(|c| c.installation.as_ref())
+            .expect("an installation table");
+        assert_eq!(i.site_share.min, site_share);
+        let kinds: Vec<(InstallKindName, u32)> = i.kinds.iter().map(|k| (k.kind, k.mm)).collect();
+        assert_eq!(
+            kinds,
+            [
+                (InstallKindName::Standpipe, 50),
+                (InstallKindName::Piezometer, 19)
+            ]
+        );
+        let bases = [
+            &i.site_share.basis,
+            &i.hole_share.basis,
+            &i.kinds_basis,
+            &i.zone_offset_m.basis,
+            &i.zone_top_m.basis,
+            &i.slotted_length_m.basis,
+            &i.base_gap_m.basis,
+            &i.cap_m.basis,
+            &i.filter_basis,
+        ];
+        for b in bases {
+            assert!(b.contains("forge analysis"), "{b}");
+            assert!(
+                b.ends_with("Contains data supplied by UKRI, OGL v3."),
+                "{b}"
+            );
+        }
+        assert!(i.kinds_basis.contains("pp.405-406"));
+    }
+
+    /// london-basin (#75) adds installations at v8.
+    #[test]
+    fn london_basin_v8_has_a_cited_installation_table() {
+        let p = resolve("london-basin").unwrap();
+        assert_eq!(p.version, 8);
+        installation_is_cited(&p, 0.17);
+    }
+
     /// tyneside-till (#13) loads by name as three tills over one another with
     /// a water-bearing sand and gravel lens in the grey till, and every range
     /// carries a real basis, not a placeholder.
     #[test]
     fn tyneside_till_loads_with_its_tills_and_lens() {
         let p = resolve("tyneside-till").unwrap();
-        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 6));
+        assert_eq!((p.name.as_str(), p.version), ("tyneside-till", 7));
         // v6: hole construction, with the NE crawl's casing weights.
         let c = p
             .construction
@@ -3290,6 +3548,7 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
             .expect("v6 has a construction block");
         let sizes: Vec<u32> = c.casing.diameters.iter().map(|d| d.mm).collect();
         assert_eq!(sizes, [200, 150, 125]);
+        installation_is_cited(&p, 0.53);
         let units: Vec<&str> = p.units.iter().map(|u| u.id.as_str()).collect();
         assert_eq!(units, ["WT", "RT", "GT"]);
         // v5: each till carries effective strength, and the suite tests it.

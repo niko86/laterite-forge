@@ -93,9 +93,9 @@ sources: []
 > the **site model** (ADR 0001, `docs/adr/0001-forge-owns-a-site-model.md` in
 > this repo): a preset, either a shipped one (`london-basin`, `tyneside-till`) or a TOML path,
 > describes believable synthetic ground, and forge builds holes, strata,
-> samples and the preset's test suite from it. `london-basin` v7 writes PROJ,
+> samples and the preset's test suite from it. `london-basin` v8 writes PROJ,
 > TRAN, LOCA, GEOL, SAMP, LNMC, LLPL, LDEN, TRIG/TRIT, ISPT, WSTG/WSTD,
-> HDPH, CDIA and (at some sites) BKFL,
+> HDPH, CDIA, (at some sites) BKFL and (at some sites) PIPE,
 > with every value from the property model and every range cited in the
 > preset (`docs/research/london-basin-sources.md` gives the calibration).
 > Its ISPT rows carry `ISPT_NVAL`, `ISPT_MAIN`, `ISPT_NPEN` and `ISPT_REP`; a
@@ -143,6 +143,21 @@ sources: []
 > and `tyneside-till` v6 adopt it, calibrated to the London and NE crawls
 > (`docs/research/*-sources.md`); a preset without the block writes the bytes
 > of the version before.
+> Its optional `[construction.installation]` table (ADR 0001, "Hole
+> construction"; `london-basin` v8, `tyneside-till` v7) adds installations. A
+> site draws once whether it installs at all, then a share of its holes; each
+> hole draws against that share and has at most one installation: a 50 mm
+> standpipe (`PIPE` rows `PLAIN` from 0 to the response-zone top, `SLOTTED`
+> through it) or a 19 mm piezometer (`PLAIN`, then a 0.3 m tip written as
+> `SLOTTED`, the dictionary having no other value), `PIPE_REF` 1. The zone top
+> is the first strike plus a drawn offset, or a drawn depth when the hole has no
+> strike, clamped (not resampled) into the room the hole leaves; the slotted
+> length is drawn, and no stratum is targeted. An installed hole writes its own
+> `BKFL` whether or not the site carries backfill: concrete cap (906),
+> bentonite (903), a gravel (902) or sand (901) filter from 0.5 m above the
+> slotted section to 0.5 m below it, then bentonite to final depth, tiling 0 to
+> final depth. `MONG` is not written. A preset without the table writes the
+> bytes of the version before.
 > `--site` and `--scaffold` are mutually exclusive, and the loader refuses a
 > preset with a missing basis, an unknown key, or a suite heading no producer
 > can make, naming the field (exit 5). Every file carries a SYNTHETIC marker in
