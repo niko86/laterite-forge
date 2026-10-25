@@ -85,6 +85,22 @@
 //!   the unit's stream), so a cover moves none of the strikes below it. A
 //!   till's process starts at its written top, as before.
 //!
+//! **London Clay strikes** (london-basin v10, #83). The weathered and the
+//! unweathered London Clay (`WLC`, `LC`) take the same `strike` block as a
+//! till, and neither is made ground, so the process starts at the written top
+//! and no event is perched or dropped. Two things are new:
+//!
+//! - A `rate_by_depth` may say `bands_from_unit_top = true`: the bands are
+//!   then depths below the top of the unit in the hole (the written top of its
+//!   first piece; a unit a lens splits is one process), not below ground
+//!   level, so the rate falls with depth into the clay wherever the clay
+//!   starts. A block without the option measures from ground level, exactly
+//!   as before, so the tills and the made-ground blocks write the same bytes.
+//! - The rise range and the no-rise share are one pooled London Clay figure,
+//!   written identically on both units; each unit still draws its own
+//!   streams, keyed by (hole, unit), so `WLC` and `LC` move none of each
+//!   other's draws.
+//!
 //! **One strike per hole.** Without `site.several_strikes` a hole records the
 //! shallowest of its lens-top strike (the first water-bearing stratum that
 //! yields) and its till strike, the lens on a tie. A table strike in a coarse
@@ -398,6 +414,9 @@ struct TillRate<'a> {
     /// Whether the unit is made ground, whose strikes are perched: an event at
     /// or below the hole's water table is dropped.
     made_ground: bool,
+    /// Whether a banded rate's bands run from the unit's top in the hole
+    /// rather than from ground level.
+    from_unit_top: bool,
 }
 
 /// A unit's strike rate once drawn for the site.
@@ -483,6 +502,7 @@ fn till_rates(preset: &Preset, seed: u64) -> Vec<TillRate<'_>> {
                     n.max,
                 ),
                 made_ground: preset.is_made_ground(&u.id),
+                from_unit_top: spec.bands_from_unit_top,
             })
         })
         .collect()
@@ -573,6 +593,9 @@ fn till_events<'a>(
     let h = &site.holes[hole];
     // Per unit: its stream and how many events it has had.
     let mut streams: Vec<(&str, Rng, usize, u64)> = Vec::new();
+    // Where each unit's bands start when they run from its own top: its
+    // first piece in the hole (a unit a lens splits is one process).
+    let mut origins: Vec<(&str, f64)> = Vec::new();
     let mut out = Vec::new();
     for (i, s) in h.strata.iter().enumerate() {
         let Some(t) = rates.iter().find(|t| t.unit == s.unit) else {
@@ -589,6 +612,13 @@ fn till_events<'a>(
             ));
             streams.len() - 1
         };
+        if t.from_unit_top && !origins.iter().any(|(u, _)| *u == s.unit) {
+            origins.push((t.unit, h.written_top(i)));
+        }
+        let origin = origins
+            .iter()
+            .find(|(u, _)| *u == s.unit)
+            .map_or(0.0, |&(_, o)| o);
         // One draw per piece of the unit, hit or not.
         let mut u = uniform(&mut streams[at].1, 0.0, 1.0);
         let written = h.written_top(i);
@@ -612,7 +642,7 @@ fn till_events<'a>(
             off = match &t.rate {
                 SiteRate::Flat(r) => off + exposure / r,
                 SiteRate::Banded(bands) => {
-                    SiteRate::banded_advance(bands, top + off, exposure) - top
+                    SiteRate::banded_advance(bands, top + off - origin, exposure) + origin - top
                 }
             };
             if off >= s.base - top {
@@ -1686,6 +1716,7 @@ particle_density_ratio = {{ min = 2.6, max = 2.7, basis = "test fixture" }}
                 basis: "t".into(),
                 skew: None,
             },
+            bands_from_unit_top: false,
         };
         let t = TillStrike {
             unit: "LC",
@@ -1891,6 +1922,94 @@ particle_density_ratio = {{ min = 2.6, max = 2.7, basis = "test fixture" }}
                 assert_eq!(text(&with, g), text(&without, g), "{g} at seed {seed}");
             }
         }
+    }
+
+    /// A `strike` line for LC: `bands` as `(from_m, rate)`, `from_top` the
+    /// `bands_from_unit_top` flag.
+    fn lc_bands(bands: &[(f64, f64)], from_top: bool) -> String {
+        let bands: Vec<String> = bands
+            .iter()
+            .map(|(from, rate)| {
+                format!(
+                    "{{ from_m = {from}, rate_per_m = {{ min = {rate}, max = {rate}, basis = \"test fixture\" }} }}"
+                )
+            })
+            .collect();
+        let flag = if from_top {
+            "bands_from_unit_top = true, "
+        } else {
+            ""
+        };
+        format!(
+            "strike = {{ rate_by_depth = [{}], {flag}\
+             rise_m = {{ min = 1.0, max = 2.0, basis = \"test fixture\" }}, \
+             no_rise_share = {{ min = 0.0, max = 0.0, basis = \"test fixture\" }} }}",
+            bands.join(", ")
+        )
+    }
+
+    /// Bands that run from the unit's top follow it down the hole, however
+    /// deep it starts; bands from ground level, as every block had before
+    /// (london-basin v10, #83), do not.
+    #[test]
+    fn bands_from_the_unit_top_follow_the_unit_down_the_hole() {
+        // A rate of 4 per m in the first metre of LC and none below it.
+        let bands = [(0.0, 4.0), (1.0, 0.0)];
+        let from_top = tills("", &lc_bands(&bands, true), DEEP);
+        let from_ground = tills("", &lc_bands(&bands, false), DEEP);
+        let mut struck = 0;
+        for seed in 0..30 {
+            let site = build::build(&from_top, seed, 6);
+            for s in strikes(&site, &from_top, seed) {
+                let hole = &site.holes[s.hole];
+                let (i, st) = stratum_at(hole, s.depth);
+                assert_eq!(st.unit, "LC", "seed {seed}");
+                let top = hole.written_top(i);
+                assert!(top > 1.0, "the fixture's LC lies under 2 m or more of WLC");
+                assert!(s.depth - top < 1.0, "seed {seed}: {} below {top}", s.depth);
+                struck += 1;
+            }
+            // From ground level the rate is dead where LC lies, so no strike.
+            let site = build::build(&from_ground, seed, 6);
+            assert!(strikes(&site, &from_ground, seed).is_empty(), "seed {seed}");
+        }
+        assert!(struck > 30, "{struck} strikes");
+    }
+
+    /// One band from the unit's top is the flat rate, event for event.
+    #[test]
+    fn one_band_from_the_unit_top_draws_the_same_events_as_the_flat_rate() {
+        let flat_p = lc_only(0.3);
+        let band_p = tills("", &lc_bands(&[(0.0, 0.3)], true), DEEP);
+        let mut seen = 0;
+        for seed in 0..30 {
+            let a = strikes(&build::build(&flat_p, seed, 6), &flat_p, seed);
+            let b = strikes(&build::build(&band_p, seed, 6), &band_p, seed);
+            let depths = |v: &[Strike]| v.iter().map(|s| (s.hole, s.depth)).collect::<Vec<_>>();
+            assert_eq!(depths(&a), depths(&b), "seed {seed}");
+            seen += a.len();
+        }
+        assert!(seen > 20, "{seen}");
+    }
+
+    /// A band that starts below the unit's top is measured from the top, not
+    /// from ground level.
+    #[test]
+    fn a_deeper_band_from_the_unit_top_is_that_far_below_the_unit_top() {
+        // Dead in the first 3 m of LC, then 4 per m: every strike is 3 m or
+        // more below the LC top.
+        let p = tills("", &lc_bands(&[(0.0, 0.0), (3.0, 4.0)], true), DEEP);
+        let mut struck = 0;
+        for seed in 0..30 {
+            let site = build::build(&p, seed, 6);
+            for s in strikes(&site, &p, seed) {
+                let hole = &site.holes[s.hole];
+                let (i, _) = stratum_at(hole, s.depth);
+                assert!(s.depth - hole.written_top(i) >= 3.0, "seed {seed}");
+                struck += 1;
+            }
+        }
+        assert!(struck > 30, "{struck} strikes");
     }
 }
 
@@ -2582,5 +2701,81 @@ headings = []
             }
         }
         assert!(covered > 20 && compared > 10, "{covered} / {compared}");
+    }
+}
+
+/// Water strikes in the London Clay of the shipped london-basin (v10, #83).
+#[cfg(test)]
+mod london_clay_strike_tests {
+    use super::super::build::{self, Grid, default_hole_count};
+    use super::super::preset::resolve;
+    use super::*;
+    use crate::pipeline::rust_check;
+    use crate::synth::emit::emit_to_string;
+    use laterite_ags4_parity::RustResult;
+
+    fn host<'a>(hole: &'a build::Hole, s: &Strike) -> &'a str {
+        hole.strata
+            .iter()
+            .find(|st| s.depth >= st.top && s.depth <= st.base)
+            .map_or("none", |st| st.unit.as_str())
+    }
+
+    /// London Clay strikes happen in both grades, in a hole that also strikes
+    /// elsewhere, and the file with its seals is clean by construction.
+    #[test]
+    fn london_basin_strikes_in_both_grades_of_london_clay_and_stays_clean() {
+        let p = resolve("london-basin").expect("shipped preset loads");
+        let (mut wlc, mut lc, mut mixed) = (0, 0, 0);
+        for seed in 0..150 {
+            let site = build::build(&p, seed, default_hole_count(seed));
+            let all = strikes(&site, &p, seed);
+            for (hi, hole) in site.holes.iter().enumerate() {
+                let mine: Vec<&Strike> = all.iter().filter(|s| s.hole == hi).collect();
+                let hosts: Vec<&str> = mine.iter().map(|s| host(hole, s)).collect();
+                wlc += hosts.iter().filter(|h| **h == "WLC").count();
+                lc += hosts.iter().filter(|h| **h == "LC").count();
+                mixed += usize::from(hosts.contains(&"LC") && hosts.iter().any(|h| *h != "LC"));
+                // Never more than the cap, never within the gap of each other.
+                assert!(mine.len() <= 4);
+                for w in mine.windows(2) {
+                    assert!(w[1].depth >= w[0].depth + 0.5 - 1e-9, "seed {seed}");
+                }
+            }
+            let text = emit_to_string(&build::lower(&site, &p, seed, Grid::Local));
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("site.ags");
+            std::fs::write(&path, text).unwrap();
+            assert_eq!(rust_check(&path).0, RustResult::Clean, "seed {seed}");
+        }
+        assert!(wlc > 5 && lc > 100 && mixed > 20, "{wlc} / {lc} / {mixed}");
+    }
+
+    /// A London Clay strike's water rises by the pooled draw (0.17 to 5.0 m)
+    /// or not at all, and never above ground.
+    #[test]
+    fn a_london_clay_strike_rises_by_the_pooled_draw_or_not_at_all() {
+        let p = resolve("london-basin").expect("shipped preset loads");
+        let (mut rose, mut none) = (0, 0);
+        for seed in 0..150 {
+            let site = build::build(&p, seed, default_hole_count(seed));
+            for s in strikes(&site, &p, seed) {
+                if !matches!(host(&site.holes[s.hole], &s), "WLC" | "LC") {
+                    continue;
+                }
+                let rise = s.depth - s.settle;
+                assert!(s.settle >= 0.0, "seed {seed}");
+                if rise < 1e-9 {
+                    none += 1;
+                } else if s.settle > 0.0 {
+                    assert!(
+                        (0.17 - 0.01..=5.0 + 0.01).contains(&rise),
+                        "seed {seed}: {rise}"
+                    );
+                    rose += 1;
+                }
+            }
+        }
+        assert!(rose > 100 && none > 20, "{rose} / {none}");
     }
 }

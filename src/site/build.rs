@@ -1893,6 +1893,10 @@ mod shipped_pins {
     /// ground and turns on several strikes per hole
     /// (`a_preset_without_its_made_ground_strikes_writes_the_previous_versions_bytes`
     /// holds the rest of the file to the v8 pins; tyneside-till stays at v9).
+    /// Re-taken for london-basin v10 (#83), which adds water strikes in the
+    /// London Clay and a seal
+    /// (`a_preset_without_its_london_clay_strikes_writes_the_previous_versions_bytes`
+    /// holds the rest of the file to the v9 pins; tyneside-till stays at v10).
     #[test]
     fn shipped_preset_output_bytes_are_pinned() {
         use sha2::{Digest, Sha256};
@@ -1900,20 +1904,20 @@ mod shipped_pins {
             (
                 "london-basin",
                 0u64,
-                "c1dff753694912f203c2978a0fde57366c167183b1bbdbd061f286c8210963d4",
-                21355usize,
+                "cac70e457a7f761973546c8ac9f85d5d3822150dc35af8ed5a7d0f1f26c89943",
+                21879usize,
             ),
             (
                 "london-basin",
                 1,
-                "1a1ae25a6e4702da8b92c4b2df61728b59abab17f722931c684521b178b41a0c",
-                16569,
+                "6f385b5c6f54c62c00f69328511d93cd37148a9847bfae055dddb078174ad555",
+                16760,
             ),
             (
                 "london-basin",
                 2,
-                "bec52e6d19ea6e56573c3a7d3f0ae99398cbb2bf99a70659b3470558800fba67",
-                30802,
+                "7309deaad5e9dfb68b04e30133efa40780e9afd1b1dda5b84aa3fc67d54e98e8",
+                31679,
             ),
             (
                 "tyneside-till",
@@ -1955,6 +1959,7 @@ mod shipped_pins {
     fn without_several_strikes(preset: &mut Preset) {
         without_generic_made_ground(preset);
         without_made_ground_strikes(preset);
+        without_london_clay_strikes(preset);
         preset.site.several_strikes = None;
         if let Some(c) = preset.construction.as_mut() {
             c.seal = None;
@@ -1978,6 +1983,22 @@ mod shipped_pins {
     fn without_made_ground_strikes(preset: &mut Preset) {
         for u in preset.units.iter_mut().filter(|u| u.made_ground.is_some()) {
             u.strike = None;
+        }
+    }
+
+    /// A shipped preset as it stood before water strikes in the London Clay
+    /// (#83, london-basin v10): no `strike` block on WLC or LC, and no
+    /// `[construction]` seal.
+    fn without_london_clay_strikes(preset: &mut Preset) {
+        for u in preset
+            .units
+            .iter_mut()
+            .filter(|u| matches!(u.id.as_str(), "WLC" | "LC"))
+        {
+            u.strike = None;
+        }
+        if let Some(c) = preset.construction.as_mut() {
+            c.seal = None;
         }
     }
 
@@ -2014,8 +2035,60 @@ mod shipped_pins {
             );
             assert!(preset.site.several_strikes.is_some());
             without_made_ground_strikes(&mut preset);
+            without_london_clay_strikes(&mut preset);
             preset.site.several_strikes = None;
             preset.version = 8;
+            let site = build(&preset, seed, default_hole_count(seed));
+            let text = emit_to_string(&lower(&site, &preset, seed, Grid::Local));
+            let got = crate::synth::hex(&Sha256::digest(text.as_bytes()));
+            assert_eq!((got.as_str(), text.len()), (sha, len), "seed {seed}");
+        }
+    }
+
+    /// london-basin without its London Clay `strike` blocks and its
+    /// `[construction]` seal, at the version before them (v9), writes the
+    /// bytes v9 pinned: neither moves a byte in a preset that lacks it. The
+    /// `bands_from_unit_top` option is read only where a block writes it.
+    #[test]
+    fn a_preset_without_its_london_clay_strikes_writes_the_previous_versions_bytes() {
+        use sha2::{Digest, Sha256};
+        for (seed, sha, len) in [
+            (
+                0u64,
+                "c1dff753694912f203c2978a0fde57366c167183b1bbdbd061f286c8210963d4",
+                21355usize,
+            ),
+            (
+                1,
+                "1a1ae25a6e4702da8b92c4b2df61728b59abab17f722931c684521b178b41a0c",
+                16569,
+            ),
+            (
+                2,
+                "bec52e6d19ea6e56573c3a7d3f0ae99398cbb2bf99a70659b3470558800fba67",
+                30802,
+            ),
+        ] {
+            let mut preset = resolve("london-basin").expect("shipped preset loads");
+            for id in ["WLC", "LC"] {
+                assert!(
+                    preset
+                        .units
+                        .iter()
+                        .any(|u| u.id == id && u.strike.is_some()),
+                    "v10 carries the {id} strike block"
+                );
+            }
+            assert!(
+                preset
+                    .construction
+                    .as_ref()
+                    .is_some_and(|c| c.seal.is_some())
+            );
+            without_london_clay_strikes(&mut preset);
+            // The made-ground blocks and several strikes stay, as in v9.
+            assert!(preset.site.several_strikes.is_some());
+            preset.version = 9;
             let site = build(&preset, seed, default_hole_count(seed));
             let text = emit_to_string(&lower(&site, &preset, seed, Grid::Local));
             let got = crate::synth::hex(&Sha256::digest(text.as_bytes()));

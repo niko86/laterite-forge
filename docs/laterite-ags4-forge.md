@@ -194,6 +194,17 @@ sources: []
 > "Made-ground water strikes (london-basin v9, #84)", has the fit and the known
 > misses).
 >
+> A banded rate may also say `bands_from_unit_top = true` (`london-basin` v10,
+> #83), which measures the bands from the top of the unit in the hole (its
+> first piece, where a lens splits it) in place of ground level. The loader
+> refuses it beside `rate_per_m`, and a block without it behaves as before.
+> `london-basin` v10 puts a `strike` table on the weathered London Clay (a flat
+> `rate_per_m`) and on the London Clay (bands from its top at 0-2, 2-5, 5-10,
+> 10-20 and below 20 m), with one pooled rise and no-rise share for both, and a
+> `[construction]` `seal` (see below). A preset without them writes the bytes
+> of the version before (`docs/research/london-basin-sources.md`, "London Clay
+> water strikes (london-basin v10, #83)", has the fit and the known misses).
+>
 > A `[made_ground]` block (ADR 0001, "Generic made ground"; `tyneside-till`
 > v10, #86) makes generic made ground, set by the site's `setting`
 > (`greenfield`, `brownfield`, `developed` or `corridor`) and `settlement`
@@ -233,7 +244,9 @@ sources: []
 > hole's zone follow the first strike at that share and the deepest otherwise.
 > A preset without these keys writes the bytes of the version before
 > (`docs/research/tyneside-till-sources.md`, "Several strikes per hole (v9,
-> #79)", has the fit and the known misses).
+> #79)", has the fit and the known misses). `london-basin` v10 (#83) adds the
+> seal (26% of earlier strikes, 22% of last strikes) with a gap fitted to the
+> London crawl.
 > `--site` and `--scaffold` are mutually exclusive, and the loader refuses a
 > preset with a missing basis, an unknown key, or a suite heading no producer
 > can make, naming the field (exit 5). Every file carries a SYNTHETIC marker in

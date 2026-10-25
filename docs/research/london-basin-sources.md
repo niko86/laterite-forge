@@ -949,3 +949,193 @@ rate. The MG strike's other draws reuse the till keys (`till-strike`,
 unit, so no existing stream is consumed. A preset without the MG block and
 without `several_strikes` writes v8's bytes
 (`a_preset_without_its_made_ground_strikes_writes_the_previous_versions_bytes`).
+
+## London Clay water strikes (london-basin v10, #83), 2026-10-25
+
+v10 gives the weathered London Clay (WLC) and the London Clay (LC) a `strike`
+block each (ADR 0001, "Ground", "Water strikes in the London Clay"), adds the
+`bands_from_unit_top` option to `rate_by_depth`, and gives `[construction]` the
+`seal` key of #79. Contains data supplied by UKRI, OGL v3. Aggregates only;
+forge analysis. No raw rows, hole IDs, project names or remarks.
+
+### Method
+
+- Sample and classes as for the made-ground section: the London crawl, 161
+  unique AGS4 files de-duplicated by content hash, holes de-duplicated by
+  project and `LOCA_ID`, 653 holes, 627 with GEOL, 119 projects; 73 projects
+  report WSTG, holding 488 GEOL holes. Weathered London Clay is a layer whose
+  description says weathered, else a brown clay above a grey one. A strike is a
+  distinct `WSTG_DPTH`; its host is the GEOL layer containing it (the layer
+  below at a boundary). Rise is the strike depth less `WSTD_POST` at 20 minutes
+  (else the last reading); no rise is 0.05 m or less.
+- Metres are the summed thickness of the hole's layers of the class. Rates use
+  the holes of the 73 WSTG-reporting projects (a project that never reports a
+  strike says nothing about a stratum); the all-holes rate is given for
+  reference.
+- THIN is under 20 holes or under 5 projects. Strikes cluster by project, and
+  project effects are not separated. The crawl was selected for water strikes
+  and terrace and London Clay sequences, so its rates are not random-sample
+  rates.
+
+### The crawl
+
+Strikes per metre by host (WSTG-reporting projects; all holes in brackets):
+
+| Host | holes penetrating (projects) | metres | strikes | per m | holes with a strike in it (projects) |
+|---|---|---|---|---|---|
+| weathered London Clay | 173 (36) | 971.3 | 19 (3 at the top) | 0.0196 (0.0149) | 18 (10), THIN |
+| London Clay | 208 (43) | 2,284.4 | 43 (2 at the top) | 0.0188 (0.0156) | 39 (13) |
+
+London Clay of either grade by depth below its top (WSTG-reporting projects;
+all holes in brackets). Every band's strikes are in fewer than 20 holes: THIN.
+
+| Band below the London Clay top (m) | London Clay metres | strikes | per m | holes penetrating (projects) | strikes in holes (projects) |
+|---|---|---|---|---|---|
+| 0-2 | 514.6 | 16 | 0.0311 (0.0241) | 283 (51) | 16 (11) |
+| 2-5 | 526.1 | 18 | 0.0342 (0.0261) | 222 (44) | 18 (8) |
+| 5-10 | 622.8 | 16 | 0.0257 (0.0212) | 143 (29) | 16 (7) |
+| 10-20 | 876.0 | 5 | 0.0057 (0.0049) | 114 (20) | 5 (4) |
+| 20 and below | 716.1 | 7 | 0.0098 (0.0078) | 69 (10) | 6 (3) |
+
+Depth of the strikes below the London Clay top, P10/P50/P90: weathered 0.00 /
+2.20 / 8.12 m (19 strikes); unweathered 1.01 / 4.90 / 24.78 m (43 strikes, 39
+holes, 13 projects); either grade 0.51 / 4.20 / 23.19 m (62 strikes).
+
+A flat rate would overshoot because the file penetrates far more London Clay
+than the crawl: the file's LC is 23.6 m on average (3,000 seeds), the crawl's
+penetration is P10/P50/P90 1.25 / 5.05 / 30.02 m (365 holes, 81 projects). A
+flat 0.016 to 0.019 per m gives an LC strike in about 35% of holes against the
+crawl's 15%.
+
+Holes with a London Clay strike by how much London Clay they penetrate:
+
+| London Clay penetrated | holes (projects) | with a London Clay strike (projects) | share |
+|---|---|---|---|
+| any (all holes) | 365 (81) | 56 (19) | 15.3% |
+| 10 m or more (all holes) | 134 (33) | 36 (8) | 26.9% |
+| 20 m or more (all holes) | 80 (18) | 23 (5), THIN | 28.8% |
+| 20 m or more (WSTG-reporting projects) | 68 (10) | 23 (5), THIN | 33.8% |
+
+Rise of the London Clay strikes with readings (20 strikes, 19 holes, 7
+projects, THIN; 10 in each grade, 5 projects each):
+
+| Strikes | rise P10 / P50 / P90 (m) | no rise |
+|---|---|---|
+| weathered | 0.00 / 0.23 / 4.33 | 3 of 10 (30%) |
+| unweathered | 0.03 / 0.45 / 4.28 | 2 of 10 (20%) |
+| pooled | 0.00 / 0.28 / 4.28 | 5 of 20 (25%) |
+
+The 15 rising strikes rise P10/P25/P50/P75/P90 0.17 / 0.26 / 0.40 / 0.77 /
+4.68 m, max 12.40 m (11 rise 0.77 m or less, 4 more than 3 m). The two grades
+are pooled in the preset because the samples are small: the same `rise_m` and
+`no_rise_share` on both units.
+
+Position in the hole's strike sequence: of the 19 weathered strikes 13 are the
+first strike and 6 the second; of the 43 unweathered 28 are first, 12 second and
+3 third or later. Of the holes with more than one strike (76 of 627, 12.1%, 20
+projects; 25.3% of the 300 struck holes), the first strike is in made ground in
+36, terrace gravel 20, weathered London Clay 1, London Clay 5 and other strata
+14; the second in made ground 1, terrace gravel 29, weathered London Clay 6,
+London Clay 12 and other strata 28. Strikes per struck hole 1 / 2 / 3 / 4: 74.7 /
+20.7 / 4.0 / 0.7%.
+
+`WSTG_SEAL` (all hosts): 69 of 392 strikes sealed (18%; 55 holes, 20 of the 73
+reporting projects). In the 76 multi-strike holes 24 of 92 earlier strikes (26%)
+and 17 of 76 last strikes (22%) are sealed; the crawl seals 28 of the 224
+strikes in holes with one strike (12.5%). Seal less strike, over the 69 sealed
+strikes: P10 / P50 / P90 0.00 / 1.80 / 6.54 m, 5 above the strike and 5 level,
+max 14.50 m; over the 41 sealed strikes in multi-strike holes 0.00 / 1.68 /
+7.80 m. By host the seal is on 1 of 19 weathered (5%) and 7 of 43 unweathered
+(16%) London Clay strikes.
+
+Below the London Clay: 125 of the 365 holes with London Clay (34.2%, 32
+projects) are logged below it; strikes there are 18 (16 holes, 11 projects,
+THIN) in 2,891.2 m, 0.0062 per m. No stratum below LC is modelled.
+
+### What the preset takes
+
+- **WLC:** `rate_per_m` 0.0196, flat. The file's weathered London Clay is
+  about 1.2 m, so bands buy nothing.
+- **LC:** `rate_by_depth` with `bands_from_unit_top = true`, bands 0-2, 2-5,
+  5-10, 10-20 and below 20 m at 0.0311, 0.0342, 0.0257, 0.0057 and 0.0098 per m,
+  each THIN.
+- **Rise:** one pooled `rise_m` for both units, min 0.17 m (the rising P10),
+  max 5.0 m, skew 3.5 fitted to the pooled P50 including the strikes with no
+  rise; `no_rise_share` 0.25.
+- **Seal:** `earlier_share` 0.26, `last_share` 0.22, `gap_m` 0 to 10.0 m, skew
+  2.2, fitted to the London seal gap's median and P90.
+- The installation rule is unchanged: the response zone follows the first
+  strike. The table rule and the made-ground block are unchanged.
+
+### Fit (3,000 seeds, 14,855 holes)
+
+| Check | Crawl | File |
+|---|---|---|
+| WLC rate per m | 0.0196 | 0.0200 (315 strikes in 15,739 m) |
+| LC rate per m, bands from the unit top (0-2, 2-5, 5-10, 10-20, 20+) | 0.0311, 0.0342, 0.0257, 0.0057, 0.0098 | 0.0305, 0.0347, 0.0257, 0.0060, 0.0097 |
+| Pooled rise, all strikes P10 / P50 / P90 (m) | 0.00 / 0.28 / 4.28 | 0.00 / 0.28 / 3.06 |
+| Rising strikes P10 / P25 / P50 / P75 / P90 (m) | 0.17 / 0.26 / 0.40 / 0.77 / 4.68 | 0.17 / 0.21 / 0.62 / 1.93 / 3.45 |
+| No rise | 25% | 25.6% (WLC 25.1%, LC 25.7%) |
+| Seals, earlier / last strike in multi-strike holes | 26% / 22% | 26.5% / 21.2% |
+| Seal less strike P10 / P50 / P90 (m) | 0.00 / 1.80 / 6.54 | 0.01 / 1.45 / 6.81 |
+| Seals above / level with the strike | 5 / 5 of 69 | 188 / 99 of 3,437 |
+| LC strike depth below the unit top P10 / P50 / P90 (m) | 1.01 / 4.90 / 24.78 (below the top of either grade) | 1.28 / 6.19 / 21.06 |
+| WLC strike depth below its top P10 / P50 / P90 (m) | 0.00 / 2.20 / 8.12 | 0.10 / 0.71 / 1.65 |
+| Holes with an LC strike | 15% (39 of 257 holes in unweathered London Clay, 13 projects) | 32.5% (4,833 of 14,855) |
+| Holes with two or more strikes | 12.1% (76 of 627) | 24.4% (3,619) |
+| Strikes per struck hole 1 / 2 / 3 / 4 (%) | 74.7 / 20.7 / 4.0 / 0.7 | 65.1 / 27.7 / 6.0 / 1.2 |
+| First strike of a multi-strike hole: made ground / terrace gravel / WLC / LC / other (%) | 47 / 26 / 1 / 7 / 18 | 21 / 65 / 1 / 12 / none |
+| Second strike: made ground / terrace gravel / WLC / LC / other (%) | 1 / 38 / 8 / 16 / 37 | 2 / 16 / 4 / 78 / none |
+
+Holes with any strike rise from 54.9% (v9) to 70.7% (v10) of the file's holes
+(the same 1,000 seeds, 4,951 holes; 69.9% over the 3,000). The file measured from the top of London Clay of
+either grade, as the crawl is, gives the band rates 0.0239, 0.0333, 0.0273,
+0.0086 and 0.0091 per m.
+
+### Known misses
+
+- **Holes with an LC strike (32.5% against 15%).** The file's holes penetrate
+  23.6 m of London Clay on average against the crawl's median 5.05 m. The
+  crawl's holes with 20 m or more of London Clay, the file's depth, have a
+  strike in 23 of 80 (29%, 5 projects, THIN; 34% in the reporting projects),
+  which the file matches. Not fitted.
+- **Holes with two or more strikes (24.4% against 12.1%) and strikes per struck
+  hole.** The same depth: every file hole reaches the London Clay and
+  crosses 23.6 m of it at 0.0305 to 0.0097 per m, where the crawl's median hole
+  with London Clay is 15.0 m deep and 240 of its 365 end in it. The file's
+  multi-strike holes are 34.9% of its struck holes (3,619 of 10,377) against
+  the crawl's 25.3%.
+- **Hosts of the first and second strike in multi-strike holes.** The crawl's
+  "other" strata (alluvium, Lambeth, Thanet, chalk, unclassified) host 14 of the
+  76 first strikes and 28 of the 76 second ones, mostly in holes with no London
+  Clay; the file has no such strata, so its second strike is in LC 78% of the
+  time against 16%. The file's first strike is in made ground 21% against 47%
+  (the v9 miss, thin made ground) and in terrace gravel 65% against 26%. Not
+  fitted; no strata below LC are modelled (34% of the crawl's London Clay holes
+  continue below it, and strikes there run at 0.006 per m, 18 strikes, 16
+  holes, 11 projects, THIN).
+- **WLC strike depth below its top (P50 0.71 against 2.20 m).** The file's
+  weathered London Clay is about 1.2 m thick, the crawl's P50 3.00 m where
+  logged, so no file strike lies as deep.
+- **Band 0-2 m measured from the top of either grade (0.0239 against
+  0.0311).** The file's WLC (0.0200 per m) lies in that band; the unit's bands
+  start below it.
+- **Rise.** The pooled P90 3.06 against 4.28 m (the 5.0 m cap against a crawl
+  maximum of 12.4 m), the rising median 0.62 against 0.40 m and P75 1.93
+  against 0.77 m (the crawl's 15 rising strikes are 11 at 0.77 m or less and 4
+  above 3 m; one skew cannot match both). The samples are 20 strikes in 7
+  projects: THIN.
+- **Seal.** The file's median gap is 1.45 against 1.80 m (the clamp to the
+  casing pulls seals up) and it seals 23.1% of all strikes against the crawl's
+  18%: a hole with one strike seals at the last-strike share, 22%, where the
+  crawl seals 12.5% of those.
+
+### Keys
+
+No new `Key` tag. The unit's draws reuse the till
+keys (`till-strike-rate`, `strike-band-rate`, `till-strike-norise`,
+`till-strike`, `till-strike-rise`, `till-strike-rise-n`), keyed by hole and unit
+and distinct for `WLC` and `LC`, and the seal reuses `cons-seal-has` and
+`cons-seal-gap`. No existing stream is consumed. A preset without the London
+Clay `strike` blocks and the seal key writes v9's bytes
+(`a_preset_without_its_london_clay_strikes_writes_the_previous_versions_bytes`).
