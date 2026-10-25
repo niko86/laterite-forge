@@ -15,7 +15,7 @@
 
 [package]
 name = "laterite-ags4-forge"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 # laterite-ags4-parity and laterite-cliutil both declare 1.88, so a lower
 # floor here could never build.
