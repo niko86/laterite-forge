@@ -201,6 +201,16 @@ impl Data {
                     "{at}: thickness quantiles must rise from above {FLOOR_M} m"
                 ));
             }
+            // The settlement scales the quantiles, so the floor holds for
+            // every settlement's P10 too.
+            for (name, s) in &self.settlements {
+                if t.p10 * s.thickness_scale <= FLOOR_M {
+                    return Err(format!(
+                        "{at}: thickness P10 {} at a {name} must be above {FLOOR_M} m",
+                        t.p10 * s.thickness_scale
+                    ));
+                }
+            }
             let known = crate::synth::made_ground::constituents();
             for c in &d.make_up.constituents {
                 if !known.vocabulary().any(|k| *k == c.name) {
@@ -472,6 +482,15 @@ mod tests {
             let err = d.check().expect_err("refused");
             assert!(err.contains("must rise from above 0.05 m"), "{err}");
         }
+    }
+
+    #[test]
+    fn a_p10_that_a_villages_thickness_scale_takes_to_the_floor_is_refused() {
+        // 0.07 is above the floor, but 0.07 x 0.7 at a village is not.
+        let text = SETTINGS_JSON.replacen("\"p10\": 0.3,", "\"p10\": 0.07,", 1);
+        let d: Data = serde_json::from_str(&text).expect("parses");
+        let err = d.check().expect_err("refused");
+        assert!(err.contains("at a village must be above 0.05 m"), "{err}");
     }
 
     #[test]

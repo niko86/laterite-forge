@@ -578,6 +578,29 @@ fn strikes_per_band(
     (metres, count)
 }
 
+/// Prints the share of made-ground strata naming coal, per setting at a town.
+#[test]
+#[ignore = "a calibration run that prints figures; not a check"]
+fn measure_the_coal_share() {
+    for setting in Setting::ALL {
+        let p = tyneside(setting, Settlement::Town);
+        let (mut strata, mut coal) = (0usize, 0usize);
+        for seed in 0..1500 {
+            for h in build::build(&p, seed, 40).holes {
+                if let Some(m) = made(&h) {
+                    strata += 1;
+                    coal += usize::from(m.description.contains("coal"));
+                }
+            }
+        }
+        println!(
+            "{}: coal in {coal} of {strata} MG strata = {:.2}%",
+            setting.name(),
+            100.0 * coal as f64 / strata as f64
+        );
+    }
+}
+
 /// Prints how often the topsoil or surfacing cuts the made ground down to the
 /// cover rule's 0.05 m remnant (#58), per setting at a town.
 #[test]

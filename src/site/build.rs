@@ -1810,8 +1810,8 @@ mod shipped_pins {
             (
                 "brownfield",
                 "town",
-                "bef7f851b802fa3f3d541f7901d4302e574e3c4809989c46ada37c6d780c74fd",
-                25915,
+                "748abd1317a321fe58a494fffddce2e106f5092a25786091cda8215540e06d5c",
+                25908,
             ),
             (
                 "developed",
@@ -1822,7 +1822,7 @@ mod shipped_pins {
             (
                 "corridor",
                 "town",
-                "e1422784947cab3baee407159c322007ec2eff64456b3602ff092fa29580ba1b",
+                "947cd1e099a41dde65fdbe885834a772ffb43a40f19fb6f8bb3a4dd1472f069c",
                 27368,
             ),
             (
@@ -1834,7 +1834,7 @@ mod shipped_pins {
             (
                 "corridor",
                 "city",
-                "a73748e46b5d8688254664d1ebab273009de88571739aea5ba3a59002f73e203",
+                "a77db5e2fe3f2db7dbf7b58017606a1ad2d1b29623e74c3c22950768fc804760",
                 27078,
             ),
         ];
@@ -1918,8 +1918,8 @@ mod shipped_pins {
             (
                 "tyneside-till",
                 0,
-                "a60d467bd0c268b88eba145afd66d36271f30e5b1c8feca28c2eaf6bd4ae7bee",
-                33158,
+                "9e04e1e53fbe77914b72f428a1c31bd50215f17e930f8f5740ee837aaef90f6e",
+                33157,
             ),
             (
                 "tyneside-till",

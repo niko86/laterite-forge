@@ -1188,6 +1188,15 @@ class tables give none).
   London overall; developed is London overall; greenfield is corridor's with
   the count shifted toward none (forge judgement). The NE class tables have no
   split of pottery and plastic or of amounts by class, so those take NE overall.
+  NE coal counts only outside clast clauses: 78% of the NE strata naming coal
+  name it in a clast clause (coal 21.8% of NE MG strata, 24.9% of soil-bearing
+  ones), so 22% of the class's coal share enters the mean (brownfield 5.3%,
+  road schemes 5.1%, against London's 5.7%); coal in NE fill may be reworked
+  Coal Measures, natural ground, unlike brick or clinker, which are
+  anthropogenic whatever the clause. The mean is 5.49% (brownfield) and 5.38%
+  (corridor); the file's coal share of MG strata is 4.89% and 5.26% (3.63% in
+  greenfield, whose count is shifted toward none), 1,500 sites of 40 holes at
+  a town.
   The count weights are none/one/two/three-plus: brownfield 0.22 / 0.35 / 0.25
   / 0.18, corridor 0.38 / 0.27 / 0.20 / 0.15, developed 0.20 / 0.30 / 0.27 /
   0.23, greenfield 0.60 / 0.17 / 0.13 / 0.10. The principal soils are a plain
@@ -1199,9 +1208,11 @@ class tables give none).
   share of a grid over the site, thickness rising with the rank.
 - Strikes: the #84 table with the NE bands, 0.021, 0.038, 0.048, 0.076 and
   0.080 per metre in the 0-1, 1-2, 2-3, 3-5 and below 5 m bands (9 strikes in
-  429 m, 14 in 368 m, 13 in 270 m, 29 in 382 m, 48 in 599 m); no rise 18% (17
-  of 93 strikes with readings, NE 5 of 58 and London 12 of 35 pooled); rise
-  0.1 to 1.6 m, skew 2.45, to the pooled P50 and P90.
+  429 m, 14 in 368 m, 13 in 270 m, 29 in 382 m, 48 in 599 m); no rise 9% (NE
+  5 of 58 strikes with readings, 13 projects; London 12 of 35 is the
+  cross-check); rise 0.1 to 1.6 m, skew 2.7, fitted to the NE rising strikes
+  alone (53 of 58; P10 / P25 / P50 / P75 / P90 0.10 / 0.10 / 0.30 / 0.60 /
+  1.16 m, max 6.80 m).
 - Properties and sampling are london-basin's Made Ground (forge judgement):
   SPT N 3 to 18, PL, PI, LI, MC and Gs; B and D samples every 1.0 to 1.5 m.
 
@@ -1243,7 +1254,8 @@ tyneside-till v10 (corridor, town) against the crawl:
 | NN / all-pair thickness difference, 7 / 12 / 20 / 40 holes | 0.93 / 0.85 / 0.78 / 0.64 | 0.75 |
 | Nearest hole of an MG hole is MG, 7 / 12 / 20 / 40 holes | 71 / 73 / 78 / 82% (67% at random) | 85% (80% at random) |
 | MG strikes per metre, 0-1 / 1-2 / 2-3 / 3-5 / below 5 m | 0.0227 / 0.0379 / 0.0456 / 0.0741 / 0.0638 | 0.021 / 0.038 / 0.048 / 0.076 / 0.080 |
-| MG strikes with no rise, rising P10 / P50 / P90 (m) | 16.9%, 0.10 / 0.31 / 1.17 | 9% NE, 34% London; NE 0.10 / 0.30 / 1.16 |
+| MG strikes with no rise | 9.1% (1,556 strikes) | 9% NE (5 of 58); 34% London |
+| Rising MG strikes, rise P10 / P25 / P50 / P75 / P90 (m) | 0.10 / 0.13 / 0.29 / 0.70 / 1.14 (max 1.60) | NE 0.10 / 0.10 / 0.30 / 0.60 / 1.16 (max 6.80) |
 
 (The strike rows are 3,000 sites of 8 holes, 1,556 MG strikes; the patch rows
 2,000 sites.)
@@ -1285,7 +1297,7 @@ tyneside-till v10 (corridor, town) against the crawl:
 ### Pins
 
 `shipped_preset_output_bytes_are_pinned` for tyneside-till seeds 0 to 2:
-`a60d467b...7bee` (33,158 bytes), `3e5e9418...c801` (23,514) and
+`9e04e1e5...0f6e` (33,157 bytes), `3e5e9418...c801` (23,514) and
 `721958c6...35c6` (41,654). `a_preset_without_its_made_ground_writes_the_previous_versions_bytes`
 holds the file without the block to the v9 pins (`decbeb1d...dc86`,
 `a9d773f9...ced8`, `f880f79c...9431`). `each_setting_and_settlement_writes_pinned_bytes`

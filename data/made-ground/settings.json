@@ -58,8 +58,8 @@
           },
           {
             "name": "coal",
-            "share": 0.1435,
-            "basis": "Corridor's weight, unchanged for greenfield (forge judgement; only the count is shifted). BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): coal named in NE road schemes 23% of 843 soil-bearing strata (19 projects); London overall 5.7% of 1,288 Made Ground strata (85 projects); the mean of the two is 14.35%. Contains data supplied by UKRI, OGL v3."
+            "share": 0.0538,
+            "basis": "Corridor's weight, unchanged for greenfield (forge judgement; only the count is shifted). BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): coal named in NE road schemes 23% (counted as 5.06%, see below) of 843 soil-bearing strata (19 projects); London overall 5.7% of 1,288 Made Ground strata (85 projects); the mean of the two is 5.38%. Clast-clause exclusion: 78% of the NE strata naming coal name it in a clast clause (setting-findings section D, NE overall), so only the remaining 22% of mentions count, applied to this class's 23% (the findings give no per-class split) = 5.06%; coal fragments in NE fill may be reworked Coal Measures, natural ground, unlike brick or clinker, which are anthropogenic whatever the clause. File (tyneside-till, greenfield, town, 1,500 sites of 40 holes): coal in 3.63% of made-ground strata against 5.38% here, the count being shifted toward none. Contains data supplied by UKRI, OGL v3."
           },
           {
             "name": "slag",
@@ -154,8 +154,8 @@
           },
           {
             "name": "coal",
-            "share": 0.1435,
-            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): coal named in NE road schemes 23% of 843 soil-bearing strata (19 projects); London overall 5.7% of 1,288 Made Ground strata (85 projects); the mean of the two is 14.35%. Contains data supplied by UKRI, OGL v3."
+            "share": 0.0538,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): coal named in NE road schemes 23% (counted as 5.06%, see below) of 843 soil-bearing strata (19 projects); London overall 5.7% of 1,288 Made Ground strata (85 projects); the mean of the two is 5.38%. Clast-clause exclusion: 78% of the NE strata naming coal name it in a clast clause (setting-findings section D, NE overall), so only the remaining 22% of mentions count, applied to this class's 23% (the findings give no per-class split) = 5.06%; coal fragments in NE fill may be reworked Coal Measures, natural ground, unlike brick or clinker, which are anthropogenic whatever the clause. File (tyneside-till, corridor, town, 1,500 sites of 40 holes): coal in 5.26% of made-ground strata against 5.38% here. Contains data supplied by UKRI, OGL v3."
           },
           {
             "name": "slag",
@@ -347,8 +347,8 @@
           },
           {
             "name": "coal",
-            "share": 0.1485,
-            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): coal named in NE brownfield 24% of 328 soil-bearing strata (5 projects); London overall 5.7% of 1,288 Made Ground strata (85 projects); the mean of the two is 14.85%. Contains data supplied by UKRI, OGL v3."
+            "share": 0.0549,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): coal named in NE brownfield 24% (counted as 5.28%, see below) of 328 soil-bearing strata (5 projects); London overall 5.7% of 1,288 Made Ground strata (85 projects); the mean of the two is 5.49%. Clast-clause exclusion: 78% of the NE strata naming coal name it in a clast clause (setting-findings section D, NE overall), so only the remaining 22% of mentions count, applied to this class's 24% (the findings give no per-class split) = 5.28%; coal fragments in NE fill may be reworked Coal Measures, natural ground, unlike brick or clinker, which are anthropogenic whatever the clause. File (tyneside-till, brownfield, town, 1,500 sites of 40 holes): coal in 4.89% of made-ground strata against 5.49% here. Contains data supplied by UKRI, OGL v3."
           },
           {
             "name": "slag",
