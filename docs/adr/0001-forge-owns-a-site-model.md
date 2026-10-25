@@ -219,6 +219,35 @@ consumer can replace.
   of multi-strike holes whose first strike is in made ground
   (`docs/research/london-basin-sources.md`, "Made-ground water strikes
   (london-basin v9, #84)").
+- Water strikes in the London Clay (#83, london-basin v10). The weathered and
+  the unweathered London Clay (`WLC`, `LC`) each take a `strike` table like a
+  till's and the till's rules (the water is not perched, as the units are not
+  made ground). A table's `rate_by_depth` may add
+  `bands_from_unit_top = true`, which measures the bands from the top of the
+  unit in the hole (its first piece, where a lens splits it) instead of from
+  ground level; a block without the option behaves as before, so the tills and
+  the made-ground blocks keep their bytes. The loader refuses the option
+  beside a flat rate. In the crawl of the London accessions (the 73 projects
+  that report WSTG), London Clay of either grade strikes 0.0311, 0.0342,
+  0.0257, 0.0057 and 0.0098 times per metre in the 0-2, 2-5, 5-10, 10-20 and
+  below 20 m bands below the top of the London Clay of either grade (each THIN;
+  the preset measures them from the top of LC itself), a flat 0.0196 in the weathered clay (19 strikes, THIN),
+  and a rise (P50 0.28 m, P90 4.28 m) and a share with no rise (25%) pooled over
+  both units (20 strikes in 7 projects, THIN). A flat LC rate would put a
+  strike in about 35% of holes against the crawl's 15%, because the file's
+  holes penetrate about 24 m of LC against the crawl's median 5 m. `[construction]`
+  takes the `seal` key of #79 with the London crawl's shares (26% of earlier
+  strikes, 22% of last) and a gap fitted to the crawl; the installation rule is
+  unchanged. No stratum below LC is modelled: only 34% of the crawl's London
+  Clay holes continue below it, and strikes there run at 0.006 per m (18
+  strikes, THIN). Reported, not fitted: holes with an LC strike (32.5% against
+  15%, the file's depth), holes with two or more strikes (24.4% against
+  12.1%), the hosts of the first and second strike, the strikes' depth in the
+  weathered clay, the rise's tail and the seals of single-strike holes. A
+  preset without the blocks and the seal writes v9's bytes
+  (`a_preset_without_its_london_clay_strikes_writes_the_previous_versions_bytes`;
+  `docs/research/london-basin-sources.md`, "London Clay water strikes
+  (london-basin v10, #83)").
 - Several strikes per hole (#79, tyneside-till v9). A preset may set
   `site.several_strikes = { max_per_hole, min_gap_m, basis }` (a cap of 2 to 16,
   a gap above 0, a basis). Without it a hole records at most one strike, as
@@ -269,8 +298,8 @@ consumer can replace.
     `cons-install-follows-share`. No existing stream is consumed, so a preset
     without the keys writes the bytes of the version before
     (`a_preset_without_its_several_strikes_writes_the_previous_versions_bytes`).
-    london-basin has none and is unchanged (#83 considers several strikes
-    there, #84 water in made ground).
+    london-basin had none and was unchanged at v8; it turns several strikes on
+    at v9 (#84) and takes the seal at v10 (#83).
 - Coordinates are on a local grid by default. `--grid bng --origin <E>,<N>`
   adds national-grid coordinates for tools that only plot BNG, at an origin the
   consumer chooses and is responsible for. No shipped preset carries a real

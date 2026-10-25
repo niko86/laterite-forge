@@ -315,6 +315,10 @@ pub struct UnitStrike {
     pub rise_m: Range,
     /// The fraction of strikes whose water does not rise at all.
     pub no_rise_share: Range,
+    /// `bands_from_unit_top` (london-basin v10): the bands of a
+    /// `rate_by_depth` run from the top of the unit in the hole, not from
+    /// ground level. False unless written, and only with a `rate_by_depth`.
+    pub bands_from_unit_top: bool,
 }
 
 /// The rate of a unit's strike process.
@@ -322,8 +326,9 @@ pub struct UnitStrike {
 pub enum StrikeRate {
     /// `rate_per_m`: one rate for the whole unit, drawn once per site.
     PerMetre(Range),
-    /// `rate_by_depth`: a rate for each band of depth below ground level,
-    /// ascending, the first from 0 and the last running on without end.
+    /// `rate_by_depth`: a rate for each band of depth below ground level (or,
+    /// with `bands_from_unit_top`, below the unit's own top), ascending, the
+    /// first from 0 and the last running on without end.
     ByDepth(Vec<RateBand>),
 }
 
@@ -2521,6 +2526,7 @@ fn read_units(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Unit>> {
         let strike = read_unit_strike(
             &mut u,
             water_bearing.as_ref().is_some_and(Option::is_some),
+            made_ground.as_ref().is_some_and(Option::is_some),
             errs,
         );
         let sampling = read_sampling(&mut u, &samp, errs);
@@ -2888,12 +2894,13 @@ fn read_water_bearing(
 /// never both, never negative), `rise_m` (never negative, with an optional
 /// skew) and `no_rise_share` (0 to 1), each cited. It is refused on a
 /// water-bearing unit (which already strikes at its top). A made-ground unit
-/// may take one.
+/// may take one, but not `bands_from_unit_top`.
 // Outer `None` is a reported problem; inner `None` is "not written".
 #[allow(clippy::option_option)]
 fn read_unit_strike(
     u: &mut Node,
     water_bearing: bool,
+    made_ground: bool,
     errs: &mut Vec<String>,
 ) -> Option<Option<UnitStrike>> {
     let at = u.at("strike");
@@ -2914,6 +2921,8 @@ fn read_unit_strike(
     let mut fine = true;
     let rate = read_strike_rate(&mut s, errs);
     fine &= rate.is_some();
+    let from_top = read_bands_from_unit_top(&mut s, rate.as_ref(), made_ground, errs);
+    fine &= from_top.is_some();
     let rise = read_thickness(&mut s, "rise_m", errs);
     if let Some(r) = &rise {
         let before = errs.len();
@@ -2938,8 +2947,40 @@ fn read_unit_strike(
             rate,
             rise_m,
             no_rise_share,
+            bands_from_unit_top: from_top.unwrap_or(false),
         })),
         _ => None,
+    }
+}
+
+/// The optional `bands_from_unit_top` flag of a `strike` table: a boolean,
+/// and only meaningful beside a `rate_by_depth`.
+fn read_bands_from_unit_top(
+    s: &mut Node,
+    rate: Option<&StrikeRate>,
+    made_ground: bool,
+    errs: &mut Vec<String>,
+) -> Option<bool> {
+    let at = s.at("bands_from_unit_top");
+    match s.get("bands_from_unit_top") {
+        None => Some(false),
+        Some(Value::Boolean(b)) => {
+            if rate.is_some_and(|r| !matches!(r, StrikeRate::ByDepth(_))) {
+                errs.push(format!("{at}: needs a rate_by_depth (not rate_per_m)"));
+                return None;
+            }
+            if made_ground {
+                errs.push(format!(
+                    "{at}: not allowed on a made-ground unit (its process runs from the stratum's top, below any cover)"
+                ));
+                return None;
+            }
+            Some(*b)
+        }
+        Some(_) => {
+            errs.push(format!("{at}: must be true or false"));
+            None
+        }
     }
 }
 
@@ -3106,7 +3147,7 @@ fn read_generic_made_ground(
         ));
     }
     let description = read_description(&mut b, errs);
-    let strike = read_unit_strike(&mut b, false, errs);
+    let strike = read_unit_strike(&mut b, false, true, errs);
     let dict = Dictionary::bundled(DictVersion::V4_2);
     let samp = dict.abbr_codes("SAMP_TYPE");
     let sampling = read_sampling(&mut b, &samp, errs);
@@ -4026,18 +4067,19 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
         assert!(i.kinds_basis.contains("pp.405-406"));
     }
 
-    /// london-basin (#75) adds installations at v8; v9 (#84) keeps them.
+    /// london-basin (#75) adds installations at v8; v9 (#84) and v10 (#83) keep
+    /// them.
     #[test]
-    fn london_basin_v9_has_a_cited_installation_table() {
+    fn london_basin_v10_has_a_cited_installation_table() {
         let p = resolve("london-basin").unwrap();
-        assert_eq!(p.version, 9);
+        assert_eq!(p.version, 10);
         installation_is_cited(&p, 0.17);
     }
 
     /// london-basin v9 (#84): several strikes per hole, and a made-ground
     /// `strike` block with a banded rate, each range cited to the crawl.
     #[test]
-    fn london_basin_v9_has_cited_made_ground_strikes() {
+    fn london_basin_v10_keeps_cited_made_ground_strikes() {
         let p = resolve("london-basin").unwrap();
         let several = p.site.several_strikes.as_ref().expect("v9 has the key");
         assert_eq!((several.max_per_hole, several.min_gap_m), (4, 0.5));
@@ -4064,12 +4106,77 @@ particle_density_ratio = { min = 2.6, max = 2.7, basis = "test fixture" }
         {
             assert!(r.basis.contains("OGL v3"), "{}", r.basis);
         }
-        assert!(
+        // The made-ground bands run from ground level; v10 (#83) puts strike
+        // blocks on the two London Clay units only.
+        assert!(!s.bands_from_unit_top);
+        assert_eq!(
             p.units
                 .iter()
-                .filter(|u| u.id != "MG")
-                .all(|u| u.strike.is_none())
+                .filter(|u| u.strike.is_some())
+                .map(|u| u.id.as_str())
+                .collect::<Vec<_>>(),
+            ["MG", "WLC", "LC"]
         );
+    }
+
+    /// london-basin v10 (#83): London Clay strikes. WLC has a flat rate and LC
+    /// a banded one from its own top; both take one pooled rise range and
+    /// no-rise share, every range cited to the crawl; and `[construction]`
+    /// carries a seal.
+    #[test]
+    fn london_basin_v10_has_cited_london_clay_strikes_and_a_seal() {
+        let p = resolve("london-basin").unwrap();
+        let strike = |id: &str| {
+            p.units
+                .iter()
+                .find(|u| u.id == id)
+                .and_then(|u| u.strike.as_ref())
+                .unwrap_or_else(|| panic!("{id} strikes"))
+        };
+        let (wlc, lc) = (strike("WLC"), strike("LC"));
+        let StrikeRate::PerMetre(flat) = &wlc.rate else {
+            panic!("WLC has a flat rate");
+        };
+        assert_eq!((flat.min, flat.max), (0.0196, 0.0196));
+        assert!(!wlc.bands_from_unit_top);
+        let StrikeRate::ByDepth(bands) = &lc.rate else {
+            panic!("LC has bands");
+        };
+        assert!(lc.bands_from_unit_top);
+        assert_eq!(
+            bands.iter().map(|b| b.from_m).collect::<Vec<_>>(),
+            [0.0, 2.0, 5.0, 10.0, 20.0]
+        );
+        assert_eq!(
+            bands.iter().map(|b| b.rate_per_m.min).collect::<Vec<_>>(),
+            [0.0311, 0.0342, 0.0257, 0.0057, 0.0098]
+        );
+        // One pooled London Clay rise and no-rise share.
+        assert_eq!(wlc.rise_m, lc.rise_m);
+        assert_eq!(wlc.no_rise_share, lc.no_rise_share);
+        assert_eq!(lc.no_rise_share.min, 0.25);
+        for r in lc
+            .rate
+            .ranges()
+            .into_iter()
+            .chain(wlc.rate.ranges())
+            .chain([&lc.rise_m, &lc.no_rise_share])
+        {
+            assert!(r.basis.contains("OGL v3"), "{}", r.basis);
+            assert!(r.basis.contains("forge analysis"), "{}", r.basis);
+        }
+        // THIN labels sit beside the small samples.
+        assert!(lc.rise_m.basis.contains("THIN"));
+        assert!(wlc.rate.ranges()[0].basis.contains("THIN"));
+        let seal = p
+            .construction
+            .as_ref()
+            .and_then(|c| c.seal.as_ref())
+            .expect("v10 has a seal");
+        assert_eq!((seal.earlier_share, seal.last_share), (0.26, 0.22));
+        for basis in [&seal.basis, &seal.gap_m.basis] {
+            assert!(basis.contains("OGL v3"), "{basis}");
+        }
     }
 
     /// tyneside-till (#13) loads by name as three tills over one another with
@@ -6058,6 +6165,51 @@ headings = ["TRET_DEVF"]
         assert_refused(
             &banded(&BANDS.replace("from_m = 1.0, ", "")),
             "units[1] (LC).strike.rate_by_depth[1].from_m: missing",
+        );
+    }
+
+    #[test]
+    fn bands_from_the_unit_top_load_beside_a_banded_rate_only() {
+        // Not written: false.
+        let p = Preset::from_toml(&banded(BANDS)).expect("valid");
+        assert!(!p.units[1].strike.as_ref().unwrap().bands_from_unit_top);
+        // Written beside bands: true, and false is allowed too.
+        let with = |flag: &str| banded(&format!("{BANDS}, bands_from_unit_top = {flag}"));
+        let p = Preset::from_toml(&with("true")).expect("valid");
+        assert!(p.units[1].strike.as_ref().unwrap().bands_from_unit_top);
+        let p = Preset::from_toml(&with("false")).expect("valid");
+        assert!(!p.units[1].strike.as_ref().unwrap().bands_from_unit_top);
+        // A flat rate has no bands to move, whatever the flag says.
+        for flag in ["true", "false"] {
+            assert_refused(
+                &strike_with(
+                    &STRIKE.replace("rise_m", &format!("bands_from_unit_top = {flag}, rise_m")),
+                ),
+                "units[1] (LC).strike.bands_from_unit_top: needs a rate_by_depth (not rate_per_m)",
+            );
+        }
+        // A made-ground unit's process runs from the stratum's top, below any
+        // cover, so the option is refused there.
+        let mg = rtd_made_ground(&valid(), "true").replace(
+            "made_ground = true",
+            &format!(
+                "made_ground = true\n{}",
+                STRIKE.replace(
+                    "rate_per_m = { min = 0.02, max = 0.04, basis = \"test fixture\" }",
+                    &format!("{BANDS}, bands_from_unit_top = true")
+                )
+            ),
+        );
+        let e = errors_of(&mg).join("\n");
+        assert!(
+            e.contains(
+                "units[0] (RTD).strike.bands_from_unit_top: not allowed on a made-ground unit"
+            ),
+            "{e}"
+        );
+        assert_refused(
+            &with("1"),
+            "units[1] (LC).strike.bands_from_unit_top: must be true or false",
         );
     }
 
