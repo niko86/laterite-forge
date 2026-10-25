@@ -2526,6 +2526,7 @@ fn read_units(n: &mut Node, errs: &mut Vec<String>) -> Option<Vec<Unit>> {
         let strike = read_unit_strike(
             &mut u,
             water_bearing.as_ref().is_some_and(Option::is_some),
+            made_ground.as_ref().is_some_and(Option::is_some),
             errs,
         );
         let sampling = read_sampling(&mut u, &samp, errs);
@@ -2893,12 +2894,13 @@ fn read_water_bearing(
 /// never both, never negative), `rise_m` (never negative, with an optional
 /// skew) and `no_rise_share` (0 to 1), each cited. It is refused on a
 /// water-bearing unit (which already strikes at its top). A made-ground unit
-/// may take one.
+/// may take one, but not `bands_from_unit_top`.
 // Outer `None` is a reported problem; inner `None` is "not written".
 #[allow(clippy::option_option)]
 fn read_unit_strike(
     u: &mut Node,
     water_bearing: bool,
+    made_ground: bool,
     errs: &mut Vec<String>,
 ) -> Option<Option<UnitStrike>> {
     let at = u.at("strike");
@@ -2919,7 +2921,7 @@ fn read_unit_strike(
     let mut fine = true;
     let rate = read_strike_rate(&mut s, errs);
     fine &= rate.is_some();
-    let from_top = read_bands_from_unit_top(&mut s, rate.as_ref(), errs);
+    let from_top = read_bands_from_unit_top(&mut s, rate.as_ref(), made_ground, errs);
     fine &= from_top.is_some();
     let rise = read_thickness(&mut s, "rise_m", errs);
     if let Some(r) = &rise {
@@ -2956,14 +2958,21 @@ fn read_unit_strike(
 fn read_bands_from_unit_top(
     s: &mut Node,
     rate: Option<&StrikeRate>,
+    made_ground: bool,
     errs: &mut Vec<String>,
 ) -> Option<bool> {
     let at = s.at("bands_from_unit_top");
     match s.get("bands_from_unit_top") {
         None => Some(false),
         Some(Value::Boolean(b)) => {
-            if *b && !matches!(rate, Some(StrikeRate::ByDepth(_))) && rate.is_some() {
-                errs.push(format!("{at}: needs a rate_by_depth"));
+            if rate.is_some_and(|r| !matches!(r, StrikeRate::ByDepth(_))) {
+                errs.push(format!("{at}: needs a rate_by_depth (not rate_per_m)"));
+                return None;
+            }
+            if made_ground {
+                errs.push(format!(
+                    "{at}: not allowed on a made-ground unit (its process runs from the stratum's top, below any cover)"
+                ));
                 return None;
             }
             Some(*b)
@@ -3138,7 +3147,7 @@ fn read_generic_made_ground(
         ));
     }
     let description = read_description(&mut b, errs);
-    let strike = read_unit_strike(&mut b, false, errs);
+    let strike = read_unit_strike(&mut b, false, true, errs);
     let dict = Dictionary::bundled(DictVersion::V4_2);
     let samp = dict.abbr_codes("SAMP_TYPE");
     let sampling = read_sampling(&mut b, &samp, errs);
@@ -6170,10 +6179,33 @@ headings = ["TRET_DEVF"]
         assert!(p.units[1].strike.as_ref().unwrap().bands_from_unit_top);
         let p = Preset::from_toml(&with("false")).expect("valid");
         assert!(!p.units[1].strike.as_ref().unwrap().bands_from_unit_top);
-        // A flat rate has no bands to move.
-        assert_refused(
-            &strike_with(&STRIKE.replace("rise_m", "bands_from_unit_top = true, rise_m")),
-            "units[1] (LC).strike.bands_from_unit_top: needs a rate_by_depth",
+        // A flat rate has no bands to move, whatever the flag says.
+        for flag in ["true", "false"] {
+            assert_refused(
+                &strike_with(
+                    &STRIKE.replace("rise_m", &format!("bands_from_unit_top = {flag}, rise_m")),
+                ),
+                "units[1] (LC).strike.bands_from_unit_top: needs a rate_by_depth (not rate_per_m)",
+            );
+        }
+        // A made-ground unit's process runs from the stratum's top, below any
+        // cover, so the option is refused there.
+        let mg = rtd_made_ground(&valid(), "true").replace(
+            "made_ground = true",
+            &format!(
+                "made_ground = true\n{}",
+                STRIKE.replace(
+                    "rate_per_m = { min = 0.02, max = 0.04, basis = \"test fixture\" }",
+                    &format!("{BANDS}, bands_from_unit_top = true")
+                )
+            ),
+        );
+        let e = errors_of(&mg).join("\n");
+        assert!(
+            e.contains(
+                "units[0] (RTD).strike.bands_from_unit_top: not allowed on a made-ground unit"
+            ),
+            "{e}"
         );
         assert_refused(
             &with("1"),

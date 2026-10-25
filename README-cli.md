@@ -144,7 +144,8 @@ the preset's test suite. `--site` and `--scaffold` are mutually exclusive.
   joined, `IP+CP`. `CDIA` records the casing of every hole, in one string or two (a larger
   diameter to part depth, a smaller below, never the other way round), ending
   above final depth by a gap fitted to the crawls; the casing passes the first
-  water strike in 82% (tyneside-till) or 92% (london-basin) of holes. Every
+  water strike in 82% (tyneside-till) or 92% (london-basin, the v7 figure; from
+  v9 a hole with several strikes has its casing pass every strike but the last) of holes. Every
   `WSTG` row gains `WSTG_CAS`, the casing depth at the strike, never deeper
   than the strike or the final casing. Some sites (about 7 in 10 for
   tyneside-till, 1 in 2 for london-basin) also carry `BKFL`: arisings,
@@ -210,15 +211,17 @@ the preset's test suite. `--site` and `--scaffold` are mutually exclusive.
   london-basin v10 adds **water strikes in the London Clay**. The weathered
   and the unweathered London Clay strike water along their depth like a till:
   the weathered clay at 0.0196 per metre, the London Clay at a rate that falls
-  with depth below its own top (about 0.03 per metre in the first 5 m, 0.006
-  below 10 m), because a hole in this file penetrates about 24 m of it. Both
+  with depth below its own top (0.031, 0.034 and 0.026 per metre in the first
+  2, 2-5 and 5-10 m, then 0.0057 at 10-20 m and 0.0098 below 20 m), because a hole in this file penetrates about 24 m of it. Both
   share one rise and a 25% share of strikes with no rise. The `seal` key adds
   `WSTG_SEAL` (26% of earlier strikes, 22% of last strikes). Holes with any
-  strike rise from about 55% to about 70%, and `WSTG`, `WSTD`, `WSTG_CAS`, the
+  strike rise from about 55% to about 70% (the crawl's 48% of all holes, 62% in
+  the projects that report water strikes), and `WSTG`, `WSTD`, `WSTG_CAS`, the
   installation zone, `BKFL` and `PIPE` follow the strikes. About a third of
-  holes have a London Clay strike (the crawl's 15%, but 29% of its holes with
-  20 m or more of London Clay) and 24% of holes have two strikes or more (the
-  crawl's 12%): known misses. There is no stratum below the London Clay.
+  holes have a London Clay strike (the crawl's 15% of holes, 19% in the
+  reporting projects, but 29% of its holes with 20 m or more of London Clay)
+  and 24% of holes have two strikes or more (the crawl's 12%, 16% in the
+  reporting projects): known misses. There is no stratum below the London Clay.
 
   tyneside-till v10 adds **generic made ground**, set by `--setting` and
   `--settlement` (default: a corridor, in a town). Made ground is the first

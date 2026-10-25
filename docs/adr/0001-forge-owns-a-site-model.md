@@ -228,9 +228,10 @@ consumer can replace.
   ground level; a block without the option behaves as before, so the tills and
   the made-ground blocks keep their bytes. The loader refuses the option
   beside a flat rate. In the crawl of the London accessions (the 73 projects
-  that report WSTG), LC strikes 0.0311, 0.0342, 0.0257, 0.0057 and 0.0098
-  times per metre in the 0-2, 2-5, 5-10, 10-20 and below 20 m bands below its
-  top (each THIN), a flat 0.0196 in the weathered clay (19 strikes, THIN),
+  that report WSTG), London Clay of either grade strikes 0.0311, 0.0342,
+  0.0257, 0.0057 and 0.0098 times per metre in the 0-2, 2-5, 5-10, 10-20 and
+  below 20 m bands below the top of the London Clay of either grade (each THIN;
+  the preset measures them from the top of LC itself), a flat 0.0196 in the weathered clay (19 strikes, THIN),
   and a rise (P50 0.28 m, P90 4.28 m) and a share with no rise (25%) pooled over
   both units (20 strikes in 7 projects, THIN). A flat LC rate would put a
   strike in about 35% of holes against the crawl's 15%, because the file's

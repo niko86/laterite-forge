@@ -88,7 +88,9 @@
 //! **London Clay strikes** (london-basin v10, #83). The weathered and the
 //! unweathered London Clay (`WLC`, `LC`) take the same `strike` block as a
 //! till, and neither is made ground, so the process starts at the written top
-//! and no event is perched or dropped. Two things are new:
+//! and no event is dropped for lying under the water table (the water is not
+//! perched). The gap rule and the cap of several strikes still drop events, as
+//! for a till. Two things are new:
 //!
 //! - A `rate_by_depth` may say `bands_from_unit_top = true`: the bands are
 //!   then depths below the top of the unit in the hole (the written top of its
@@ -100,6 +102,11 @@
 //!   written identically on both units; each unit still draws its own
 //!   streams, keyed by (hole, unit), so `WLC` and `LC` move none of each
 //!   other's draws.
+//!
+//! No new `Key` tag was added: the till tags (`till-strike-rate`,
+//! `strike-band-rate`, `till-strike-norise`, `till-strike`, `till-strike-rise`)
+//! are keyed by the unit's id, so `WLC` and `LC` draw fresh streams and no
+//! existing stream moves, as the v9 made-ground block did.
 //!
 //! **One strike per hole.** Without `site.several_strikes` a hole records the
 //! shallowest of its lens-top strike (the first water-bearing stratum that
@@ -262,7 +269,7 @@ enum Source<'a> {
     Table,
     /// The top of a water-bearing stratum; `rise` is its drawn rise.
     Lens { rise: f64 },
-    /// A Poisson event in a till or made-ground unit; `n` is its index in the
+    /// A Poisson event in a till, made-ground or London Clay unit; `n` is its index in the
     /// unit's stream.
     Till { ts: TillStrike<'a>, n: u64 },
 }
@@ -403,7 +410,8 @@ fn several_strikes(
 }
 
 /// A strike unit's rate on this site, with its spec. A till or, from #84, a
-/// made-ground unit: the till names also carry made ground.
+/// made-ground unit or, from #83, a London Clay unit: the till names carry them
+/// all.
 struct TillRate<'a> {
     unit: &'a str,
     spec: &'a UnitStrike,
@@ -460,8 +468,8 @@ impl SiteRate {
     }
 }
 
-/// The site's rate for each unit with a `strike` table (a till or made
-/// ground), drawn once in the
+/// The site's rate for each unit with a `strike` table (a till, made ground or
+/// a London Clay unit), drawn once in the
 /// unit's range from a stream keyed by its id (a banded rate draws each band
 /// from its own stream, keyed by the unit and the band).
 fn till_rates(preset: &Preset, seed: u64) -> Vec<TillRate<'_>> {
@@ -1965,7 +1973,10 @@ particle_density_ratio = {{ min = 2.6, max = 2.7, basis = "test fixture" }}
                 let (i, st) = stratum_at(hole, s.depth);
                 assert_eq!(st.unit, "LC", "seed {seed}");
                 let top = hole.written_top(i);
-                assert!(top > 1.0, "the fixture's LC lies under 2 m or more of WLC");
+                assert!(
+                    top > 1.0,
+                    "the fixture's LC lies under more than 1 m of WLC"
+                );
                 assert!(s.depth - top < 1.0, "seed {seed}: {} below {top}", s.depth);
                 struck += 1;
             }
@@ -1990,6 +2001,50 @@ particle_density_ratio = {{ min = 2.6, max = 2.7, basis = "test fixture" }}
             seen += a.len();
         }
         assert!(seen > 20, "{seen}");
+    }
+
+    /// A lens inside a banded unit splits it into two pieces, and the bands
+    /// still run from the top of the first: the second piece does not start
+    /// its bands afresh.
+    #[test]
+    fn a_lens_in_a_banded_unit_leaves_the_bands_running_from_its_first_piece() {
+        let text = format!("{FIXTURE}{}{WATER}", lens("", WIDE))
+            .replacen(
+                "name = \"London Clay\"\n",
+                &format!(
+                    "name = \"London Clay\"\n{}\n",
+                    lc_bands(&[(0.0, 0.0), (12.0, 4.0)], true)
+                ),
+                1,
+            )
+            .replace(
+                "groundwater_depth_m = { min = 1.0, max = 4.0,",
+                "groundwater_depth_m = { min = 60.0, max = 60.0,",
+            );
+        let p = Preset::from_toml(&text).expect("lens fixture loads");
+        let (mut after_lens, mut early) = (0, 0);
+        for seed in 0..40 {
+            let site = build::build(&p, seed, 6);
+            for s in strikes(&site, &p, seed) {
+                let hole = &site.holes[s.hole];
+                let first = hole
+                    .strata
+                    .iter()
+                    .position(|st| st.unit == "LC")
+                    .expect("a hole that strikes in LC has LC");
+                let first_top = hole.written_top(first);
+                assert!(s.depth - first_top >= 12.0, "seed {seed}");
+                let (i, st) = stratum_at(hole, s.depth);
+                assert_eq!(st.unit, "LC");
+                if i > first {
+                    after_lens += 1;
+                    // Fewer than 12 m below the second piece's own top: only
+                    // possible when the bands run from the first piece.
+                    early += usize::from(s.depth - hole.written_top(i) < 12.0);
+                }
+            }
+        }
+        assert!(after_lens > 10 && early > 0, "{after_lens} / {early}");
     }
 
     /// A band that starts below the unit's top is measured from the top, not
