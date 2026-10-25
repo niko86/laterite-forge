@@ -5,6 +5,9 @@
 //! shortest wavelength is the site's longer side, so a field can rise and fall
 //! about once across the site but never jumps between nearby holes. A range is
 //! mapped onto the field, so the value at a hole always lies within the range.
+//!
+//! [`Field::with_wavelengths`] sets the wavelength range itself: generic made
+//! ground uses tens to hundreds of metres for its patches (#86).
 
 use std::f64::consts::TAU;
 

@@ -43,13 +43,12 @@ impl Setting {
         Setting::Corridor,
     ];
 
+    /// The names in the order of [`Setting::ALL`]: the preset key's choices
+    /// and the `--setting` flag's values.
+    pub const NAMES: [&'static str; 4] = ["greenfield", "brownfield", "developed", "corridor"];
+
     pub fn name(self) -> &'static str {
-        match self {
-            Setting::Greenfield => "greenfield",
-            Setting::Brownfield => "brownfield",
-            Setting::Developed => "developed",
-            Setting::Corridor => "corridor",
-        }
+        Self::NAMES[self as usize]
     }
 
     pub fn parse(s: &str) -> Option<Self> {
@@ -68,12 +67,12 @@ pub enum Settlement {
 impl Settlement {
     pub const ALL: [Settlement; 3] = [Settlement::Village, Settlement::Town, Settlement::City];
 
+    /// The names in the order of [`Settlement::ALL`]: the preset key's
+    /// choices and the `--settlement` flag's values.
+    pub const NAMES: [&'static str; 3] = ["village", "town", "city"];
+
     pub fn name(self) -> &'static str {
-        match self {
-            Settlement::Village => "village",
-            Settlement::Town => "town",
-            Settlement::City => "city",
-        }
+        Self::NAMES[self as usize]
     }
 
     pub fn parse(s: &str) -> Option<Self> {
@@ -194,8 +193,13 @@ impl Data {
                 return Err(format!("{at}: bad share range"));
             }
             let t = &d.thickness_m;
-            if !(0.0 < t.p10 && t.p10 < t.p50 && t.p50 < t.p90) {
-                return Err(format!("{at}: thickness quantiles must rise from above 0"));
+            // The curve's low end is floored at FLOOR_M, so a P10 at or
+            // below it would flatten the curve and thickness would not rise
+            // with rank.
+            if !(FLOOR_M < t.p10 && t.p10 < t.p50 && t.p50 < t.p90) {
+                return Err(format!(
+                    "{at}: thickness quantiles must rise from above {FLOOR_M} m"
+                ));
             }
             let known = crate::synth::made_ground::constituents();
             for c in &d.make_up.constituents {
@@ -457,6 +461,27 @@ mod tests {
         let t = Targets::new(Setting::Corridor, Settlement::Town);
         assert!((t.share_min - 0.07).abs() < 1e-12 && (t.share_max - 1.0).abs() < 1e-12);
         assert_eq!((t.p10, t.p50, t.p90), (0.6, 2.0, 6.5));
+    }
+
+    #[test]
+    fn a_thickness_p10_at_or_below_the_floor_is_refused() {
+        for p10 in ["0.04", "0.05"] {
+            let text = SETTINGS_JSON.replacen("\"p10\": 0.3,", &format!("\"p10\": {p10},"), 1);
+            assert_ne!(text, SETTINGS_JSON);
+            let d: Data = serde_json::from_str(&text).expect("parses");
+            let err = d.check().expect_err("refused");
+            assert!(err.contains("must rise from above 0.05 m"), "{err}");
+        }
+    }
+
+    #[test]
+    fn the_names_parse_back_to_their_values_in_order() {
+        for (i, s) in Setting::ALL.into_iter().enumerate() {
+            assert_eq!(Setting::parse(Setting::NAMES[i]), Some(s));
+        }
+        for (i, s) in Settlement::ALL.into_iter().enumerate() {
+            assert_eq!(Settlement::parse(Settlement::NAMES[i]), Some(s));
+        }
     }
 
     fn block(setting: Setting) -> GenericMadeGround {

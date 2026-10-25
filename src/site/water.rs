@@ -2014,8 +2014,12 @@ mod several_tests {
                     kept += 1;
                     let hole = &site.holes[o.hole];
                     let in_till = hole.strata.iter().any(|u| {
-                        // Made ground (tyneside-till v10) settles by its
-                        // own perched-water rule, not a till's.
+                        // Made ground is excluded (#90): the single-strike
+                        // rule draws the rise at index 0, while the
+                        // several-strikes rule keys the rise by event index
+                        // n, which counts events dropped inside the cover,
+                        // so a made-ground strike under a cover settles on
+                        // a different draw.
                         u.top <= o.depth && o.depth < u.base && u.unit != "GFSG" && u.unit != "MG"
                     });
                     if in_till {

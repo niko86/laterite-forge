@@ -6,13 +6,13 @@
         "min": 0.0,
         "max": 0.35,
         "skew": 1.22,
-        "basis": "forge judgement: the middle is 0.15 and the draw runs 0.00 to 0.35; the skew puts the draw's median at the middle. NE England has one greenfield project, THIN (1 project, 16 holes: pooled share 36%, median thickness 2.9 m), and 21% of NE projects have made ground in under 20% of holes. Contains data supplied by UKRI, OGL v3."
+        "basis": "forge judgement: the middle is 0.15 and the draw runs 0.00 to 0.35; the skew puts the draw's median at the middle. NE England has one greenfield project, THIN (1 project, 44 holes, 16 with made ground = 36%; median thickness 2.9 m), and 21% of NE projects have made ground in under 20% of holes. File (tyneside-till, 1,500 sites of 40 holes): site share P10/P50/P90 0.00/0.15/0.33 at a town, the draw's median 0.15. Known miss, by design: the file's median share 0.15 is far under the one project's 36%, which is judgement. Contains data supplied by UKRI, OGL v3."
       },
       "thickness_m": {
         "p10": 0.3,
         "p50": 0.7,
         "p90": 2.0,
-        "basis": "forge judgement: thin made ground (a track, a field gateway, a ploughed-in dump), well below the NE greenfield project's median of 2.9 m (THIN: 1 project, 16 holes). Contains data supplied by UKRI, OGL v3."
+        "basis": "forge judgement: thin made ground (a track, a field gateway, a ploughed-in dump), well below the NE greenfield project's median of 2.9 m (THIN: 1 project, 44 holes, 16 with made ground). File (1,500 sites of 40 holes): P10/P50/P90 0.30/0.69/2.00 m against the targets 0.30/0.70/2.00. Known miss, by design: the file's median 0.69 m is under the project's 2.9 m. Stated effect of #58's cover rule: a topsoil cuts the made ground under it down to a 0.05 m remnant in 9.2% of greenfield made-ground holes at a town (882 of 9,597; 19.3% of the 4,572 with a cover), so the written thickness is thinner than the table here (corridor: 0.9%). Contains data supplied by UKRI, OGL v3."
       },
       "make_up": {
         "constituents": [
@@ -102,13 +102,13 @@
       "share": {
         "min": 0.07,
         "max": 1.0,
-        "basis": "BGS NGDC AGS crawl, NE England road, rail and flood schemes (21 projects, 716 holes), forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): the share of holes with made ground across projects is P10/P50/P90 0.07/0.72/1.00 and pooled 53%, so the draw runs 0.07 to 1.00 with the middle 0.55 near the pooled share. Contains data supplied by UKRI, OGL v3."
+        "basis": "BGS NGDC AGS crawl, NE England road, rail and flood schemes (21 projects, 716 holes), forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): the share of holes with made ground across projects is P10/P50/P90 0.07/0.72/1.00 and pooled 53%, so the draw runs 0.07 to 1.00, unskewed, and its median is 0.535 against the cited middle 0.55 (the pooled share). File (1,500 sites of 40 holes): site share P10/P50/P90 0.17/0.53/0.90 at a town. Known miss: against the crawl's project shares 0.07/0.72/1.00 the file's P50 is 0.53 not 0.72 and P10 0.17 not 0.07, because the middle is set at the pooled 53% and one draw cannot hold both the pooled share and the project median. Contains data supplied by UKRI, OGL v3."
       },
       "thickness_m": {
         "p10": 0.6,
         "p50": 2.0,
         "p90": 6.5,
-        "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): NE road and flood schemes, made ground thickness (base of the first contiguous block) P10/P50/P90 0.61/2.00/7.30 m (376 holes, 19 projects); London, 12 projects, 0.82/2.20/5.50 m. The P90 6.5 m sits between the two. Contains data supplied by UKRI, OGL v3."
+        "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): NE road and flood schemes, made ground thickness (base of the first contiguous block) P10/P50/P90 0.61/2.00/7.30 m (376 holes, 19 projects); London, 12 projects, 0.82/2.20/5.50 m. The P90 6.5 m sits between the two. File (1,500 sites of 40 holes): P10/P50/P90 0.60/2.02/6.50 m at a town. Known miss: P90 6.50 against the NE 7.30 m, the target being between NE and London. Contains data supplied by UKRI, OGL v3."
       },
       "make_up": {
         "constituents": [
@@ -198,13 +198,13 @@
       "share": {
         "min": 0.78,
         "max": 1.0,
-        "basis": "BGS NGDC AGS London crawl (6 developed-area projects, 53 holes), forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): share of holes with made ground across projects P10/P50/P90 0.78/1.00/1.00, pooled 94%. NE England has no developed-area project in the crawl. The middle 0.90 is near the draw's median 0.89. Contains data supplied by UKRI, OGL v3."
+        "basis": "BGS NGDC AGS London crawl (6 developed-area projects, 53 holes), forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): share of holes with made ground across projects P10/P50/P90 0.78/1.00/1.00, pooled 94%. NE England has no developed-area project in the crawl. The draw is unskewed, so its median is 0.89 against the cited middle 0.90. File (1,500 sites of 40 holes): site share P10/P50/P90 0.78/0.90/0.97 at a town. Known miss: the file's median 0.90 against the crawl's project median 1.00 (pooled 94%), since a draw from 0.78 to 1.00 cannot sit at 1.00. Contains data supplied by UKRI, OGL v3."
       },
       "thickness_m": {
         "p10": 0.5,
         "p50": 1.2,
         "p90": 5.0,
-        "basis": "BGS NGDC AGS London crawl (6 projects, 53 holes), forge analysis: made ground thickness P10/P50/P90 0.50/1.20/5.07 m. London only; NE England has no developed-area project. Contains data supplied by UKRI, OGL v3."
+        "basis": "BGS NGDC AGS London crawl (6 projects, 53 holes), forge analysis: made ground thickness P10/P50/P90 0.50/1.20/5.07 m. London only; NE England has no developed-area project. File (1,500 sites of 40 holes): P10/P50/P90 0.50/1.20/4.98 m at a town against the crawl's 0.50/1.20/5.07. Known miss: P90 4.98 against 5.07 m, the target being rounded to 5.0. Contains data supplied by UKRI, OGL v3."
       },
       "make_up": {
         "constituents": [
@@ -295,13 +295,13 @@
         "min": 0.4,
         "max": 1.0,
         "skew": 0.32,
-        "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting), pooled: NE England (6 projects, 164 holes) share of holes with made ground across projects P10/P50/P90 0.46/0.96/1.00, pooled 91%; London (10 projects, 85 holes) 0.36/1.00/1.00, pooled 84%. The draw runs 0.40 to 1.00; the skew 0.32 puts its median at the middle 0.88. Contains data supplied by UKRI, OGL v3."
+        "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting), pooled: NE England (6 projects, 164 holes) share of holes with made ground across projects P10/P50/P90 0.46/0.96/1.00, pooled 91%; London (10 projects, 85 holes) 0.36/1.00/1.00, pooled 84%. The draw runs 0.40 to 1.00; the skew 0.32 puts its median at the middle 0.88. File (1,500 sites of 40 holes): site share P10/P50/P90 0.68/0.90/1.00 at a town. Known miss: P10 0.68 against 0.46 (NE) and 0.36 (London), because the skew that holds the median at the pooled 0.88 pulls the draw's lower tail up from 0.40. Contains data supplied by UKRI, OGL v3."
       },
       "thickness_m": {
         "p10": 1.8,
         "p50": 4.8,
         "p90": 12.0,
-        "basis": "BGS NGDC AGS crawl, forge analysis, pooled: NE England (6 projects, 164 holes) made ground thickness P10/P50/P90 1.70/5.40/14.82 m; London (10 projects, 85 holes) 2.00/4.00/10.80 m. The targets sit between the two. Contains data supplied by UKRI, OGL v3."
+        "basis": "BGS NGDC AGS crawl, forge analysis, pooled: NE England (149 holes in 5 projects) made ground thickness P10/P50/P90 1.70/5.40/14.82 m; London (10 projects, 85 holes) 2.00/4.00/10.80 m. The targets sit between the two. File (1,500 sites of 40 holes): P10/P50/P90 1.80/4.79/11.99 m at a town against the targets 1.80/4.80/12.00; against the NE P50 5.40 and P90 14.82 m it is a known miss, the target being the pooled figure. Contains data supplied by UKRI, OGL v3."
       },
       "make_up": {
         "constituents": [
@@ -393,7 +393,7 @@
       "share_scale": 0.6,
       "gap_scale": 1.0,
       "thickness_scale": 0.7,
-      "basis": "forge calibration to the BGS NGDC AGS NE England road schemes more than 10 km from a centre (Newcastle, Sunderland, Middlesbrough, Durham) against all road schemes: share of holes with made ground 0.48 against 0.72, median thickness 1.35 against 2.0 m (ratios 0.67 and 0.68); the shifts are rounded to share x 0.6 and thickness x 0.7. Contains data supplied by UKRI, OGL v3."
+      "basis": "forge calibration to the BGS NGDC AGS NE England road schemes more than 10 km from a centre (Newcastle, Sunderland, Middlesbrough, Durham) against all road schemes: share of holes with made ground 0.48 against 0.72, median thickness 1.35 against 2.0 m (ratios 0.67 and 0.68); the shifts are rounded to share x 0.6 and thickness x 0.7. File (corridor, 1,500 sites of 40 holes): village share median 0.33 against 0.53 at a town (ratio 0.62, target 0.6) and thickness median 1.41 against 2.02 m (ratio 0.70, target 0.7). Contains data supplied by UKRI, OGL v3."
     },
     "town": {
       "share_scale": 1.0,
@@ -405,7 +405,7 @@
       "share_scale": 1.0,
       "gap_scale": 0.5,
       "thickness_scale": 1.2,
-      "basis": "forge judgement (owner's practice note): the gap between the share and 1 is halved and the thickness is x 1.2. Caveat: the BGS NGDC AGS crawl shows the share rising near centres (hole level: 78 to 92% within 20 km, 16 to 18% beyond) but not the thickness (London brownfield median 4.0 m against NE 5.4 m), so the thickness shift is judgement. Contains data supplied by UKRI, OGL v3."
+      "basis": "owner's practice note (forge judgement): the gap between the share and 1 is halved and the thickness is x 1.2. Caveat: the BGS NGDC AGS crawl shows the share rising near centres (hole level: 78 to 92% within 20 km, 16 to 18% beyond) but not the thickness (London brownfield median 4.0 m against NE 5.4 m), so the thickness shift is judgement. File (corridor, 1,500 sites of 40 holes): city share median 0.78 against 0.77 expected from half the gap to 1 (town 0.53) and thickness median 2.40 against 2.02 m (ratio 1.19, target 1.2). Contains data supplied by UKRI, OGL v3."
     }
   }
 }

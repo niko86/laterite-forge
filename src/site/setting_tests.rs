@@ -169,6 +169,15 @@ fn a_patch_wavelength_that_is_not_above_zero_or_runs_backwards_is_refused() {
 }
 
 #[test]
+fn a_skew_on_the_patch_wavelength_is_refused_rather_than_ignored() {
+    let errs = refusals(&tyneside_with(
+        "wavelength_m = { min = 50.0, max = 200.0,",
+        "wavelength_m = { skew = 2.0, min = 50.0, max = 200.0,",
+    ));
+    assert_eq!(errs, ["made_ground.wavelength_m: unknown key \"skew\""]);
+}
+
+#[test]
 fn a_patch_wavelength_without_a_basis_is_refused() {
     let text = tyneside_with(
         "wavelength_m = { min = 50.0, max = 200.0, basis = \"",
@@ -567,6 +576,36 @@ fn strikes_per_band(
         }
     }
     (metres, count)
+}
+
+/// Prints how often the topsoil or surfacing cuts the made ground down to the
+/// cover rule's 0.05 m remnant (#58), per setting at a town.
+#[test]
+#[ignore = "a calibration run that prints figures; not a check"]
+fn measure_the_cover_cutting_made_ground_to_its_remnant() {
+    for setting in [Setting::Greenfield, Setting::Corridor] {
+        let p = tyneside(setting, Settlement::Town);
+        let (mut mg, mut covered, mut cut) = (0usize, 0usize, 0usize);
+        for seed in 0..1500 {
+            for h in build::build(&p, seed, 40).holes {
+                let Some(m) = made(&h) else { continue };
+                mg += 1;
+                if let Some(c) = &h.cover {
+                    covered += 1;
+                    if m.base - c.base < 0.0501 {
+                        cut += 1;
+                    }
+                }
+            }
+        }
+        println!(
+            "{}: {mg} MG holes, {covered} covered ({:.1}%), {cut} cut to the remnant ({:.1}% of MG holes, {:.1}% of covered)",
+            setting.name(),
+            100.0 * covered as f64 / mg as f64,
+            100.0 * cut as f64 / mg as f64,
+            100.0 * cut as f64 / covered as f64,
+        );
+    }
 }
 
 /// Prints tyneside-till v10's figures for the bases (run with `--ignored

@@ -1118,11 +1118,11 @@ holes or under 5 projects.
 
 | Setting | Crawl | Projects, holes | Share of holes with MG across projects, P10 / P50 / P90 (pooled) | Thickness P10 / P50 / P90 (m) |
 |---|---|---|---|---|
-| greenfield | NE | 1, 16 (THIN) | pooled 36% | P50 2.9 |
+| greenfield | NE | 1, 44 (THIN; 16 with MG) | pooled 36% (16 of 44) | P50 2.9 |
 | corridor (road, rail, flood) | NE | 21, 716 | 0.07 / 0.72 / 1.00 (53%) | 0.61 / 2.00 / 7.30 (376 holes, 19 projects) |
 | corridor | London | 12, 193 | | 0.82 / 2.20 / 5.50 |
 | developed | London | 6, 53 | 0.78 / 1.00 / 1.00 (94%) | 0.50 / 1.20 / 5.07 |
-| brownfield | NE | 6, 164 | 0.46 / 0.96 / 1.00 (91%) | 1.70 / 5.40 / 14.82 |
+| brownfield | NE | 6, 164 | 0.46 / 0.96 / 1.00 (91%) | 1.70 / 5.40 / 14.82 (149 holes, 5 projects) |
 | brownfield | London | 10, 85 | 0.36 / 1.00 / 1.00 (84%) | 2.00 / 4.00 / 10.80 |
 
 NE has no developed-area project. 21% of NE projects have made ground in
@@ -1145,14 +1145,28 @@ Make-up (share of soil-bearing MG strata naming each constituent; NE overall
 1,271 strata in 34 projects, NE brownfield 328 strata in 5 projects, NE road
 schemes 843 strata in 19 projects, London 1,288 strata in 85 projects):
 
-| Constituent | NE brownfield | NE road schemes | London |
-|---|---|---|---|
-| brick | 51% | 29% | 68% |
-| concrete | 14% | 11% | 39% |
-| clinker | 19% | 5% | 15% |
-| ash | 26% | 5% | 13% |
-| slag | 27% | 9% | 4.2% |
-| none of the forge list | 24% | 56% | 20% |
+| Constituent | NE brownfield | NE road schemes | NE overall | London |
+|---|---|---|---|---|
+| brick | 51% | 29% | 36.3% | 68% |
+| concrete | 14% | 11% | 11.3% | 39% |
+| clinker | 19% | 5% | 9.3% | 15% |
+| ash | 26% | 5% | 10.6% | 13% |
+| slag | 27% | 9% | 12.8% | 4.2% |
+| tarmac or asphalt | 1% | 2% | 2.3% | 3.3% |
+| glass | 6% | 2% | 2.7% | 7.8% |
+| metal | 6% | 0% | 2.0% | 6.3% |
+| wood or timber | 7% | 0% | 2.1% | 7.5% |
+| coal | 24% | 23% | 24.9% | 5.7% |
+| pottery, ceramic or tile | | | 2.0% | 10% |
+| plastic | | | 4.8% | 3.8% |
+| none of the forge list | 24% | 56% | 45% | 21% (20% in the strata count) |
+
+The class tables do not split pottery and plastic; NE overall stands in for
+both. Forge-list constituents named per soil-bearing stratum, none / one / two /
+three or more: NE overall 45 / 29 / 17 / 9% (1,271 strata), London 20 / 30 / 27
+/ 23% (1,288 strata). Amount words, rare / occasional / frequent / numerous /
+abundant: NE overall 3 / 13 / 3 / 0 / 1%, London 14 / 25 / 7 / 0 / 2% (the NE
+class tables give none).
 
 ### What the preset takes
 
@@ -1161,10 +1175,10 @@ schemes 843 strata in 19 projects, London 1,288 strata in 85 projects):
 
 | Setting | Share draw (median) | Thickness P10 / P50 / P90 (m) | Basis |
 |---|---|---|---|
-| greenfield | 0.00 to 0.35 (0.15) | 0.3 / 0.7 / 2.0 | forge judgement |
-| corridor | 0.07 to 1.00 (0.55) | 0.6 / 2.0 / 6.5 | NE road and flood schemes, London cross-check |
-| developed | 0.78 to 1.00 (0.90) | 0.5 / 1.2 / 5.0 | London only |
-| brownfield | 0.40 to 1.00 (0.88) | 1.8 / 4.8 / 12.0 | NE and London pooled |
+| greenfield | 0.00 to 0.35 (draw median 0.15) | 0.3 / 0.7 / 2.0 | forge judgement |
+| corridor | 0.07 to 1.00 (draw median 0.535; cited middle 0.55) | 0.6 / 2.0 / 6.5 | NE road and flood schemes, London cross-check |
+| developed | 0.78 to 1.00 (draw median 0.89; cited middle 0.90) | 0.5 / 1.2 / 5.0 | London only |
+| brownfield | 0.40 to 1.00 (draw median 0.88) | 1.8 / 4.8 / 12.0 | NE and London pooled |
 
 - Village: share x 0.6, thickness x 0.7 (forge calibration to the NE road
   schemes above). City: half the gap between the share and 1, thickness x 1.2
@@ -1254,10 +1268,18 @@ tyneside-till v10 (corridor, town) against the crawl:
 - **Strikes below 5 m.** 0.0638 against 0.080 per metre: the file drops an MG
   event at or below the hole's water table (2.9 to 14.4 m down), the crawl
   counts the metres under the water too.
+- **Cover over thin made ground (#58's rule, unchanged).** The topsoil takes
+  its thickness off the made ground and leaves at least 0.05 m. Over 1,500
+  sites of 40 holes at a town, 47.6% of greenfield made-ground holes have a
+  topsoil, and in 882 of 9,597 made-ground holes (9.2%; 19.3% of the 4,572
+  covered) it cuts the made ground to the 0.05 m remnant. For corridor it is
+  285 of 32,281 (0.9%; 1.9% of 15,245 covered). The thickness figures above
+  are the made-ground stratum before the cover, so greenfield's written
+  thickness is thinner than its table.
 - **Make-up from two sources.** The NE class tables give no count or amount
   split by class, so the count's one, two and three-plus follow NE overall in
   the proportions 29:17:9, and amounts are NE overall and London.
-- **Greenfield.** One THIN NE project (16 holes): the greenfield tables are
+- **Greenfield.** One THIN NE project (44 holes, 16 with MG): the greenfield tables are
   judgement.
 
 ### Pins

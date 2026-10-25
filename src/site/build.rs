@@ -1949,8 +1949,9 @@ mod shipped_pins {
 
     /// A shipped preset as it stood before the several-strikes keys (#79): no
     /// `site.several_strikes`, no `[construction]` seal and no installation
-    /// zone share. It also has no made-ground `strike` block (#84), which
-    /// only london-basin v9 carries.
+    /// zone share. It also has no made-ground `strike` block (#84, london-basin
+    /// v9) and no generic `MG` unit (#86, tyneside-till v10), which
+    /// [`without_generic_made_ground`] strips.
     fn without_several_strikes(preset: &mut Preset) {
         without_generic_made_ground(preset);
         without_made_ground_strikes(preset);
