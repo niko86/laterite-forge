@@ -272,12 +272,28 @@ pub fn generate(args: &GenArgs, site: &OracleSite, ctx: Ctx) -> Result<i32> {
 fn resolve_site(
     arg: &str,
     origin: Option<&str>,
+    made_ground: (Option<&str>, Option<&str>),
 ) -> std::result::Result<(crate::site::preset::Preset, crate::site::build::Grid), i32> {
     use crate::site::build::{self, Grid};
-    let preset = crate::site::preset::resolve(arg).map_err(|e| {
+    use crate::site::setting::{Setting, Settlement};
+    let mut preset = crate::site::preset::resolve(arg).map_err(|e| {
         eprintln!("error: preset {arg}:\n{e}");
         5
     })?;
+    // `--setting` and `--settlement` override the block's defaults. clap
+    // limits the values, so a failed parse is not expected.
+    let (setting, settlement) = made_ground;
+    if setting.is_some() || settlement.is_some() {
+        preset
+            .set_made_ground(
+                setting.and_then(Setting::parse),
+                settlement.and_then(Settlement::parse),
+            )
+            .map_err(|e| {
+                eprintln!("error: preset {arg}: {e}");
+                5
+            })?;
+    }
     let problems = build::problems(&preset);
     if !problems.is_empty() {
         eprintln!("error: preset {arg}:\n{}", problems.join("\n"));
@@ -308,7 +324,11 @@ fn site_base(args: &GenArgs) -> std::result::Result<Option<(ProjectModel, String
     let Some(arg) = &args.site else {
         return Ok(None);
     };
-    let (preset, grid) = resolve_site(arg, args.origin.as_deref())?;
+    let (preset, grid) = resolve_site(
+        arg,
+        args.origin.as_deref(),
+        (args.setting.as_deref(), args.settlement.as_deref()),
+    )?;
     let site = build::build(&preset, args.seed, build::default_hole_count(args.seed));
     let model = build::lower(&site, &preset, args.seed, grid);
     Ok(Some((model, format!("site:{}", preset.name))))
@@ -760,7 +780,11 @@ pub fn scale(args: &crate::cli::ScaleArgs, ctx: Ctx) -> Result<i32> {
     // The base: a site model (`--site`) or a scaffold. `label` names it in
     // the report and the default output path.
     let site = match &args.site {
-        Some(arg) => match resolve_site(arg, args.origin.as_deref()) {
+        Some(arg) => match resolve_site(
+            arg,
+            args.origin.as_deref(),
+            (args.setting.as_deref(), args.settlement.as_deref()),
+        ) {
             Ok(r) => Some(r),
             Err(code) => return Ok(code),
         },

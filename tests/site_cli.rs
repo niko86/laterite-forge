@@ -681,3 +681,184 @@ fn tyneside_till_files_with_till_strikes_agree_with_python_ags4() {
     }
     assert_eq!(checked_with_till, 4, "four seeds in 0..120 strike in till");
 }
+
+/// The file `gen --site tyneside-till --seed 5` writes with `extra` flags.
+fn tyneside_file(dir: &Path, name: &str, extra: &[&str]) -> (Output, String) {
+    let out = dir.join(name);
+    let mut args = vec![
+        "gen",
+        "--site",
+        "tyneside-till",
+        "--seed",
+        "5",
+        "--json",
+        "--out-dir",
+        out.to_str().unwrap(),
+    ];
+    args.extend_from_slice(extra);
+    let made = forge(&args);
+    let text = serde_json::from_slice::<serde_json::Value>(&made.stdout)
+        .ok()
+        .and_then(|d| {
+            let path = d["candidates"][0]["path"].as_str()?.to_string();
+            std::fs::read_to_string(path).ok()
+        })
+        .unwrap_or_default();
+    (made, text)
+}
+
+/// `--setting` and `--settlement` override the block's defaults (#86): the
+/// preset's own corridor and town is what no flag gives, a flag that names
+/// the default changes nothing, and any other value changes the file.
+#[test]
+fn setting_and_settlement_override_a_presets_made_ground() {
+    let dir = tempfile::tempdir().unwrap();
+    let (made, default) = tyneside_file(dir.path(), "default", &[]);
+    assert_eq!(made.status.code(), Some(0), "{}", stderr(&made));
+    let (same, named) = tyneside_file(
+        dir.path(),
+        "named",
+        &["--setting", "corridor", "--settlement", "town"],
+    );
+    assert_eq!(same.status.code(), Some(0), "{}", stderr(&same));
+    assert_eq!(named, default, "naming the defaults moves nothing");
+    for extra in [
+        ["--setting", "brownfield"],
+        ["--setting", "greenfield"],
+        ["--settlement", "village"],
+        ["--settlement", "city"],
+    ] {
+        let (out, text) = tyneside_file(dir.path(), "other", &extra);
+        assert_eq!(out.status.code(), Some(0), "{extra:?}: {}", stderr(&out));
+        assert_ne!(text, default, "{extra:?} changes the file");
+    }
+}
+
+/// A preset without a `[made_ground]` block has nothing for the flags to
+/// override: exit 5 saying so, for `gen` and `scale`, and the file is not
+/// written.
+#[test]
+fn setting_on_a_preset_without_made_ground_exits_5() {
+    let dir = tempfile::tempdir().unwrap();
+    for flag in [["--setting", "brownfield"], ["--settlement", "city"]] {
+        let out = dir.path().join("gen");
+        let mut args = vec!["gen", "--site", "london-basin", "--out-dir"];
+        args.push(out.to_str().unwrap());
+        args.extend_from_slice(&flag);
+        let made = forge(&args);
+        assert_eq!(made.status.code(), Some(5), "{flag:?}: {}", stderr(&made));
+        assert!(
+            stderr(&made).contains("this preset has no generic made ground"),
+            "{}",
+            stderr(&made)
+        );
+        let p = preset(dir.path(), PRESET);
+        let scaled = scale_site(dir.path(), &p, &["--size", "100KB", flag[0], flag[1]]);
+        assert_eq!(scaled.status.code(), Some(5), "{}", stderr(&scaled));
+        assert!(stderr(&scaled).contains("this preset has no generic made ground"));
+    }
+}
+
+/// The flags need `--site`, and take only the values the block knows.
+#[test]
+fn setting_and_settlement_take_only_known_values_and_need_a_site() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("out");
+    let out = out.to_str().unwrap();
+    for args in [
+        vec!["gen", "--setting", "brownfield", "--out-dir", out],
+        vec!["gen", "--settlement", "town", "--out-dir", out],
+        vec!["gen", "--site", "tyneside-till", "--setting", "swamp"],
+        vec![
+            "gen",
+            "--site",
+            "tyneside-till",
+            "--settlement",
+            "metropolis",
+        ],
+        vec!["scale", "--size", "100KB", "--setting", "brownfield"],
+        vec![
+            "scale",
+            "--size",
+            "100KB",
+            "--site",
+            "tyneside-till",
+            "--setting",
+            "x",
+        ],
+    ] {
+        let made = forge(&args);
+        assert_eq!(made.status.code(), Some(5), "{args:?}: {}", stderr(&made));
+    }
+}
+
+#[test]
+fn setting_flags_are_documented_in_help() {
+    for sub in ["gen", "scale"] {
+        let out = forge(&[sub, "--help"]);
+        assert_eq!(out.status.code(), Some(0));
+        let help = String::from_utf8_lossy(&out.stdout);
+        for flag in ["--setting <SETTING>", "--settlement <SETTLEMENT>"] {
+            assert!(help.contains(flag), "{flag} is missing from {sub} --help");
+        }
+    }
+}
+
+/// `scale --site tyneside-till --setting` reaches the target size too: the
+/// setting changes the rows per hole, which the calibration measures, so a
+/// brownfield city (more and thicker made ground, which takes no lab test and
+/// cuts the tested till short) fits more holes in the
+/// same bytes than the preset's corridor town.
+#[test]
+fn scale_site_takes_the_setting_flags() {
+    let dir = tempfile::tempdir().unwrap();
+    let scaled = |extra: &[&str]| {
+        let mut args = vec!["--size", "1MB"];
+        args.extend_from_slice(extra);
+        let out = scale_site(dir.path(), "tyneside-till", &args);
+        assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+        let doc: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        let actual = doc["actual_bytes"].as_f64().unwrap();
+        assert!((0.97..=1.03).contains(&(actual / 1_000_000.0)), "{doc}");
+        doc["n_loca"].as_u64().unwrap()
+    };
+    let default = scaled(&[]);
+    let brown = scaled(&["--setting", "brownfield", "--settlement", "city"]);
+    assert!(brown > default, "{brown} holes against {default}");
+}
+
+/// Files with generic made ground in each setting agree with python-ags4
+/// (#86). Without the oracle the test skips, or under `FORGE_REQUIRE_ORACLE=1`
+/// fails.
+#[test]
+fn tyneside_till_files_with_made_ground_agree_with_python_ags4() {
+    let dir = tempfile::tempdir().unwrap();
+    for setting in ["greenfield", "brownfield", "developed", "corridor"] {
+        let (made, text) = tyneside_file(dir.path(), setting, &["--setting", setting]);
+        assert_eq!(made.status.code(), Some(0), "{}", stderr(&made));
+        if setting != "greenfield" {
+            assert!(
+                text.contains("MADE GROUND: "),
+                "{setting}: made ground in the file"
+            );
+        }
+        let doc: serde_json::Value = serde_json::from_slice(&made.stdout).unwrap();
+        let path = doc["candidates"][0]["path"].as_str().unwrap();
+        let checked = forge(&["check", path, "--json"]);
+        let verdict: serde_json::Value = serde_json::from_slice(&checked.stdout).unwrap();
+        if verdict["oracle"] == false {
+            assert!(
+                std::env::var_os("FORGE_REQUIRE_ORACLE").is_none(),
+                "FORGE_REQUIRE_ORACLE is set but there is no oracle: {}",
+                stderr(&checked)
+            );
+            eprintln!(
+                "SKIP made-ground dual validation: {}",
+                stderr(&checked).trim()
+            );
+            return;
+        }
+        assert_eq!(checked.status.code(), Some(0), "{setting}: {verdict}");
+        assert_eq!(verdict["verdict"], "AGREE", "{setting}: {verdict}");
+    }
+}

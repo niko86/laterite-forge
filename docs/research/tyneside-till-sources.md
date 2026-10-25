@@ -1094,3 +1094,212 @@ strike in holes with one strike, -3.58 / -0.10 / +3.08 m (19,760 holes).
 holds the file without the three keys, and with v8's rates and lens share, to
 the v8 pins (`d51bc607...4e0f`, `231ffbc5...b284`, `a22dafe3...a5a8`).
 london-basin is unchanged.
+
+## Generic made ground by setting (tyneside-till v10, #86), 2026-10-25
+
+v10 adds a `[made_ground]` block: made ground set by the site's setting
+(`greenfield`, `brownfield`, `developed`, `corridor`) and settlement
+(`village`, `town`, `city`), as the first unit, `MG`. tyneside-till takes
+`corridor` and `town`. The tables for all four settings are in
+`data/made-ground/settings.json`, each value with its basis. Contains data
+supplied by UKRI, OGL v3. Aggregates only; forge analysis.
+
+### The crawl
+
+The BGS NGDC AGS crawl of NE England (955 holes with GEOL, 38 projects; the
+per-project figures use the 29 projects with five or more GEOL holes, 931
+holes) and of London (627 holes with GEOL, 119 projects; 34 projects with five
+or more, 398 holes). Files are de-duplicated by content hash and holes by
+(`PROJ_NAME`, `LOCA_ID`). A project is classed by whole-word generic land-use
+keywords on its `PROJ` text (brownfield, greenfield, developed, linear
+infrastructure; the first class in that order that matches wins). Made-ground
+(MG) thickness is the base of the first contiguous MG block. THIN is under 20
+holes or under 5 projects.
+
+| Setting | Crawl | Projects, holes | Share of holes with MG across projects, P10 / P50 / P90 (pooled) | Thickness P10 / P50 / P90 (m) |
+|---|---|---|---|---|
+| greenfield | NE | 1, 44 (THIN; 16 with MG) | pooled 36% (16 of 44) | P50 2.9 |
+| corridor (road, rail, flood) | NE | 21, 716 | 0.07 / 0.72 / 1.00 (53%) | 0.61 / 2.00 / 7.30 (376 holes, 19 projects) |
+| corridor | London | 12, 193 | | 0.82 / 2.20 / 5.50 |
+| developed | London | 6, 53 | 0.78 / 1.00 / 1.00 (94%) | 0.50 / 1.20 / 5.07 |
+| brownfield | NE | 6, 164 | 0.46 / 0.96 / 1.00 (91%) | 1.70 / 5.40 / 14.82 (149 holes, 5 projects) |
+| brownfield | London | 10, 85 | 0.36 / 1.00 / 1.00 (84%) | 2.00 / 4.00 / 10.80 |
+
+NE has no developed-area project. 21% of NE projects have made ground in
+under 20% of holes.
+
+Settlement, NE road schemes more than 10 km from a centre (Newcastle,
+Sunderland, Middlesbrough, Durham) against all road schemes: share of holes
+with MG 0.48 against 0.72, median thickness 1.35 against 2.0 m. At hole level
+the share is 78 to 92% within 20 km of a centre and 16 to 18% beyond; the
+thickness does not rise near centres (London brownfield median 4.0 m against
+NE 5.4 m).
+
+Patchiness (NE, 24 projects): the spacing of nearest-neighbour holes has P50
+40 m; the mean thickness difference of nearest-neighbour MG holes over that of
+all pairs is 0.75; the distance effect is gone by about 100 m; the nearest
+hole of an MG hole is MG in 85% of cases against 80% expected. Holes ending in
+MG: 85 of 543 MG holes (16%).
+
+Make-up (share of soil-bearing MG strata naming each constituent; NE overall
+1,271 strata in 34 projects, NE brownfield 328 strata in 5 projects, NE road
+schemes 843 strata in 19 projects, London 1,288 strata in 85 projects):
+
+| Constituent | NE brownfield | NE road schemes | NE overall | London |
+|---|---|---|---|---|
+| brick | 51% | 29% | 36.3% | 68% |
+| concrete | 14% | 11% | 11.3% | 39% |
+| clinker | 19% | 5% | 9.3% | 15% |
+| ash | 26% | 5% | 10.6% | 13% |
+| slag | 27% | 9% | 12.8% | 4.2% |
+| tarmac or asphalt | 1% | 2% | 2.3% | 3.3% |
+| glass | 6% | 2% | 2.7% | 7.8% |
+| metal | 6% | 0% | 2.0% | 6.3% |
+| wood or timber | 7% | 0% | 2.1% | 7.5% |
+| coal | 24% | 23% | 24.9% | 5.7% |
+| pottery, ceramic or tile | | | 2.0% | 10% |
+| plastic | | | 4.8% | 3.8% |
+| none of the forge list | 24% | 56% | 45% | 21% (20% in the strata count) |
+
+The class tables do not split pottery and plastic; NE overall stands in for
+both. Forge-list constituents named per soil-bearing stratum, none / one / two /
+three or more: NE overall 45 / 29 / 17 / 9% (1,271 strata), London 20 / 30 / 27
+/ 23% (1,288 strata). Amount words, rare / occasional / frequent / numerous /
+abundant: NE overall 3 / 13 / 3 / 0 / 1%, London 14 / 25 / 7 / 0 / 2% (the NE
+class tables give none).
+
+### What the preset takes
+
+- `setting = "corridor"`, `settlement = "town"`: the best-measured class (21
+  projects, 716 holes). The base targets, per setting at a town:
+
+| Setting | Share draw (median) | Thickness P10 / P50 / P90 (m) | Basis |
+|---|---|---|---|
+| greenfield | 0.00 to 0.35 (draw median 0.15) | 0.3 / 0.7 / 2.0 | forge judgement |
+| corridor | 0.07 to 1.00 (draw median 0.535; cited middle 0.55) | 0.6 / 2.0 / 6.5 | NE road and flood schemes, London cross-check |
+| developed | 0.78 to 1.00 (draw median 0.89; cited middle 0.90) | 0.5 / 1.2 / 5.0 | London only |
+| brownfield | 0.40 to 1.00 (draw median 0.88) | 1.8 / 4.8 / 12.0 | NE and London pooled |
+
+- Village: share x 0.6, thickness x 0.7 (forge calibration to the NE road
+  schemes above). City: half the gap between the share and 1, thickness x 1.2
+  (forge judgement, owner's practice note; the crawl shows the share rising
+  near centres but not the thickness).
+- Make-up weights: brownfield and corridor are the mean of the NE class and
+  London overall; developed is London overall; greenfield is corridor's with
+  the count shifted toward none (forge judgement). The NE class tables have no
+  split of pottery and plastic or of amounts by class, so those take NE overall.
+  NE coal counts only outside clast clauses: 78% of the NE strata naming coal
+  name it in a clast clause (coal 21.8% of NE MG strata, 24.9% of soil-bearing
+  ones), so 22% of the class's coal share enters the mean (brownfield 5.3%,
+  road schemes 5.1%, against London's 5.7%); coal in NE fill may be reworked
+  Coal Measures, natural ground, unlike brick or clinker, which are
+  anthropogenic whatever the clause. The mean is 5.49% (brownfield) and 5.38%
+  (corridor); the file's coal share of MG strata is 4.89% and 5.26% (3.63% in
+  greenfield, whose count is shifted toward none), 1,500 sites of 40 holes at
+  a town.
+  The count weights are none/one/two/three-plus: brownfield 0.22 / 0.35 / 0.25
+  / 0.18, corridor 0.38 / 0.27 / 0.20 / 0.15, developed 0.20 / 0.30 / 0.27 /
+  0.23, greenfield 0.60 / 0.17 / 0.13 / 0.10. The principal soils are a plain
+  list (CLAY, GRAVEL, SAND), since the description lane takes no weights for
+  them (NE CLAY 52%, GRAVEL 25%, SAND 20%; London 36 / 29 / 29).
+- Patches: `wavelength_m` 50 to 200 m; a short-wavelength field (tag
+  `made-ground-patches`), a share drawn once per site (tag
+  `made-ground-share`), a hole having MG where the field ranks in the top
+  share of a grid over the site, thickness rising with the rank.
+- Strikes: the #84 table with the NE bands, 0.021, 0.038, 0.048, 0.076 and
+  0.080 per metre in the 0-1, 1-2, 2-3, 3-5 and below 5 m bands (9 strikes in
+  429 m, 14 in 368 m, 13 in 270 m, 29 in 382 m, 48 in 599 m); no rise 9% (NE
+  5 of 58 strikes with readings, 13 projects; London 12 of 35 is the
+  cross-check); rise 0.1 to 1.6 m, skew 2.7, fitted to the NE rising strikes
+  alone (53 of 58; P10 / P25 / P50 / P75 / P90 0.10 / 0.10 / 0.30 / 0.60 /
+  1.16 m, max 6.80 m).
+- Properties and sampling are london-basin's Made Ground (forge judgement):
+  SPT N 3 to 18, PL, PI, LI, MC and Gs; B and D samples every 1.0 to 1.5 m.
+
+### The file against the crawl
+
+Per setting and settlement, 1,500 sites of 40 holes each (tyneside-till with
+`--setting` and `--settlement`; MG thickness is the MG stratum, so the final
+depth cuts it where the hole is shorter). Share is the fraction of a site's
+holes with MG, P10 / P50 / P90 across sites; thickness P10 / P50 / P90 against
+the target in brackets.
+
+| Setting | Settlement | Share | Thickness (m) |
+|---|---|---|---|
+| greenfield | village | 0.00 / 0.07 / 0.20 | 0.21 / 0.48 / 1.40 (0.21 / 0.49 / 1.40) |
+| greenfield | town | 0.00 / 0.15 / 0.33 | 0.30 / 0.69 / 2.00 (0.30 / 0.70 / 2.00) |
+| greenfield | city | 0.45 / 0.57 / 0.70 | 0.36 / 0.84 / 2.39 (0.36 / 0.84 / 2.40) |
+| brownfield | village | 0.38 / 0.53 / 0.65 | 1.25 / 3.38 / 8.37 (1.26 / 3.36 / 8.40) |
+| brownfield | town | 0.68 / 0.90 / 1.00 | 1.80 / 4.79 / 11.99 (1.80 / 4.80 / 12.00) |
+| brownfield | city | 0.82 / 0.95 / 1.00 | 2.17 / 5.74 / 14.35 (2.16 / 5.76 / 14.40) |
+| developed | village | 0.42 / 0.53 / 0.65 | 0.35 / 0.85 / 3.48 (0.35 / 0.84 / 3.50) |
+| developed | town | 0.78 / 0.90 / 0.97 | 0.50 / 1.20 / 4.98 (0.50 / 1.20 / 5.00) |
+| developed | city | 0.88 / 0.95 / 1.00 | 0.60 / 1.44 / 5.97 (0.60 / 1.44 / 6.00) |
+| corridor | village | 0.10 / 0.33 / 0.55 | 0.42 / 1.41 / 4.52 (0.42 / 1.40 / 4.55) |
+| corridor | town | 0.17 / 0.53 / 0.90 | 0.60 / 2.02 / 6.50 (0.60 / 2.00 / 6.50) |
+| corridor | city | 0.57 / 0.78 / 0.97 | 0.72 / 2.40 / 7.80 (0.72 / 2.40 / 7.80) |
+
+The village and city shifts hold: corridor village is 0.33 / 0.53 = 0.62 of
+the town's share (target 0.6) and 1.41 / 2.02 = 0.70 of its thickness (0.7);
+the city's median share 0.78 against 0.77 for half the gap to 1, thickness
+2.40 / 2.02 = 1.19 (1.2).
+
+tyneside-till v10 (corridor, town) against the crawl:
+
+| Quantity | File | Crawl |
+|---|---|---|
+| MG-hole share, P10 / P50 / P90 across sites | 0.17 / 0.53 / 0.90 | 0.07 / 0.72 / 1.00 (pooled 53%) |
+| MG thickness P10 / P50 / P90 (m) | 0.60 / 2.02 / 6.50 | 0.61 / 2.00 / 7.30 |
+| MG holes ending in MG | 0% | 16% |
+| NN / all-pair thickness difference, 7 / 12 / 20 / 40 holes | 0.93 / 0.85 / 0.78 / 0.64 | 0.75 |
+| Nearest hole of an MG hole is MG, 7 / 12 / 20 / 40 holes | 71 / 73 / 78 / 82% (67% at random) | 85% (80% at random) |
+| MG strikes per metre, 0-1 / 1-2 / 2-3 / 3-5 / below 5 m | 0.0227 / 0.0379 / 0.0456 / 0.0741 / 0.0638 | 0.021 / 0.038 / 0.048 / 0.076 / 0.080 |
+| MG strikes with no rise | 9.1% (1,556 strikes) | 9% NE (5 of 58); 34% London |
+| Rising MG strikes, rise P10 / P25 / P50 / P75 / P90 (m) | 0.10 / 0.13 / 0.29 / 0.70 / 1.14 (max 1.60) | NE 0.10 / 0.10 / 0.30 / 0.60 / 1.16 (max 6.80) |
+
+(The strike rows are 3,000 sites of 8 holes, 1,556 MG strikes; the patch rows
+2,000 sites.)
+
+### Known misses
+
+- **Share across sites.** The crawl's project shares for corridor are 0.07 /
+  0.72 / 1.00 and the file's site shares 0.17 / 0.53 / 0.90: the draw is
+  uniform from 0.07 to 1.00, whose median is the pooled hole share (53%) the
+  decision takes as the middle (0.55), not the median of the project shares
+  (0.72). A uniform draw cannot hold both. Brownfield (crawl P10 0.46 NE and
+  0.36 London, file 0.68) misses the same way: the draw's median is set to the
+  pooled 0.88, which pulls its P10 up from 0.40. Developed (crawl median 1.00
+  of project shares, pooled 94%) has the file at 0.90.
+- **Holes ending in MG.** 0% against 16%: the preset's holes are 15 to 30 m
+  deep and corridor MG is 6.5 m at P90. A shallow-hole fixture ends more than
+  20% of its brownfield MG holes in MG
+  (`a_hole_can_end_in_made_ground_and_it_stops_at_the_final_depth`).
+- **Patchiness.** 0.85 against 0.75 at 12 holes on this 300 by 200 m site; the
+  file reaches 0.75 between 20 and 40 holes. The wavelength range is the
+  decision's (50 to 200 m), not tuned.
+- **Strikes below 5 m.** 0.0638 against 0.080 per metre: the file drops an MG
+  event at or below the hole's water table (2.9 to 14.4 m down), the crawl
+  counts the metres under the water too.
+- **Cover over thin made ground (#58's rule, unchanged).** The topsoil takes
+  its thickness off the made ground and leaves at least 0.05 m. Over 1,500
+  sites of 40 holes at a town, 47.6% of greenfield made-ground holes have a
+  topsoil, and in 882 of 9,597 made-ground holes (9.2%; 19.3% of the 4,572
+  covered) it cuts the made ground to the 0.05 m remnant. For corridor it is
+  285 of 32,281 (0.9%; 1.9% of 15,245 covered). The thickness figures above
+  are the made-ground stratum before the cover, so greenfield's written
+  thickness is thinner than its table.
+- **Make-up from two sources.** The NE class tables give no count or amount
+  split by class, so the count's one, two and three-plus follow NE overall in
+  the proportions 29:17:9, and amounts are NE overall and London.
+- **Greenfield.** One THIN NE project (44 holes, 16 with MG): the greenfield tables are
+  judgement.
+
+### Pins
+
+`shipped_preset_output_bytes_are_pinned` for tyneside-till seeds 0 to 2:
+`9e04e1e5...0f6e` (33,157 bytes), `3e5e9418...c801` (23,514) and
+`721958c6...35c6` (41,654). `a_preset_without_its_made_ground_writes_the_previous_versions_bytes`
+holds the file without the block to the v9 pins (`decbeb1d...dc86`,
+`a9d773f9...ced8`, `f880f79c...9431`). `each_setting_and_settlement_writes_pinned_bytes`
+pins seed 5 for each setting at a town and for a corridor at a village and a
+city. london-basin is unchanged.

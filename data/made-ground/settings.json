@@ -1,0 +1,411 @@
+{
+  "basis": "forge analysis of the BGS NGDC AGS crawl (NE England and London) plus forge judgement; each entry carries its own basis",
+  "settings": {
+    "greenfield": {
+      "share": {
+        "min": 0.0,
+        "max": 0.35,
+        "skew": 1.22,
+        "basis": "forge judgement: the middle is 0.15 and the draw runs 0.00 to 0.35; the skew puts the draw's median at the middle. NE England has one greenfield project, THIN (1 project, 44 holes, 16 with made ground = 36%; median thickness 2.9 m), and 21% of NE projects have made ground in under 20% of holes. File (tyneside-till, 1,500 sites of 40 holes): site share P10/P50/P90 0.00/0.15/0.33 at a town, the draw's median 0.15. Known miss, by design: the file's median share 0.15 is far under the one project's 36%, which is judgement. Contains data supplied by UKRI, OGL v3."
+      },
+      "thickness_m": {
+        "p10": 0.3,
+        "p50": 0.7,
+        "p90": 2.0,
+        "basis": "forge judgement: thin made ground (a track, a field gateway, a ploughed-in dump), well below the NE greenfield project's median of 2.9 m (THIN: 1 project, 44 holes, 16 with made ground). File (1,500 sites of 40 holes): P10/P50/P90 0.30/0.69/2.00 m against the targets 0.30/0.70/2.00. Known miss, by design: the file's median 0.69 m is under the project's 2.9 m. Stated effect of #58's cover rule: a topsoil cuts the made ground under it down to a 0.05 m remnant in 9.2% of greenfield made-ground holes at a town (882 of 9,597; 19.3% of the 4,572 with a cover), so the written thickness is thinner than the table here (corridor: 0.9%). Contains data supplied by UKRI, OGL v3."
+      },
+      "make_up": {
+        "constituents": [
+          {
+            "name": "brick",
+            "share": 0.485,
+            "basis": "Corridor's weight, unchanged for greenfield (forge judgement; only the count is shifted). BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): brick named in NE road schemes 29% of 843 soil-bearing strata (19 projects); London overall 68% of 1,288 Made Ground strata (85 projects); the mean of the two is 48.50%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "concrete",
+            "share": 0.25,
+            "basis": "Corridor's weight, unchanged for greenfield (forge judgement; only the count is shifted). BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): concrete named in NE road schemes 11% of 843 soil-bearing strata (19 projects); London overall 39% of 1,288 Made Ground strata (85 projects); the mean of the two is 25.00%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "clinker",
+            "share": 0.1,
+            "basis": "Corridor's weight, unchanged for greenfield (forge judgement; only the count is shifted). BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): clinker named in NE road schemes 5% of 843 soil-bearing strata (19 projects); London overall 15% of 1,288 Made Ground strata (85 projects); the mean of the two is 10.00%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "ash",
+            "share": 0.09,
+            "basis": "Corridor's weight, unchanged for greenfield (forge judgement; only the count is shifted). BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): ash named in NE road schemes 5% of 843 soil-bearing strata (19 projects); London overall 13% of 1,288 Made Ground strata (85 projects); the mean of the two is 9.00%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "pottery",
+            "share": 0.06,
+            "basis": "Corridor's weight, unchanged for greenfield (forge judgement; only the count is shifted). BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): pottery, ceramic or tile named in NE overall 2.0% of 1,271 soil-bearing strata (34 projects; not split by class); London overall 10% of 1,288 Made Ground strata (85 projects); the mean of the two is 6.00%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "glass",
+            "share": 0.049,
+            "basis": "Corridor's weight, unchanged for greenfield (forge judgement; only the count is shifted). BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): glass named in NE road schemes 2% of 843 soil-bearing strata (19 projects); London overall 7.8% of 1,288 Made Ground strata (85 projects); the mean of the two is 4.90%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "timber",
+            "share": 0.0375,
+            "basis": "Corridor's weight, unchanged for greenfield (forge judgement; only the count is shifted). BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): wood or timber named in NE road schemes 0% of 843 soil-bearing strata (19 projects); London overall 7.5% of 1,288 Made Ground strata (85 projects); the mean of the two is 3.75%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "metal",
+            "share": 0.0315,
+            "basis": "Corridor's weight, unchanged for greenfield (forge judgement; only the count is shifted). BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): metal named in NE road schemes 0% of 843 soil-bearing strata (19 projects); London overall 6.3% of 1,288 Made Ground strata (85 projects); the mean of the two is 3.15%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "coal",
+            "share": 0.0538,
+            "basis": "Corridor's weight, unchanged for greenfield (forge judgement; only the count is shifted). BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): coal named in NE road schemes 23% (counted as 5.06%, see below) of 843 soil-bearing strata (19 projects); London overall 5.7% of 1,288 Made Ground strata (85 projects); the mean of the two is 5.38%. Clast-clause exclusion: 78% of the NE strata naming coal name it in a clast clause (setting-findings section D, NE overall), so only the remaining 22% of mentions count, applied to this class's 23% (the findings give no per-class split) = 5.06%; coal fragments in NE fill may be reworked Coal Measures, natural ground, unlike brick or clinker, which are anthropogenic whatever the clause. File (tyneside-till, greenfield, town, 1,500 sites of 40 holes): coal in 3.63% of made-ground strata against 5.38% here, the count being shifted toward none. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "slag",
+            "share": 0.066,
+            "basis": "Corridor's weight, unchanged for greenfield (forge judgement; only the count is shifted). BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): slag named in NE road schemes 9% of 843 soil-bearing strata (19 projects); London overall 4.2% of 1,288 Made Ground strata (85 projects); the mean of the two is 6.60%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "plastic",
+            "share": 0.043,
+            "basis": "Corridor's weight, unchanged for greenfield (forge judgement; only the count is shifted). BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): plastic named in NE overall 4.8% of 1,271 soil-bearing strata (34 projects; not split by class); London overall 3.8% of 1,288 Made Ground strata (85 projects); the mean of the two is 4.30%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "tarmacadam",
+            "share": 0.0265,
+            "basis": "Corridor's weight, unchanged for greenfield (forge judgement; only the count is shifted). BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): tarmac or asphalt named in NE road schemes 2% of 843 soil-bearing strata (19 projects); London overall 3.3% of 1,288 Made Ground strata (85 projects); the mean of the two is 2.65%. Contains data supplied by UKRI, OGL v3."
+          }
+        ],
+        "count": {
+          "weights": [
+            0.6,
+            0.17,
+            0.13,
+            0.1
+          ],
+          "basis": "forge judgement: the corridor weights (0.38, 0.27, 0.20, 0.15) with the count shifted toward none: 0.60 name none and the other three keep the corridor's proportions, since a field's fill is mostly soil with little man-made material"
+        },
+        "amounts": {
+          "weights": [
+            0.085,
+            0.19,
+            0.05,
+            0.0,
+            0.015
+          ],
+          "basis": "BGS NGDC AGS crawl, forge analysis: share of soil-bearing Made Ground strata using each amount word, rare/occasional/frequent/numerous/abundant: NE overall 3/13/3/0/1% (1,271 strata, 34 projects; not split by class), London 14/25/7/0/2% (1,288 strata, 85 projects); the mean of the two. Contains data supplied by UKRI, OGL v3. Same as corridor."
+        }
+      }
+    },
+    "corridor": {
+      "share": {
+        "min": 0.07,
+        "max": 1.0,
+        "basis": "BGS NGDC AGS crawl, NE England road, rail and flood schemes (21 projects, 716 holes), forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): the share of holes with made ground across projects is P10/P50/P90 0.07/0.72/1.00 and pooled 53%, so the draw runs 0.07 to 1.00, unskewed, and its median is 0.535 against the cited middle 0.55 (the pooled share). File (1,500 sites of 40 holes): site share P10/P50/P90 0.17/0.53/0.90 at a town. Known miss: against the crawl's project shares 0.07/0.72/1.00 the file's P50 is 0.53 not 0.72 and P10 0.17 not 0.07, because the middle is set at the pooled 53% and one draw cannot hold both the pooled share and the project median. Contains data supplied by UKRI, OGL v3."
+      },
+      "thickness_m": {
+        "p10": 0.6,
+        "p50": 2.0,
+        "p90": 6.5,
+        "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): NE road and flood schemes, made ground thickness (base of the first contiguous block) P10/P50/P90 0.61/2.00/7.30 m (376 holes, 19 projects); London, 12 projects, 0.82/2.20/5.50 m. The P90 6.5 m sits between the two. File (1,500 sites of 40 holes): P10/P50/P90 0.60/2.02/6.50 m at a town. Known miss: P90 6.50 against the NE 7.30 m, the target being between NE and London. Contains data supplied by UKRI, OGL v3."
+      },
+      "make_up": {
+        "constituents": [
+          {
+            "name": "brick",
+            "share": 0.485,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): brick named in NE road schemes 29% of 843 soil-bearing strata (19 projects); London overall 68% of 1,288 Made Ground strata (85 projects); the mean of the two is 48.50%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "concrete",
+            "share": 0.25,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): concrete named in NE road schemes 11% of 843 soil-bearing strata (19 projects); London overall 39% of 1,288 Made Ground strata (85 projects); the mean of the two is 25.00%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "clinker",
+            "share": 0.1,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): clinker named in NE road schemes 5% of 843 soil-bearing strata (19 projects); London overall 15% of 1,288 Made Ground strata (85 projects); the mean of the two is 10.00%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "ash",
+            "share": 0.09,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): ash named in NE road schemes 5% of 843 soil-bearing strata (19 projects); London overall 13% of 1,288 Made Ground strata (85 projects); the mean of the two is 9.00%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "pottery",
+            "share": 0.06,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): pottery, ceramic or tile named in NE overall 2.0% of 1,271 soil-bearing strata (34 projects; not split by class); London overall 10% of 1,288 Made Ground strata (85 projects); the mean of the two is 6.00%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "glass",
+            "share": 0.049,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): glass named in NE road schemes 2% of 843 soil-bearing strata (19 projects); London overall 7.8% of 1,288 Made Ground strata (85 projects); the mean of the two is 4.90%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "timber",
+            "share": 0.0375,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): wood or timber named in NE road schemes 0% of 843 soil-bearing strata (19 projects); London overall 7.5% of 1,288 Made Ground strata (85 projects); the mean of the two is 3.75%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "metal",
+            "share": 0.0315,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): metal named in NE road schemes 0% of 843 soil-bearing strata (19 projects); London overall 6.3% of 1,288 Made Ground strata (85 projects); the mean of the two is 3.15%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "coal",
+            "share": 0.0538,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): coal named in NE road schemes 23% (counted as 5.06%, see below) of 843 soil-bearing strata (19 projects); London overall 5.7% of 1,288 Made Ground strata (85 projects); the mean of the two is 5.38%. Clast-clause exclusion: 78% of the NE strata naming coal name it in a clast clause (setting-findings section D, NE overall), so only the remaining 22% of mentions count, applied to this class's 23% (the findings give no per-class split) = 5.06%; coal fragments in NE fill may be reworked Coal Measures, natural ground, unlike brick or clinker, which are anthropogenic whatever the clause. File (tyneside-till, corridor, town, 1,500 sites of 40 holes): coal in 5.26% of made-ground strata against 5.38% here. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "slag",
+            "share": 0.066,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): slag named in NE road schemes 9% of 843 soil-bearing strata (19 projects); London overall 4.2% of 1,288 Made Ground strata (85 projects); the mean of the two is 6.60%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "plastic",
+            "share": 0.043,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): plastic named in NE overall 4.8% of 1,271 soil-bearing strata (34 projects; not split by class); London overall 3.8% of 1,288 Made Ground strata (85 projects); the mean of the two is 4.30%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "tarmacadam",
+            "share": 0.0265,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): tarmac or asphalt named in NE road schemes 2% of 843 soil-bearing strata (19 projects); London overall 3.3% of 1,288 Made Ground strata (85 projects); the mean of the two is 2.65%. Contains data supplied by UKRI, OGL v3."
+          }
+        ],
+        "count": {
+          "weights": [
+            0.38,
+            0.27,
+            0.2,
+            0.15
+          ],
+          "basis": "BGS NGDC AGS crawl, forge analysis: forge-list constituents named per soil-bearing stratum, none/one/two/three or more: NE road schemes 56% name none (843 strata, 19 projects; the other 44% split in NE overall's 29:17:9 for one, two, three or more), London 20/30/27/23% (1,288 strata, 85 projects); the mean of the two. Contains data supplied by UKRI, OGL v3."
+        },
+        "amounts": {
+          "weights": [
+            0.085,
+            0.19,
+            0.05,
+            0.0,
+            0.015
+          ],
+          "basis": "BGS NGDC AGS crawl, forge analysis: share of soil-bearing Made Ground strata using each amount word, rare/occasional/frequent/numerous/abundant: NE overall 3/13/3/0/1% (1,271 strata, 34 projects; not split by class), London 14/25/7/0/2% (1,288 strata, 85 projects); the mean of the two. Contains data supplied by UKRI, OGL v3."
+        }
+      }
+    },
+    "developed": {
+      "share": {
+        "min": 0.78,
+        "max": 1.0,
+        "basis": "BGS NGDC AGS London crawl (6 developed-area projects, 53 holes), forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): share of holes with made ground across projects P10/P50/P90 0.78/1.00/1.00, pooled 94%. NE England has no developed-area project in the crawl. The draw is unskewed, so its median is 0.89 against the cited middle 0.90. File (1,500 sites of 40 holes): site share P10/P50/P90 0.78/0.90/0.97 at a town. Known miss: the file's median 0.90 against the crawl's project median 1.00 (pooled 94%), since a draw from 0.78 to 1.00 cannot sit at 1.00. Contains data supplied by UKRI, OGL v3."
+      },
+      "thickness_m": {
+        "p10": 0.5,
+        "p50": 1.2,
+        "p90": 5.0,
+        "basis": "BGS NGDC AGS London crawl (6 projects, 53 holes), forge analysis: made ground thickness P10/P50/P90 0.50/1.20/5.07 m. London only; NE England has no developed-area project. File (1,500 sites of 40 holes): P10/P50/P90 0.50/1.20/4.98 m at a town against the crawl's 0.50/1.20/5.07. Known miss: P90 4.98 against 5.07 m, the target being rounded to 5.0. Contains data supplied by UKRI, OGL v3."
+      },
+      "make_up": {
+        "constituents": [
+          {
+            "name": "brick",
+            "share": 0.68,
+            "basis": "BGS NGDC AGS London crawl, forge analysis (docs/research/london-basin-sources.md): brick named in 68% of 1,288 Made Ground soil strata (85 projects); the same shares as london-basin's Made Ground, the one setting measured in London alone. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "concrete",
+            "share": 0.39,
+            "basis": "BGS NGDC AGS London crawl, forge analysis (docs/research/london-basin-sources.md): concrete named in 39% of 1,288 Made Ground soil strata (85 projects); the same shares as london-basin's Made Ground, the one setting measured in London alone. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "clinker",
+            "share": 0.15,
+            "basis": "BGS NGDC AGS London crawl, forge analysis (docs/research/london-basin-sources.md): clinker named in 15% of 1,288 Made Ground soil strata (85 projects); the same shares as london-basin's Made Ground, the one setting measured in London alone. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "ash",
+            "share": 0.13,
+            "basis": "BGS NGDC AGS London crawl, forge analysis (docs/research/london-basin-sources.md): ash named in 13% of 1,288 Made Ground soil strata (85 projects); the same shares as london-basin's Made Ground, the one setting measured in London alone. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "pottery",
+            "share": 0.1,
+            "basis": "BGS NGDC AGS London crawl, forge analysis (docs/research/london-basin-sources.md): pottery, ceramic or tile named in 10% of 1,288 Made Ground soil strata (85 projects); the same shares as london-basin's Made Ground, the one setting measured in London alone. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "glass",
+            "share": 0.078,
+            "basis": "BGS NGDC AGS London crawl, forge analysis (docs/research/london-basin-sources.md): glass named in 7.8% of 1,288 Made Ground soil strata (85 projects); the same shares as london-basin's Made Ground, the one setting measured in London alone. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "timber",
+            "share": 0.075,
+            "basis": "BGS NGDC AGS London crawl, forge analysis (docs/research/london-basin-sources.md): wood or timber named in 7.5% of 1,288 Made Ground soil strata (85 projects); the same shares as london-basin's Made Ground, the one setting measured in London alone. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "metal",
+            "share": 0.063,
+            "basis": "BGS NGDC AGS London crawl, forge analysis (docs/research/london-basin-sources.md): metal named in 6.3% of 1,288 Made Ground soil strata (85 projects); the same shares as london-basin's Made Ground, the one setting measured in London alone. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "coal",
+            "share": 0.057,
+            "basis": "BGS NGDC AGS London crawl, forge analysis (docs/research/london-basin-sources.md): coal named in 5.7% of 1,288 Made Ground soil strata (85 projects); the same shares as london-basin's Made Ground, the one setting measured in London alone. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "slag",
+            "share": 0.042,
+            "basis": "BGS NGDC AGS London crawl, forge analysis (docs/research/london-basin-sources.md): slag named in 4.2% of 1,288 Made Ground soil strata (85 projects); the same shares as london-basin's Made Ground, the one setting measured in London alone. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "plastic",
+            "share": 0.038,
+            "basis": "BGS NGDC AGS London crawl, forge analysis (docs/research/london-basin-sources.md): plastic named in 3.8% of 1,288 Made Ground soil strata (85 projects); the same shares as london-basin's Made Ground, the one setting measured in London alone. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "tarmacadam",
+            "share": 0.033,
+            "basis": "BGS NGDC AGS London crawl, forge analysis (docs/research/london-basin-sources.md): tarmac or asphalt named in 3.3% of 1,288 Made Ground soil strata (85 projects); the same shares as london-basin's Made Ground, the one setting measured in London alone. Contains data supplied by UKRI, OGL v3."
+          }
+        ],
+        "count": {
+          "weights": [
+            0.2,
+            0.3,
+            0.27,
+            0.23
+          ],
+          "basis": "BGS NGDC AGS London crawl, forge analysis (docs/research/london-basin-sources.md): of 1,288 Made Ground soil strata, 20% name none of the twelve constituents, 30% one, 27% two and 23% three or more. Contains data supplied by UKRI, OGL v3."
+        },
+        "amounts": {
+          "weights": [
+            0.14,
+            0.25,
+            0.07,
+            0.0,
+            0.02
+          ],
+          "basis": "BGS NGDC AGS London crawl, forge analysis (docs/research/london-basin-sources.md): share of 1,288 Made Ground soil strata using each amount word (rare 13.9%, occasional 25.1%, frequent 6.8%, numerous 0%, abundant 1.7%), the weights london-basin's Made Ground takes. Contains data supplied by UKRI, OGL v3."
+        }
+      }
+    },
+    "brownfield": {
+      "share": {
+        "min": 0.4,
+        "max": 1.0,
+        "skew": 0.32,
+        "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting), pooled: NE England (6 projects, 164 holes) share of holes with made ground across projects P10/P50/P90 0.46/0.96/1.00, pooled 91%; London (10 projects, 85 holes) 0.36/1.00/1.00, pooled 84%. The draw runs 0.40 to 1.00; the skew 0.32 puts its median at the middle 0.88. File (1,500 sites of 40 holes): site share P10/P50/P90 0.68/0.90/1.00 at a town. Known miss: P10 0.68 against 0.46 (NE) and 0.36 (London), because the skew that holds the median at the pooled 0.88 pulls the draw's lower tail up from 0.40. Contains data supplied by UKRI, OGL v3."
+      },
+      "thickness_m": {
+        "p10": 1.8,
+        "p50": 4.8,
+        "p90": 12.0,
+        "basis": "BGS NGDC AGS crawl, forge analysis, pooled: NE England (149 holes in 5 projects) made ground thickness P10/P50/P90 1.70/5.40/14.82 m; London (10 projects, 85 holes) 2.00/4.00/10.80 m. The targets sit between the two. File (1,500 sites of 40 holes): P10/P50/P90 1.80/4.79/11.99 m at a town against the targets 1.80/4.80/12.00; against the NE P50 5.40 and P90 14.82 m it is a known miss, the target being the pooled figure. Contains data supplied by UKRI, OGL v3."
+      },
+      "make_up": {
+        "constituents": [
+          {
+            "name": "brick",
+            "share": 0.595,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): brick named in NE brownfield 51% of 328 soil-bearing strata (5 projects); London overall 68% of 1,288 Made Ground strata (85 projects); the mean of the two is 59.50%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "concrete",
+            "share": 0.265,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): concrete named in NE brownfield 14% of 328 soil-bearing strata (5 projects); London overall 39% of 1,288 Made Ground strata (85 projects); the mean of the two is 26.50%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "clinker",
+            "share": 0.17,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): clinker named in NE brownfield 19% of 328 soil-bearing strata (5 projects); London overall 15% of 1,288 Made Ground strata (85 projects); the mean of the two is 17.00%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "ash",
+            "share": 0.195,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): ash named in NE brownfield 26% of 328 soil-bearing strata (5 projects); London overall 13% of 1,288 Made Ground strata (85 projects); the mean of the two is 19.50%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "pottery",
+            "share": 0.06,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): pottery, ceramic or tile named in NE overall 2.0% of 1,271 soil-bearing strata (34 projects; not split by class); London overall 10% of 1,288 Made Ground strata (85 projects); the mean of the two is 6.00%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "glass",
+            "share": 0.069,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): glass named in NE brownfield 6% of 328 soil-bearing strata (5 projects); London overall 7.8% of 1,288 Made Ground strata (85 projects); the mean of the two is 6.90%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "timber",
+            "share": 0.0725,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): wood or timber named in NE brownfield 7% of 328 soil-bearing strata (5 projects); London overall 7.5% of 1,288 Made Ground strata (85 projects); the mean of the two is 7.25%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "metal",
+            "share": 0.0615,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): metal named in NE brownfield 6% of 328 soil-bearing strata (5 projects); London overall 6.3% of 1,288 Made Ground strata (85 projects); the mean of the two is 6.15%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "coal",
+            "share": 0.0549,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): coal named in NE brownfield 24% (counted as 5.28%, see below) of 328 soil-bearing strata (5 projects); London overall 5.7% of 1,288 Made Ground strata (85 projects); the mean of the two is 5.49%. Clast-clause exclusion: 78% of the NE strata naming coal name it in a clast clause (setting-findings section D, NE overall), so only the remaining 22% of mentions count, applied to this class's 24% (the findings give no per-class split) = 5.28%; coal fragments in NE fill may be reworked Coal Measures, natural ground, unlike brick or clinker, which are anthropogenic whatever the clause. File (tyneside-till, brownfield, town, 1,500 sites of 40 holes): coal in 4.89% of made-ground strata against 5.49% here. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "slag",
+            "share": 0.156,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): slag named in NE brownfield 27% of 328 soil-bearing strata (5 projects); London overall 4.2% of 1,288 Made Ground strata (85 projects); the mean of the two is 15.60%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "plastic",
+            "share": 0.043,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): plastic named in NE overall 4.8% of 1,271 soil-bearing strata (34 projects; not split by class); London overall 3.8% of 1,288 Made Ground strata (85 projects); the mean of the two is 4.30%. Contains data supplied by UKRI, OGL v3."
+          },
+          {
+            "name": "tarmacadam",
+            "share": 0.0215,
+            "basis": "BGS NGDC AGS crawl, forge analysis (docs/research/tyneside-till-sources.md, Generic made ground by setting): tarmac or asphalt named in NE brownfield 1% of 328 soil-bearing strata (5 projects); London overall 3.3% of 1,288 Made Ground strata (85 projects); the mean of the two is 2.15%. Contains data supplied by UKRI, OGL v3."
+          }
+        ],
+        "count": {
+          "weights": [
+            0.22,
+            0.35,
+            0.25,
+            0.18
+          ],
+          "basis": "BGS NGDC AGS crawl, forge analysis: forge-list constituents named per soil-bearing stratum, none/one/two/three or more: NE brownfield 24% name none (328 strata, 5 projects; the other 76% split in NE overall's 29:17:9 for one, two, three or more), London 20/30/27/23% (1,288 strata, 85 projects); the mean of the two. Contains data supplied by UKRI, OGL v3."
+        },
+        "amounts": {
+          "weights": [
+            0.085,
+            0.19,
+            0.05,
+            0.0,
+            0.015
+          ],
+          "basis": "BGS NGDC AGS crawl, forge analysis: share of soil-bearing Made Ground strata using each amount word, rare/occasional/frequent/numerous/abundant: NE overall 3/13/3/0/1% (1,271 strata, 34 projects; not split by class), London 14/25/7/0/2% (1,288 strata, 85 projects); the mean of the two. Contains data supplied by UKRI, OGL v3."
+        }
+      }
+    }
+  },
+  "settlements": {
+    "village": {
+      "share_scale": 0.6,
+      "gap_scale": 1.0,
+      "thickness_scale": 0.7,
+      "basis": "forge calibration to the BGS NGDC AGS NE England road schemes more than 10 km from a centre (Newcastle, Sunderland, Middlesbrough, Durham) against all road schemes: share of holes with made ground 0.48 against 0.72, median thickness 1.35 against 2.0 m (ratios 0.67 and 0.68); the shifts are rounded to share x 0.6 and thickness x 0.7. File (corridor, 1,500 sites of 40 holes): village share median 0.33 against 0.53 at a town (ratio 0.62, target 0.6) and thickness median 1.41 against 2.02 m (ratio 0.70, target 0.7). Contains data supplied by UKRI, OGL v3."
+    },
+    "town": {
+      "share_scale": 1.0,
+      "gap_scale": 1.0,
+      "thickness_scale": 1.0,
+      "basis": "forge judgement: the base. The setting's targets are for a town."
+    },
+    "city": {
+      "share_scale": 1.0,
+      "gap_scale": 0.5,
+      "thickness_scale": 1.2,
+      "basis": "owner's practice note (forge judgement): the gap between the share and 1 is halved and the thickness is x 1.2. Caveat: the BGS NGDC AGS crawl shows the share rising near centres (hole level: 78 to 92% within 20 km, 16 to 18% beyond) but not the thickness (London brownfield median 4.0 m against NE 5.4 m), so the thickness shift is judgement. File (corridor, 1,500 sites of 40 holes): city share median 0.78 against 0.77 expected from half the gap to 1 (town 0.53) and thickness median 2.40 against 2.02 m (ratio 1.19, target 1.2). Contains data supplied by UKRI, OGL v3."
+    }
+  }
+}

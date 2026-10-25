@@ -194,6 +194,26 @@ sources: []
 > "Made-ground water strikes (london-basin v9, #84)", has the fit and the known
 > misses).
 >
+> A `[made_ground]` block (ADR 0001, "Generic made ground"; `tyneside-till`
+> v10, #86) makes generic made ground, set by the site's `setting`
+> (`greenfield`, `brownfield`, `developed` or `corridor`) and `settlement`
+> (`village`, `town` or `city`). It makes a first unit, `MG`, from the block's
+> `description`, `sampling`, `properties` and optional `strike` (as a unit's)
+> and the `wavelength_m` of its patches, with the setting's make-up weights
+> (constituents, count and amounts, from `data/made-ground/settings.json`)
+> unless the block gives a `make_up` of its own. Each site draws its share of
+> holes with made ground once, from the setting's range after the
+> settlement's shift (village: share x 0.6, thickness x 0.7; city: half the
+> gap to 1, thickness x 1.2). Made ground has its own short-wavelength field:
+> a hole has it where the field ranks in the top share of the site, and it
+> thickens with the rank, through the setting's P10, P50 and P90. Natural
+> units keep their thicknesses and start at its base; a hole may end in made
+> ground. `gen --site` and `scale --site` take `--setting` and `--settlement`
+> to override the block's defaults (exit 5 on a preset without the block). A
+> preset without the block writes the bytes of the version before
+> (`docs/research/tyneside-till-sources.md`, "Generic made ground by setting
+> (tyneside-till v10, #86)", has the fit and the known misses).
+>
 > `site.several_strikes = { max_per_hole, min_gap_m, basis }` (ADR 0001,
 > "Ground"; `tyneside-till` v9) lets a hole record every strike its sources
 > give, shallowest first: each water-bearing stratum that yields (at its top),

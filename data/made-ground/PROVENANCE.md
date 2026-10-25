@@ -22,3 +22,16 @@ units") may name any word of either list. The default draw picks only from
 that draw byte-identical. Never append to `constituents`: that list's order is
 part of the pinned default draw. Like the rest, the two words are forge-authored
 plain vocabulary.
+
+## Settings
+
+`settings.json` holds the generic made ground's tables (a preset's
+`[made_ground]` block, ADR 0001, "Generic made ground", #86): per setting the
+share of holes with made ground, the thickness P10, P50 and P90 at a town and
+the make-up weights, and per settlement the shifts. It is **forge analysis** of
+the BGS NGDC AGS crawl (NE England and London) plus forge judgement, and every
+value carries its own `basis`; a basis citing the crawl carries "Contains data
+supplied by UKRI, OGL v3". The figures are aggregates only
+(`docs/research/tyneside-till-sources.md`, "Generic made ground by setting").
+The owner reviews them. A change to a value changes what `--setting` and
+`--settlement` write, so bump the version of every preset with the block.

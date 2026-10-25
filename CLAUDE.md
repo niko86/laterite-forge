@@ -42,6 +42,7 @@ cargo deny check
 - `the_unflagged_draw_is_pinned_to_pre_lane_bytes` (`synth/bs5930.rs`) pins the default `describe` draw. Downstream consumers commit output from it, so moving it is a change they must be told about (`docs/dec-forge-audience-boundary.md`). New behaviour therefore goes behind a flag (e.g. `--organic`), not into the default draw.
 - `scaffolds_reach_a_pinned_set_of_ags_types` (`synth/mod.rs`) pins which AGS TYPEs the scaffolds can produce.
 - `shipped_preset_output_bytes_are_pinned` and `shipped_presets_reach_a_pinned_set_of_ags_types` (`site/build.rs`) pin each shipped preset (`data/presets/`). Changing a preset's output means bumping its `version`, re-pinning, and telling consumers (ADR 0001). That promise is public from london-basin v3: any output change bumps the version and consumers re-baseline.
+- `each_setting_and_settlement_writes_pinned_bytes` (`site/build.rs`) pins each `[made_ground]` setting and settlement. Changing `data/made-ground/settings.json` changes the output of every preset with the block, so it bumps each such preset's version.
 
 ## Docs
 

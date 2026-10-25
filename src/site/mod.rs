@@ -13,5 +13,8 @@ mod ground;
 pub mod preset;
 pub mod properties;
 mod results;
+pub mod setting;
+#[cfg(test)]
+mod setting_tests;
 pub mod suite;
 mod water;
